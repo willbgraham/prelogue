@@ -194,11 +194,25 @@ export default function RecordingStudioScreen() {
       if (manifestPath) {
         const { data: signedUrlData } = await supabase.storage
           .from("scripts")
-          .createSignedUrl(manifestPath, 86400);
+          .createSignedUrl(manifestPath, 3600);
         if (signedUrlData?.signedUrl) {
           const res = await fetch(signedUrlData.signedUrl);
           const cues: ManifestCue[] = await res.json();
-          setManifest(cues);
+
+          // The audio_url values baked into the manifest are signed URLs that
+          // expire after 24h, so a cached manifest usually contains dead links.
+          // Re-sign each cue fresh from its deterministic storage path.
+          const paths = cues.map(
+            (c) => `voice-cues/${characterId}/cue-${c.index}.mp3`
+          );
+          const { data: freshSigned } = await supabase.storage
+            .from("scripts")
+            .createSignedUrls(paths, 86400);
+          const refreshed = cues.map((c, i) => ({
+            ...c,
+            audio_url: freshSigned?.[i]?.signedUrl ?? c.audio_url,
+          }));
+          setManifest(refreshed);
         }
       }
 
@@ -249,6 +263,7 @@ export default function RecordingStudioScreen() {
     } catch (err) {
       console.warn("Cue playback error:", err);
       setPlayingCue(false);
+      Alert.alert("Playback failed", "Couldn't play this AI voice line. Tap to try again.");
     }
   }
 

@@ -1,4 +1,5 @@
 import { Stack } from "expo-router";
+import { HeaderBackButton } from "@/components/HeaderBackButton";
 
 export default function ActorLayout() {
   return (
@@ -8,6 +9,7 @@ export default function ActorLayout() {
         headerStyle: { backgroundColor: "#0a0a0f" },
         headerTintColor: "#ffffff",
         headerTitleStyle: { fontWeight: "700" },
+        headerLeft: ({ tintColor }) => <HeaderBackButton tintColor={tintColor} />,
       }}
     />
   );
