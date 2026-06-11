@@ -1,59 +1,80 @@
-import React from 'react';
-import FontAwesome from '@expo/vector-icons/FontAwesome';
-import { Link, Tabs } from 'expo-router';
-import { Pressable } from 'react-native';
-
-import Colors from '@/constants/Colors';
-import { useColorScheme } from '@/components/useColorScheme';
-import { useClientOnlyValue } from '@/components/useClientOnlyValue';
-
-// You can explore the built-in icon families and icons on the web at https://icons.expo.fyi/
-function TabBarIcon(props: {
-  name: React.ComponentProps<typeof FontAwesome>['name'];
-  color: string;
-}) {
-  return <FontAwesome size={28} style={{ marginBottom: -3 }} {...props} />;
-}
+import { Feather } from "@expo/vector-icons";
+import { Tabs } from "expo-router";
+import { View, StyleSheet } from "react-native";
+import { colors } from "@/lib/theme";
 
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
-
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
-        // Disable the static render of the header on web
-        // to prevent a hydration error in React Navigation v6.
-        headerShown: useClientOnlyValue(false, true),
-      }}>
+        headerStyle: { backgroundColor: colors.bg, elevation: 0, shadowOpacity: 0 },
+        headerTintColor: colors.text,
+        headerTitleStyle: { fontWeight: "700", fontSize: 18 },
+        tabBarStyle: {
+          backgroundColor: colors.bg,
+          borderTopColor: colors.elevated,
+          borderTopWidth: 1,
+          height: 88,
+          paddingTop: 8,
+        },
+        tabBarActiveTintColor: colors.primary,
+        tabBarInactiveTintColor: colors.textMuted,
+        tabBarLabelStyle: { fontSize: 11, fontWeight: "600", marginTop: 2 },
+      }}
+    >
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Tab One',
-          tabBarIcon: ({ color }) => <TabBarIcon name="code" color={color} />,
-          headerRight: () => (
-            <Link href="/modal" asChild>
-              <Pressable>
-                {({ pressed }) => (
-                  <FontAwesome
-                    name="info-circle"
-                    size={25}
-                    color={Colors[colorScheme ?? 'light'].text}
-                    style={{ marginRight: 15, opacity: pressed ? 0.5 : 1 }}
-                  />
-                )}
-              </Pressable>
-            </Link>
+          title: "Discover",
+          headerShown: false,
+          tabBarIcon: ({ color, focused }) => (
+            <View style={[s.iconWrap, focused && s.iconFocused]}>
+              <Feather name="compass" size={22} color={color} />
+            </View>
           ),
         }}
       />
       <Tabs.Screen
-        name="two"
+        name="scripts"
         options={{
-          title: 'Tab Two',
-          tabBarIcon: ({ color }) => <TabBarIcon name="code" color={color} />,
+          title: "Scripts",
+          tabBarIcon: ({ color, focused }) => (
+            <View style={[s.iconWrap, focused && s.iconFocused]}>
+              <Feather name="book-open" size={22} color={color} />
+            </View>
+          ),
         }}
       />
+      <Tabs.Screen
+        name="leaderboard"
+        options={{
+          title: "Rankings",
+          tabBarIcon: ({ color, focused }) => (
+            <View style={[s.iconWrap, focused && s.iconFocused]}>
+              <Feather name="award" size={22} color={color} />
+            </View>
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="profile"
+        options={{
+          title: "Profile",
+          tabBarIcon: ({ color, focused }) => (
+            <View style={[s.iconWrap, focused && s.iconFocused]}>
+              <Feather name="user" size={22} color={color} />
+            </View>
+          ),
+        }}
+      />
+      {/* Hidden tabs — accessible via navigation, not shown in tab bar */}
+      <Tabs.Screen name="record" options={{ href: null }} />
+      <Tabs.Screen name="notifications" options={{ href: null }} />
     </Tabs>
   );
 }
+
+const s = StyleSheet.create({
+  iconWrap: { padding: 6, borderRadius: 12 },
+  iconFocused: { backgroundColor: "rgba(108, 92, 231, 0.15)" },
+});

@@ -1,0 +1,14 @@
+{
+  "name": "cast-video-worker",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.102.1",
+    "express": "^4.21.0",
+    "fluent-ffmpeg": "^2.1.3"
+  }
+}
