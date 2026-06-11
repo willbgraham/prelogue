@@ -76,6 +76,12 @@ export default function SignInScreen() {
           autoComplete="password"
         />
 
+        <Link href="/(auth)/forgot-password" asChild>
+          <TouchableOpacity style={s.forgotRow} activeOpacity={0.7}>
+            <Text style={s.forgotText}>Forgot password?</Text>
+          </TouchableOpacity>
+        </Link>
+
         <TouchableOpacity
           style={[s.button, loading && { opacity: 0.7 }]}
           onPress={handleSignIn}
@@ -122,9 +128,11 @@ const s = StyleSheet.create({
     borderRadius: radius.xl, paddingHorizontal: 20, paddingVertical: 16,
     color: colors.text, fontSize: 16,
   },
+  forgotRow: { alignSelf: "flex-end", marginTop: 14, paddingVertical: 2 },
+  forgotText: { color: colors.primary, fontSize: 14, fontWeight: "600" },
   button: {
     backgroundColor: colors.primary, borderRadius: radius.xl,
-    paddingVertical: 16, alignItems: "center", marginTop: 32,
+    paddingVertical: 16, alignItems: "center", marginTop: 20,
   },
   buttonText: { color: "#fff", fontWeight: "700", fontSize: 16, letterSpacing: 0.3 },
   footer: { flexDirection: "row", justifyContent: "center", marginTop: 24 },
