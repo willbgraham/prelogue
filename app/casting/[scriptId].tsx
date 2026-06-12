@@ -276,6 +276,17 @@ export default function CastingDashboardScreen() {
           </View>
         ))}
 
+        {/* Edit line assignments */}
+        <TouchableOpacity
+          style={s.editLinesBtn}
+          onPress={() => router.push(`/script/edit-lines/${scriptId}` as any)}
+          activeOpacity={0.85}
+        >
+          <Feather name="edit-3" size={15} color={colors.primary} />
+          <Text style={s.editLinesText}>Edit script lines</Text>
+          <Feather name="chevron-right" size={16} color={colors.textMuted} />
+        </TouchableOpacity>
+
         {/* AI voice casting */}
         <View style={s.voicesSection}>
           <View style={s.voicesHeader}>
@@ -515,6 +526,12 @@ const s = StyleSheet.create({
   noteInput: { flex: 1, backgroundColor: colors.elevated, borderRadius: radius.md, paddingHorizontal: 12, paddingVertical: 8, color: colors.text, fontSize: 13 },
   sendNoteBtn: { marginLeft: 8, backgroundColor: colors.primary, width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
 
+  editLinesBtn: {
+    flexDirection: "row", alignItems: "center", gap: spacing.md,
+    backgroundColor: colors.card, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.cardBorder,
+    paddingHorizontal: spacing.lg, paddingVertical: spacing.md, marginTop: spacing.sm,
+  },
+  editLinesText: { color: colors.text, fontSize: 14, fontWeight: "600", flex: 1 },
   // Voices section
   voicesSection: {
     marginTop: spacing.sm, marginBottom: spacing.lg,
