@@ -123,6 +123,15 @@ export default function ScriptDetailScreen() {
               <Text style={s.readScriptText}>Read Full Script</Text>
             </TouchableOpacity>
           </View>
+
+          <TouchableOpacity
+            style={s.playAiBtn}
+            onPress={() => router.push(`/table-read/play/${script.id}` as any)}
+            activeOpacity={0.85}
+          >
+            <Feather name="play" size={16} color="#fff" />
+            <Text style={s.playAiText}>Play with AI Voices</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Casting Dashboard button for writers */}
@@ -225,6 +234,12 @@ const s = StyleSheet.create({
     borderRadius: radius.md, gap: 8, borderWidth: 1, borderColor: "rgba(108,92,231,0.2)",
   },
   readScriptText: { color: colors.primary, fontSize: 14, fontWeight: "700" },
+  playAiBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    backgroundColor: colors.primary, borderRadius: radius.lg,
+    paddingVertical: 14, marginTop: spacing.lg,
+  },
+  playAiText: { color: "#fff", fontSize: 15, fontWeight: "700" },
   castingBtn: {
     marginHorizontal: spacing.xl, marginBottom: spacing.lg,
     backgroundColor: colors.primary, borderRadius: radius.xl,
