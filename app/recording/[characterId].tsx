@@ -10,7 +10,7 @@ import {
   StyleSheet,
   Animated,
 } from "react-native";
-import { useLocalSearchParams, useRouter, Stack } from "expo-router";
+import { useLocalSearchParams, useRouter, Stack, useFocusEffect } from "expo-router";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { Audio } from "expo-av";
 import { Feather } from "@expo/vector-icons";
@@ -156,6 +156,7 @@ export default function RecordingStudioScreen() {
   const aiReadyRef = useRef(false);
   const manifestRef = useRef<Map<number, LoadedCue>>(new Map());
   const soundRef = useRef<Audio.Sound | null>(null);
+  const focusedRef = useRef(true);
 
   // Upload
   const [uploading, setUploading] = useState(false);
@@ -172,6 +173,23 @@ export default function RecordingStudioScreen() {
       soundRef.current?.unloadAsync();
     };
   }, [characterId]);
+
+  // Stop the scene partner (and any in-progress clip) when the screen loses
+  // focus, and block queued advances from restarting audio while we're away.
+  useFocusEffect(
+    useCallback(() => {
+      focusedRef.current = true;
+      return () => {
+        focusedRef.current = false;
+        stopPlayback();
+        if (clipRecordingRef.current) {
+          try {
+            cameraRef.current?.stopRecording();
+          } catch {}
+        }
+      };
+    }, [])
+  );
 
   useEffect(() => {
     if (clipRecording) {
@@ -325,6 +343,7 @@ export default function RecordingStudioScreen() {
 
   /** Play the AI line at `pos`. In a session (chain), advance when it finishes. */
   async function playCueAt(pos: number, chain: boolean) {
+    if (!focusedRef.current) return;
     const row = rows[pos];
     if (!row || row.kind === "actor") return;
     const cue = manifestRef.current.get(row.elementIndex);
@@ -372,6 +391,7 @@ export default function RecordingStudioScreen() {
     goPos(pos);
     setTimeout(() => scrollToRow(pos), 50);
 
+    if (!focusedRef.current) return;
     if (modeRef.current !== "recording") return;
     const row = rows[pos];
     if (row.kind === "actor") {

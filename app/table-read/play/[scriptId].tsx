@@ -8,7 +8,7 @@ import {
   Alert,
   StyleSheet,
 } from "react-native";
-import { useLocalSearchParams, useRouter, Stack } from "expo-router";
+import { useLocalSearchParams, useRouter, Stack, useFocusEffect } from "expo-router";
 import { Audio } from "expo-av";
 import { Feather } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
@@ -91,6 +91,19 @@ export default function TableReadPlayScreen() {
       soundRef.current?.unloadAsync().catch(() => {});
     };
   }, [scriptId]);
+
+  // Pause whenever the screen loses focus (back, tab switch, app backgrounded)
+  // so the voices never keep playing once you've left. The transport's play
+  // button doubles as Resume when you come back.
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        playingRef.current = false;
+        setPlaying(false);
+        soundRef.current?.pauseAsync().catch(() => {});
+      };
+    }, [])
+  );
 
   async function load() {
     try {
@@ -187,6 +200,10 @@ export default function TableReadPlayScreen() {
       stop();
       return;
     }
+    // Bail if we're no longer meant to be playing (paused, or the screen was
+    // left while a queued advance was pending) — otherwise this would spin up a
+    // fresh sound that nothing stops.
+    if (!playingRef.current) return;
     setActive(rowPos);
     setTimeout(() => scrollTo(rowPos), 60);
 
