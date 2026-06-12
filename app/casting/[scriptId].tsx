@@ -14,12 +14,21 @@ import { useLocalSearchParams, useRouter, Stack } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
-import type { Character, Submission } from "@/lib/types";
+import { VoicePickerSheet } from "@/components/VoicePickerSheet";
+import { ErrorState } from "@/components/ErrorState";
+import type { Character, Submission, VoiceConfig, VoiceCatalogItem } from "@/lib/types";
 import { colors, radius, spacing } from "@/lib/theme";
 
 interface CharacterWithSubmissions extends Character {
   submissions: Submission[];
 }
+
+const DEFAULT_VOICE_CONFIG: VoiceConfig = {
+  mode: "per_character",
+  single_voice_id: null,
+  narrator_voice_id: null,
+  characters: {},
+};
 
 export default function CastingDashboardScreen() {
   const { scriptId } = useLocalSearchParams<{ scriptId: string }>();
@@ -28,17 +37,109 @@ export default function CastingDashboardScreen() {
   const [characters, setCharacters] = useState<CharacterWithSubmissions[]>([]);
   const [scriptTitle, setScriptTitle] = useState("");
   const [loading, setLoading] = useState(true);
-  const [assembling, setAssembling] = useState(false);
   const [notes, setNotes] = useState<Record<string, string>>({});
+
+  // Voice casting
+  const [voiceConfig, setVoiceConfig] = useState<VoiceConfig>(DEFAULT_VOICE_CONFIG);
+  const [voiceCatalog, setVoiceCatalog] = useState<VoiceCatalogItem[]>([]);
+  const [voicesLoading, setVoicesLoading] = useState(true);
+  const [voicesError, setVoicesError] = useState(false);
+  const [pickerTarget, setPickerTarget] = useState<string | null>(null);
+  const [addingTarget, setAddingTarget] = useState<string | null>(null);
 
   useEffect(() => {
     fetchData();
+    fetchVoices();
   }, [scriptId]);
+
+  async function fetchVoices() {
+    setVoicesLoading(true);
+    setVoicesError(false);
+    try {
+      const { data, error } = await supabase.functions.invoke("list-voices", { body: {} });
+      if (error) throw error;
+      setVoiceCatalog((data?.voices ?? []) as VoiceCatalogItem[]);
+    } catch {
+      setVoicesError(true);
+    } finally {
+      setVoicesLoading(false);
+    }
+  }
+
+  function currentVoiceFor(target: string): string | null {
+    if (target === "__single__") return voiceConfig.single_voice_id ?? null;
+    if (target === "__narrator__") return voiceConfig.narrator_voice_id ?? null;
+    return voiceConfig.characters?.[target] ?? null;
+  }
+
+  async function persistVoiceConfig(next: VoiceConfig) {
+    setVoiceConfig(next);
+    const { error } = await supabase
+      .from("scripts")
+      .update({ voice_config: next })
+      .eq("id", scriptId);
+    if (error) Alert.alert("Couldn't save voices", error.message);
+  }
+
+  async function onPickVoice(target: string, voice: VoiceCatalogItem) {
+    setPickerTarget(null);
+    let voiceId = voice.voice_id;
+
+    // Library voices must be added to the ElevenLabs account before they're
+    // usable for TTS; swap in the resulting account voice id.
+    if (voice.public_owner_id) {
+      setAddingTarget(target);
+      try {
+        const { data, error } = await supabase.functions.invoke("add-voice", {
+          body: { public_owner_id: voice.public_owner_id, voice_id: voice.voice_id, name: voice.name },
+        });
+        if (error) throw new Error(error.message);
+        if (!data?.success || !data?.voice_id) {
+          throw new Error(data?.error || "Could not add this voice.");
+        }
+        voiceId = data.voice_id;
+        setVoiceCatalog((prev) => [
+          { ...voice, voice_id: voiceId, public_owner_id: null },
+          ...prev.filter((v) => v.voice_id !== voice.voice_id),
+        ]);
+      } catch (e: any) {
+        Alert.alert(
+          "Couldn't add voice",
+          e?.message ?? "Try another voice, or check your ElevenLabs plan's voice limit."
+        );
+        setAddingTarget(null);
+        return;
+      }
+      setAddingTarget(null);
+    }
+
+    const next: VoiceConfig = { ...voiceConfig, updated_at: new Date().toISOString() };
+    if (target === "__single__") next.single_voice_id = voiceId;
+    else if (target === "__narrator__") next.narrator_voice_id = voiceId;
+    else next.characters = { ...(voiceConfig.characters || {}), [target]: voiceId };
+    persistVoiceConfig(next);
+  }
+
+  function voiceLabel(id: string | null): string {
+    if (!id) return "Choose voice";
+    return voiceCatalog.find((v) => v.voice_id === id)?.name ?? "Selected voice";
+  }
+
+  function voiceDisplay(target: string): string {
+    if (addingTarget === target) return "Adding…";
+    return voiceLabel(currentVoiceFor(target));
+  }
+
+  function pickerLabelFor(target: string): string {
+    if (target === "__single__") return "All characters & narration";
+    if (target === "__narrator__") return "Narrator";
+    return target;
+  }
 
   async function fetchData() {
     const { data: scriptData } = await supabase
       .from("scripts")
-      .select("title, writer_id")
+      .select("title, writer_id, voice_config")
       .eq("id", scriptId)
       .single();
 
@@ -50,6 +151,9 @@ export default function CastingDashboardScreen() {
         return;
       }
       setScriptTitle(scriptData.title);
+      if (scriptData.voice_config) {
+        setVoiceConfig({ ...DEFAULT_VOICE_CONFIG, ...(scriptData.voice_config as any) });
+      }
     }
 
     const { data: charData } = await supabase
@@ -80,47 +184,6 @@ export default function CastingDashboardScreen() {
     fetchData();
   }
 
-  async function handleAssemble() {
-    const allCast = characters.every((c) =>
-      c.submissions.some((s) => s.is_writers_choice)
-    );
-
-    if (!allCast) {
-      Alert.alert("Not Ready", "Please select a Writer's Choice for every character.");
-      return;
-    }
-
-    setAssembling(true);
-    try {
-      await supabase
-        .from("scripts")
-        .update({ status: "casting" })
-        .eq("id", scriptId);
-
-      const { error: readError } = await supabase
-        .from("assembled_reads")
-        .insert({ script_id: scriptId, status: "processing" });
-
-      if (readError) throw readError;
-
-      const { error: fnError } = await supabase.functions.invoke("assemble-video", {
-        body: { script_id: scriptId },
-      });
-
-      if (fnError) console.warn("Assembly function error:", fnError);
-
-      Alert.alert(
-        "Assembly Started",
-        "Your table read is being assembled. You'll be notified when it's ready!",
-        [{ text: "OK", onPress: () => router.back() }]
-      );
-    } catch (error: any) {
-      Alert.alert("Error", error.message);
-    } finally {
-      setAssembling(false);
-    }
-  }
-
   if (loading) {
     return (
       <View style={s.loadingContainer}>
@@ -128,10 +191,6 @@ export default function CastingDashboardScreen() {
       </View>
     );
   }
-
-  const allCast = characters.every((c) =>
-    c.submissions.some((s) => s.is_writers_choice)
-  );
 
   return (
     <>
@@ -217,23 +276,119 @@ export default function CastingDashboardScreen() {
           </View>
         ))}
 
-        <TouchableOpacity
-          style={[
-            s.assembleBtn,
-            allCast && !assembling ? s.assembleBtnActive : s.assembleBtnDisabled,
-          ]}
-          onPress={handleAssemble}
-          disabled={!allCast || assembling}
-        >
-          {assembling ? (
-            <ActivityIndicator color="white" />
+        {/* AI voice casting */}
+        <View style={s.voicesSection}>
+          <View style={s.voicesHeader}>
+            <Feather name="volume-2" size={16} color={colors.primary} />
+            <Text style={s.voicesTitle}>AI Voices</Text>
+          </View>
+          <Text style={s.voicesSub}>
+            Choose the voices used when actors read along with AI.
+          </Text>
+
+          <View style={s.modeToggle}>
+            <TouchableOpacity
+              style={[s.modeBtn, voiceConfig.mode === "per_character" && s.modeBtnActive]}
+              onPress={() => persistVoiceConfig({ ...voiceConfig, mode: "per_character" })}
+            >
+              <Text style={[s.modeBtnText, voiceConfig.mode === "per_character" && s.modeBtnTextActive]}>
+                Per character
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[s.modeBtn, voiceConfig.mode === "single" && s.modeBtnActive]}
+              onPress={() => persistVoiceConfig({ ...voiceConfig, mode: "single" })}
+            >
+              <Text style={[s.modeBtnText, voiceConfig.mode === "single" && s.modeBtnTextActive]}>
+                One voice
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {voicesError ? (
+            <ErrorState
+              message="Couldn't load the voice catalog."
+              onRetry={fetchVoices}
+              style={{ marginHorizontal: 0 }}
+            />
+          ) : voicesLoading ? (
+            <ActivityIndicator color={colors.primary} style={{ paddingVertical: spacing.xl }} />
+          ) : voiceConfig.mode === "single" ? (
+            <TouchableOpacity
+              style={s.voiceRow}
+              onPress={() => setPickerTarget("__single__")}
+              activeOpacity={0.7}
+            >
+              <View style={s.voiceRowIcon}>
+                <Feather name="users" size={14} color={colors.primary} />
+              </View>
+              <Text style={s.voiceRowLabel} numberOfLines={1}>
+                All characters & narration
+              </Text>
+              <Text style={s.voiceRowValue} numberOfLines={1}>
+                {voiceDisplay("__single__")}
+              </Text>
+              <Feather name="chevron-right" size={16} color={colors.textMuted} />
+            </TouchableOpacity>
           ) : (
-            <Text style={s.assembleBtnText}>
-              Assemble Table Read
-            </Text>
+            <>
+              {characters.map((c) => (
+                <TouchableOpacity
+                  key={c.id}
+                  style={s.voiceRow}
+                  onPress={() => setPickerTarget(c.name.toUpperCase())}
+                  activeOpacity={0.7}
+                >
+                  <View style={s.voiceRowIcon}>
+                    <Feather name="user" size={14} color={colors.primary} />
+                  </View>
+                  <Text style={s.voiceRowLabel} numberOfLines={1}>
+                    {c.name}
+                  </Text>
+                  <Text style={s.voiceRowValue} numberOfLines={1}>
+                    {voiceDisplay(c.name.toUpperCase())}
+                  </Text>
+                  <Feather name="chevron-right" size={16} color={colors.textMuted} />
+                </TouchableOpacity>
+              ))}
+              <TouchableOpacity
+                style={s.voiceRow}
+                onPress={() => setPickerTarget("__narrator__")}
+                activeOpacity={0.7}
+              >
+                <View style={s.voiceRowIcon}>
+                  <Feather name="film" size={14} color={colors.primary} />
+                </View>
+                <Text style={s.voiceRowLabel} numberOfLines={1}>
+                  Narrator (action lines)
+                </Text>
+                <Text style={s.voiceRowValue} numberOfLines={1}>
+                  {voiceDisplay("__narrator__")}
+                </Text>
+                <Feather name="chevron-right" size={16} color={colors.textMuted} />
+              </TouchableOpacity>
+            </>
           )}
+        </View>
+
+        <TouchableOpacity
+          style={[s.assembleBtn, s.assembleBtnActive]}
+          onPress={() => router.push(`/table-read/play/${scriptId}` as any)}
+          activeOpacity={0.85}
+        >
+          <Feather name="play" size={16} color="#fff" />
+          <Text style={s.assembleBtnText}>Play Table Read</Text>
         </TouchableOpacity>
       </ScrollView>
+
+      <VoicePickerSheet
+        visible={pickerTarget !== null}
+        targetLabel={pickerTarget ? pickerLabelFor(pickerTarget) : ""}
+        voices={voiceCatalog}
+        selectedVoiceId={pickerTarget ? currentVoiceFor(pickerTarget) : null}
+        onSelect={(voice) => pickerTarget && onPickVoice(pickerTarget, voice)}
+        onClose={() => setPickerTarget(null)}
+      />
     </>
   );
 }
@@ -339,7 +494,10 @@ const s = StyleSheet.create({
   assembleBtn: {
     borderRadius: radius.lg,
     paddingVertical: spacing.lg,
+    flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
     marginTop: spacing.lg,
   },
   assembleBtnActive: {
@@ -356,4 +514,33 @@ const s = StyleSheet.create({
   noteSection: { flexDirection: "row", alignItems: "center", marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: colors.cardBorder },
   noteInput: { flex: 1, backgroundColor: colors.elevated, borderRadius: radius.md, paddingHorizontal: 12, paddingVertical: 8, color: colors.text, fontSize: 13 },
   sendNoteBtn: { marginLeft: 8, backgroundColor: colors.primary, width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+
+  // Voices section
+  voicesSection: {
+    marginTop: spacing.sm, marginBottom: spacing.lg,
+    backgroundColor: colors.card, borderRadius: radius.lg,
+    borderWidth: 1, borderColor: colors.cardBorder, padding: spacing.lg,
+  },
+  voicesHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
+  voicesTitle: { color: colors.text, fontSize: 16, fontWeight: "700" },
+  voicesSub: { color: colors.textSecondary, fontSize: 13, marginTop: 4, marginBottom: spacing.md, lineHeight: 18 },
+  modeToggle: { flexDirection: "row", gap: 8, marginBottom: spacing.sm },
+  modeBtn: {
+    flex: 1, paddingVertical: 8, borderRadius: radius.md,
+    backgroundColor: colors.elevated, alignItems: "center",
+    borderWidth: 1, borderColor: colors.cardBorder,
+  },
+  modeBtnActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  modeBtnText: { color: colors.textSecondary, fontSize: 13, fontWeight: "600" },
+  modeBtnTextActive: { color: "#fff" },
+  voiceRow: {
+    flexDirection: "row", alignItems: "center", gap: spacing.md,
+    paddingVertical: spacing.md, borderTopWidth: 1, borderTopColor: colors.cardBorder,
+  },
+  voiceRowIcon: {
+    width: 28, height: 28, borderRadius: radius.sm,
+    backgroundColor: colors.primaryMuted, alignItems: "center", justifyContent: "center",
+  },
+  voiceRowLabel: { color: colors.text, fontSize: 14, fontWeight: "600", flex: 1 },
+  voiceRowValue: { color: colors.textSecondary, fontSize: 13, maxWidth: 110 },
 });
