@@ -14,10 +14,12 @@ import {
 import { Stack } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
+import { HeaderBackButton } from "@/components/HeaderBackButton";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
 import { uploadFile } from "@/lib/storage";
-import { GENRES } from "@/lib/constants";
+import { GENRES, ROLE_OPTIONS } from "@/lib/constants";
+import type { UserRole } from "@/lib/types";
 import { colors, radius, spacing } from "@/lib/theme";
 
 export default function SettingsScreen() {
@@ -26,6 +28,9 @@ export default function SettingsScreen() {
   const [bio, setBio] = useState(profile?.bio ?? "");
   const [demoReelUrl, setDemoReelUrl] = useState((profile as any)?.demo_reel_url ?? "");
   const [genres, setGenres] = useState<string[]>(profile?.genre_specialties ?? []);
+  const [roles, setRoles] = useState<UserRole[]>(
+    profile?.roles ?? (profile?.role ? [profile.role] : [])
+  );
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -65,15 +70,29 @@ export default function SettingsScreen() {
     );
   }
 
+  function toggleRole(r: UserRole) {
+    setRoles((prev) =>
+      prev.includes(r) ? prev.filter((x) => x !== r) : [...prev, r]
+    );
+  }
+
   function toggleNotif(key: string) {
     setNotifPrefs((prev) => ({ ...prev, [key]: !prev[key] }));
   }
 
   async function handleSave() {
     if (!session) return;
+    if (roles.length === 0) {
+      Alert.alert("Pick a role", "Select at least one role.");
+      return;
+    }
     setSaving(true);
     try {
       let avatarUrl = profile?.avatar_url;
+
+      // Keep the active role valid if the user removed it from their set.
+      const activeRole =
+        profile?.role && roles.includes(profile.role) ? profile.role : roles[0];
 
       // Upload new avatar if selected
       if (avatarUri) {
@@ -92,6 +111,8 @@ export default function SettingsScreen() {
           avatar_url: avatarUrl,
           demo_reel_url: demoReelUrl.trim() || null,
           genre_specialties: genres,
+          roles,
+          role: activeRole,
           notification_preferences: notifPrefs,
         })
         .eq("id", session.user.id);
@@ -123,6 +144,7 @@ export default function SettingsScreen() {
           headerShown: true,
           headerStyle: { backgroundColor: colors.bg },
           headerTintColor: "#fff",
+          headerLeft: ({ tintColor }) => <HeaderBackButton tintColor={tintColor} />,
         }}
       />
       <ScrollView style={s.container} contentContainerStyle={{ padding: spacing.xl, paddingBottom: 60 }}>
@@ -166,6 +188,23 @@ export default function SettingsScreen() {
           placeholderTextColor={colors.textMuted}
           placeholder="Tell people about yourself..."
         />
+
+        {/* Roles */}
+        <Text style={s.label}>YOUR ROLES</Text>
+        <View style={s.genreGrid}>
+          {ROLE_OPTIONS.map((opt) => {
+            const active = roles.includes(opt.value);
+            return (
+              <TouchableOpacity
+                key={opt.value}
+                style={[s.genreChip, active && s.genreActive]}
+                onPress={() => toggleRole(opt.value)}
+              >
+                <Text style={active ? s.genreTextActive : s.genreTextInactive}>{opt.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
 
         {/* Demo Reel (actors) */}
         {profile?.role === "actor" && (

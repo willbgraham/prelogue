@@ -11,14 +11,24 @@ import type { UserRole } from "@/lib/types";
 export default function OnboardingScreen() {
   const { session, refreshProfile } = useAuth();
   const router = useRouter();
-  const [selected, setSelected] = useState<UserRole | null>(null);
+  const [selectedRoles, setSelectedRoles] = useState<UserRole[]>([]);
   const [loading, setLoading] = useState(false);
 
+  function toggleRole(role: UserRole) {
+    setSelectedRoles((prev) =>
+      prev.includes(role) ? prev.filter((r) => r !== role) : [...prev, role]
+    );
+  }
+
   async function handleContinue() {
-    if (!selected || !session) return;
+    if (selectedRoles.length === 0 || !session) return;
     setLoading(true);
     try {
-      const { error } = await supabase.from("users").update({ role: selected }).eq("id", session.user.id);
+      // `role` is the active role; `roles` is everything the user picked.
+      const { error } = await supabase
+        .from("users")
+        .update({ roles: selectedRoles, role: selectedRoles[0] })
+        .eq("id", session.user.id);
       if (error) throw error;
       await refreshProfile();
       router.replace("/(tabs)" as any);
@@ -36,17 +46,17 @@ export default function OnboardingScreen() {
           <Text style={s.logoLetter}>C</Text>
         </View>
         <Text style={s.title}>Welcome to Cast</Text>
-        <Text style={s.subtitle}>How will you use the platform?</Text>
+        <Text style={s.subtitle}>How will you use the platform? Pick all that apply.</Text>
       </View>
 
       <View style={s.options}>
         {ROLE_OPTIONS.map((option) => {
-          const active = selected === option.value;
+          const active = selectedRoles.includes(option.value);
           return (
             <TouchableOpacity
               key={option.value}
               style={[s.optionCard, active && s.optionActive]}
-              onPress={() => setSelected(option.value)}
+              onPress={() => toggleRole(option.value)}
               activeOpacity={0.8}
             >
               <View style={[s.optionIcon, active && s.optionIconActive]}>
@@ -56,24 +66,22 @@ export default function OnboardingScreen() {
                 <Text style={[s.optionLabel, active && { color: colors.text }]}>{option.label}</Text>
                 <Text style={s.optionDesc}>{option.description}</Text>
               </View>
-              {active && (
-                <View style={s.checkCircle}>
-                  <Feather name="check" size={14} color="#fff" />
-                </View>
-              )}
+              <View style={[s.checkBox, active && s.checkBoxActive]}>
+                {active && <Feather name="check" size={14} color="#fff" />}
+              </View>
             </TouchableOpacity>
           );
         })}
       </View>
 
       <TouchableOpacity
-        style={[s.button, !selected && s.buttonDisabled]}
+        style={[s.button, selectedRoles.length === 0 && s.buttonDisabled]}
         onPress={handleContinue}
-        disabled={!selected || loading}
+        disabled={selectedRoles.length === 0 || loading}
         activeOpacity={0.85}
       >
         {loading ? <ActivityIndicator color="#fff" /> : (
-          <Text style={[s.buttonText, !selected && { color: colors.textMuted }]}>Continue</Text>
+          <Text style={[s.buttonText, selectedRoles.length === 0 && { color: colors.textMuted }]}>Continue</Text>
         )}
       </TouchableOpacity>
     </View>
@@ -97,7 +105,8 @@ const s = StyleSheet.create({
   optionIconActive: { backgroundColor: colors.primaryMuted },
   optionLabel: { fontSize: 17, fontWeight: "700", color: "#c4c4d4" },
   optionDesc: { fontSize: 13, color: colors.textSecondary, marginTop: 2 },
-  checkCircle: { width: 24, height: 24, borderRadius: 12, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
+  checkBox: { width: 24, height: 24, borderRadius: 7, borderWidth: 2, borderColor: colors.cardBorder, alignItems: "center", justifyContent: "center" },
+  checkBoxActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   button: { backgroundColor: colors.primary, borderRadius: radius.xl, paddingVertical: 16, alignItems: "center" },
   buttonDisabled: { backgroundColor: colors.cardBorder },
   buttonText: { color: "#fff", fontWeight: "700", fontSize: 16 },

@@ -1,12 +1,33 @@
-import { View, Text, TouchableOpacity, Image, StyleSheet } from "react-native";
+import { useState } from "react";
+import { View, Text, TouchableOpacity, Image, Alert, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
+import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
+import type { UserRole } from "@/lib/types";
 import { colors, radius, spacing } from "@/lib/theme";
 
+const roleIconFor = (r?: string | null) =>
+  r === "writer" ? "edit-3" : r === "actor" ? "video" : "eye";
+
 export default function ProfileScreen() {
-  const { profile, signOut } = useAuth();
+  const { profile, session, refreshProfile, signOut } = useAuth();
   const router = useRouter();
+  const [switching, setSwitching] = useState(false);
+
+  async function switchRole(r: UserRole) {
+    if (!session || r === profile?.role) return;
+    setSwitching(true);
+    try {
+      const { error } = await supabase.from("users").update({ role: r }).eq("id", session.user.id);
+      if (error) throw error;
+      await refreshProfile();
+    } catch (e: any) {
+      Alert.alert("Couldn't switch role", e.message);
+    } finally {
+      setSwitching(false);
+    }
+  }
 
   if (!profile) {
     return (
@@ -38,8 +59,8 @@ export default function ProfileScreen() {
     );
   }
 
-  const roleIcon =
-    profile.role === "writer" ? "edit-3" : profile.role === "actor" ? "video" : "eye";
+  const roleIcon = roleIconFor(profile.role);
+  const myRoles: UserRole[] = profile.roles ?? (profile.role ? [profile.role] : []);
 
   return (
     <View style={s.container}>
@@ -74,6 +95,34 @@ export default function ProfileScreen() {
           )}
         </View>
       </View>
+
+      {/* Acting-as role switcher (only when the user has more than one role) */}
+      {myRoles.length > 1 && (
+        <View style={s.switcherSection}>
+          <Text style={s.switcherLabel}>ACTING AS</Text>
+          <View style={s.switcher}>
+            {myRoles.map((r) => {
+              const isActive = profile.role === r;
+              return (
+                <TouchableOpacity
+                  key={r}
+                  style={[s.switcherBtn, isActive && s.switcherBtnActive]}
+                  onPress={() => switchRole(r)}
+                  disabled={switching}
+                  activeOpacity={0.8}
+                >
+                  <Feather
+                    name={roleIconFor(r) as any}
+                    size={14}
+                    color={isActive ? "#fff" : colors.textSecondary}
+                  />
+                  <Text style={[s.switcherText, isActive && s.switcherTextActive]}>{r}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+      )}
 
       {/* Stats row for actors */}
       {profile.role === "actor" && (
@@ -195,6 +244,17 @@ const s = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     lineHeight: 20,
   },
+  switcherSection: { marginHorizontal: spacing.xl, marginTop: spacing.lg },
+  switcherLabel: { color: colors.textMuted, fontSize: 11, fontWeight: "700", letterSpacing: 1.2, marginBottom: 8, marginLeft: 4 },
+  switcher: { flexDirection: "row", gap: spacing.sm },
+  switcherBtn: {
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
+    paddingVertical: 10, borderRadius: radius.md,
+    backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardBorder,
+  },
+  switcherBtnActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  switcherText: { color: colors.textSecondary, fontSize: 13, fontWeight: "600", textTransform: "capitalize" },
+  switcherTextActive: { color: "#fff" },
   statsRow: {
     marginHorizontal: spacing.xl,
     marginTop: spacing.md,
