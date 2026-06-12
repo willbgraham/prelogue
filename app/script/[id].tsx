@@ -178,12 +178,12 @@ export default function ScriptDetailScreen() {
                 <TouchableOpacity
                   style={s.auditionBtn}
                   onPress={() => {
-                    if (!requireAuth("audition for this role")) return;
+                    if (!requireAuth("read for this role")) return;
                     router.push(`/recording/${char.id}` as any);
                   }}
                 >
                   <Feather name="video" size={14} color={colors.primary} />
-                  <Text style={s.auditionBtnText}>Audition for this role</Text>
+                  <Text style={s.auditionBtnText}>Read for this role</Text>
                 </TouchableOpacity>
               )}
             </TouchableOpacity>

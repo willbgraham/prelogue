@@ -14,7 +14,10 @@ export type NotificationType =
 
 export interface User {
   id: string;
+  /** The user's currently active role (drives all role-gated UI). */
   role: UserRole | null;
+  /** All roles the user has; they can switch their active `role` among these. */
+  roles: UserRole[] | null;
   display_name: string;
   avatar_url: string | null;
   bio: string | null;
@@ -32,12 +35,33 @@ export interface Script {
   logline: string;
   file_url: string;
   parsed_json: ParsedScript | null;
+  voice_config: VoiceConfig | null;
   status: ScriptStatus;
   submission_deadline: string;
   created_at: string;
   // Joined
   writer?: User;
   characters?: Character[];
+}
+
+/** Writer-chosen TTS voices for a script. Character keys are UPPER-CASED. */
+export interface VoiceConfig {
+  mode: "per_character" | "single";
+  single_voice_id?: string | null;
+  narrator_voice_id?: string | null;
+  characters?: Record<string, string>;
+  updated_at?: string;
+}
+
+/** A voice option from the ElevenLabs catalog (via the list-voices function). */
+export interface VoiceCatalogItem {
+  voice_id: string;
+  name: string;
+  category: string | null;
+  labels: Record<string, string>;
+  preview_url: string | null;
+  /** Present only for shared-library voices that must be added before use. */
+  public_owner_id?: string | null;
 }
 
 export interface ParsedScript {

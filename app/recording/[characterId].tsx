@@ -4,6 +4,7 @@ import {
   Text,
   TouchableOpacity,
   ScrollView,
+  FlatList,
   ActivityIndicator,
   Alert,
   StyleSheet,
@@ -17,25 +18,73 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
 import { useBackgroundUpload } from "@/hooks/useBackgroundUpload";
 import { VideoPlayer } from "@/components/VideoPlayer";
+import { ErrorState } from "@/components/ErrorState";
 import type { Character, ParsedScript } from "@/lib/types";
 import { colors, radius, spacing } from "@/lib/theme";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-interface DialogueLine {
-  character: string;
+interface ScriptRow {
+  /** Global index across the flattened scenes[].elements[] — the manifest key. */
+  elementIndex: number;
+  kind: "actor" | "cue" | "narrator";
+  character?: string;
   text: string;
-  isActor: boolean;
-  /** Index into the manifest cue array (only for non-actor lines) */
-  cueIndex?: number;
+  sceneHeading?: string;
 }
 
-interface ManifestCue {
-  index: number;
-  character: string;
+interface LoadedCue {
+  element_index: number;
+  type: string;
+  character: string | null;
   text: string;
-  audio_url: string;
+  voice_id: string;
+  audio_path: string;
+  signedUrl: string;
+}
+
+/**
+ * Build the teleprompter rows from the parsed script's ordered element stream.
+ * The global index counts EVERY element so it stays aligned with the manifest
+ * produced server-side (which numbers elements the same way). Actor rows are the
+ * reader's own lines (no audio); cue rows are other characters' dialogue;
+ * narrator rows are action / stage directions.
+ */
+function buildRows(parsed: ParsedScript | undefined, actorName: string): ScriptRow[] {
+  if (!parsed?.scenes) return [];
+  const actorUpper = actorName.toUpperCase();
+  const rows: ScriptRow[] = [];
+  let globalIdx = 0;
+
+  for (const scene of parsed.scenes) {
+    const heading = scene.heading?.trim();
+    let headingPending = !!heading;
+    for (const el of scene.elements ?? []) {
+      const myIndex = globalIdx++;
+      const isRenderable = el.type === "dialogue" || el.type === "action";
+      let rowHeading: string | undefined = undefined;
+      if (headingPending && isRenderable) {
+        rowHeading = heading;
+        headingPending = false;
+      }
+
+      if (el.type === "dialogue") {
+        const isActor = (el.character_name || "").toUpperCase() === actorUpper;
+        rows.push({
+          elementIndex: myIndex,
+          kind: isActor ? "actor" : "cue",
+          character: el.character_name,
+          text: el.text,
+          sceneHeading: rowHeading,
+        });
+      } else if (el.type === "action") {
+        rows.push({ elementIndex: myIndex, kind: "narrator", text: el.text, sceneHeading: rowHeading });
+      }
+      // character / parenthetical: index consumed, not rendered (silent).
+    }
+  }
+  return rows;
 }
 
 // ---------------------------------------------------------------------------
@@ -47,14 +96,14 @@ export default function RecordingStudioScreen() {
   const { session } = useAuth();
   const cameraRef = useRef<CameraView>(null);
   const upload = useBackgroundUpload();
-  const scrollRef = useRef<ScrollView>(null);
-  const lineRefs = useRef<Record<number, number>>({});
+  const listRef = useRef<FlatList<ScriptRow>>(null);
 
   const [permission, requestPermission] = useCameraPermissions();
   const [character, setCharacter] = useState<Character | null>(null);
-  const [dialogueLines, setDialogueLines] = useState<DialogueLine[]>([]);
+  const [rows, setRows] = useState<ScriptRow[]>([]);
   const [activeLine, setActiveLine] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [recording, setRecording] = useState(false);
   const [videoUri, setVideoUri] = useState<string | null>(null);
   const [facing, setFacing] = useState<"front" | "back">("front");
@@ -62,9 +111,11 @@ export default function RecordingStudioScreen() {
   // AI cues
   const [aiCueReady, setAiCueReady] = useState(false);
   const [generatingCues, setGeneratingCues] = useState(false);
-  const [manifest, setManifest] = useState<ManifestCue[]>([]);
+  const [manifest, setManifest] = useState<Map<number, LoadedCue>>(new Map());
   const [playingCue, setPlayingCue] = useState(false);
   const soundRef = useRef<Audio.Sound | null>(null);
+  const [autoplay, setAutoplay] = useState(false);
+  const autoplayRef = useRef(false);
 
   // Takes
   const [existingTakes, setExistingTakes] = useState<any[]>([]);
@@ -81,9 +132,8 @@ export default function RecordingStudioScreen() {
     };
   }, [characterId]);
 
-  // Pulse animation when it's actor's turn
   useEffect(() => {
-    if (dialogueLines[activeLine]?.isActor && recording) {
+    if (rows[activeLine]?.kind === "actor" && recording) {
       Animated.loop(
         Animated.sequence([
           Animated.timing(pulseAnim, { toValue: 0.6, duration: 800, useNativeDriver: true }),
@@ -96,70 +146,31 @@ export default function RecordingStudioScreen() {
   }, [activeLine, recording]);
 
   async function fetchCharacter() {
-    const { data } = await supabase
-      .from("characters")
-      .select("*, script:scripts(id, title, parsed_json)")
-      .eq("id", characterId)
-      .single();
+    try {
+      const { data, error } = await supabase
+        .from("characters")
+        .select("*, script:scripts(id, title, parsed_json)")
+        .eq("id", characterId)
+        .single();
 
-    if (data) {
-      setCharacter(data as any);
-      buildInterleaved((data as any).script?.parsed_json, data.name);
+      if (error) throw error;
+      if (data) {
+        setCharacter(data as any);
+        setRows(buildRows((data as any).script?.parsed_json, data.name));
+      }
+      setLoadError(false);
+    } catch (err) {
+      console.warn("Failed to load script:", err);
+      setLoadError(true);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }
 
-  /**
-   * Build interleaved dialogue from the parsed script.
-   * Since characters store lines with scene_index, we interleave by
-   * alternating through characters' line arrays to simulate dialogue order.
-   */
-  function buildInterleaved(parsed: ParsedScript | undefined, actorName: string) {
-    if (!parsed?.characters) return;
-
-    const actorUpper = actorName.toUpperCase();
-    const actorChar = parsed.characters.find((c) => c.name.toUpperCase() === actorUpper);
-    const otherChars = parsed.characters.filter((c) => c.name.toUpperCase() !== actorUpper);
-
-    if (!actorChar) return;
-
-    // Build interleaved: for each actor line, insert preceding cue lines from others
-    const lines: DialogueLine[] = [];
-    let cueIdx = 0;
-
-    // Take up to 20 actor lines for a manageable recording session
-    const actorLines = actorChar.lines.slice(0, 20);
-
-    // Distribute other characters' lines between actor lines
-    const otherLines: { character: string; text: string }[] = [];
-    for (const oc of otherChars) {
-      for (const line of oc.lines.slice(0, 15)) {
-        otherLines.push({ character: oc.name, text: line.text });
-      }
-    }
-
-    let otherIdx = 0;
-    for (let i = 0; i < actorLines.length; i++) {
-      // Add 1-2 cue lines before each actor line
-      const cuesBeforeThis = Math.min(2, otherLines.length - otherIdx);
-      for (let j = 0; j < cuesBeforeThis; j++) {
-        lines.push({
-          character: otherLines[otherIdx].character,
-          text: otherLines[otherIdx].text,
-          isActor: false,
-          cueIndex: cueIdx++,
-        });
-        otherIdx++;
-      }
-      // Actor's line
-      lines.push({
-        character: actorName,
-        text: actorLines[i].text,
-        isActor: true,
-      });
-    }
-
-    setDialogueLines(lines);
+  function retryLoad() {
+    setLoading(true);
+    setLoadError(false);
+    fetchCharacter();
   }
 
   async function fetchTakes() {
@@ -176,118 +187,162 @@ export default function RecordingStudioScreen() {
   // AI cue generation & playback
   // -------------------------------------------------------------------------
   async function generateAICues() {
+    const scriptId = (character as any)?.script_id ?? (character as any)?.script?.id;
+    if (!scriptId) return;
+
     setGeneratingCues(true);
     try {
-      const { data, error } = await supabase.functions.invoke(
-        "generate-voice-cues",
-        { body: { character_id: characterId } }
-      );
-
-      if (error) {
-        console.warn("Voice cue error:", error);
-        Alert.alert("AI Cues Error", String(error?.message ?? error));
-        return;
+      // The function is resumable (caps generation per call); drive it to
+      // completion across a few rounds.
+      let manifestPath: string | null = null;
+      for (let round = 0; round < 10; round++) {
+        const { data, error } = await supabase.functions.invoke("generate-voice-cues", {
+          body: { script_id: scriptId },
+        });
+        if (error) {
+          Alert.alert("AI Voices Error", String(error?.message ?? error));
+          return;
+        }
+        manifestPath = data?.manifest_path ?? manifestPath;
+        if (data?.done) break;
       }
 
-      // Fetch the manifest to get audio URLs
-      const manifestPath = data?.manifest_path;
       if (manifestPath) {
-        const { data: signedUrlData } = await supabase.storage
+        const { data: signed } = await supabase.storage
           .from("scripts")
           .createSignedUrl(manifestPath, 3600);
-        if (signedUrlData?.signedUrl) {
-          const res = await fetch(signedUrlData.signedUrl);
-          const cues: ManifestCue[] = await res.json();
+        if (signed?.signedUrl) {
+          const res = await fetch(signed.signedUrl);
+          const cues: LoadedCue[] = await res.json();
 
-          // The audio_url values baked into the manifest are signed URLs that
-          // expire after 24h, so a cached manifest usually contains dead links.
-          // Re-sign each cue fresh from its deterministic storage path.
-          const paths = cues.map(
-            (c) => `voice-cues/${characterId}/cue-${c.index}.mp3`
-          );
+          // Re-sign audio fresh (manifest stores paths; signed URLs expire 24h).
+          const uniquePaths = [...new Set(cues.map((c) => c.audio_path))];
           const { data: freshSigned } = await supabase.storage
             .from("scripts")
-            .createSignedUrls(paths, 86400);
-          const refreshed = cues.map((c, i) => ({
-            ...c,
-            audio_url: freshSigned?.[i]?.signedUrl ?? c.audio_url,
-          }));
-          setManifest(refreshed);
+            .createSignedUrls(uniquePaths, 86400);
+          const urlByPath = new Map<string, string>();
+          uniquePaths.forEach((p, i) => urlByPath.set(p, freshSigned?.[i]?.signedUrl ?? ""));
+
+          const map = new Map<number, LoadedCue>();
+          for (const c of cues) {
+            map.set(c.element_index, { ...c, signedUrl: urlByPath.get(c.audio_path) ?? "" });
+          }
+          setManifest(map);
         }
       }
 
       setAiCueReady(true);
-      const count = data?.cues_generated ?? 0;
       Alert.alert(
-        "AI Cues Ready",
-        `${count} voice cues loaded! Tap other characters' lines to hear them read aloud.`
+        "AI Voices Ready",
+        "Tap any other character or action line to hear it read aloud."
       );
     } catch (err: any) {
-      console.warn("AI cue exception:", err);
-      Alert.alert("AI Cues Error", err?.message ?? String(err));
+      Alert.alert("AI Voices Error", err?.message ?? String(err));
     } finally {
       setGeneratingCues(false);
     }
   }
 
-  async function playCue(cueIndex: number) {
-    if (!manifest.length || cueIndex >= manifest.length) return;
-    const cue = manifest[cueIndex];
-    if (!cue?.audio_url) return;
-
+  const scrollToRow = useCallback((index: number) => {
+    if (index < 0) return;
     try {
-      // Stop any currently playing cue
+      listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.35 });
+    } catch {
+      // ignore — onScrollToIndexFailed handles the fallback
+    }
+  }, []);
+
+  async function stopPlayback() {
+    if (soundRef.current) {
+      await soundRef.current.unloadAsync().catch(() => {});
+      soundRef.current = null;
+    }
+    setPlayingCue(false);
+  }
+
+  // Play the AI line at a row position. When autoplay is on, the playback-finish
+  // callback chains into the next line.
+  async function playRowAt(rowPos: number) {
+    const row = rows[rowPos];
+    if (!row || row.kind === "actor") return;
+    setActiveLine(rowPos);
+    setTimeout(() => scrollToRow(rowPos), 60);
+
+    const cue = manifest.get(row.elementIndex);
+    if (!cue?.signedUrl) {
+      // Not generated yet — don't stall the autoplay chain.
+      if (autoplayRef.current) setTimeout(() => autoAdvanceFrom(rowPos), 30);
+      return;
+    }
+    try {
       if (soundRef.current) {
         await soundRef.current.unloadAsync();
+        soundRef.current = null;
       }
-
       setPlayingCue(true);
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: recording,
-        playsInSilentModeIOS: true,
-      });
-
-      const { sound } = await Audio.Sound.createAsync(
-        { uri: cue.audio_url },
-        { shouldPlay: true }
-      );
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: recording, playsInSilentModeIOS: true });
+      const { sound } = await Audio.Sound.createAsync({ uri: cue.signedUrl }, { shouldPlay: true });
       soundRef.current = sound;
-
-      // Auto-advance when cue finishes
       sound.setOnPlaybackStatusUpdate((status) => {
         if (status.isLoaded && status.didJustFinish) {
           setPlayingCue(false);
-          advanceLine();
+          if (autoplayRef.current) autoAdvanceFrom(rowPos);
         }
       });
     } catch (err) {
       console.warn("Cue playback error:", err);
       setPlayingCue(false);
-      Alert.alert("Playback failed", "Couldn't play this AI voice line. Tap to try again.");
+      Alert.alert("Playback failed", "Couldn't play this AI voice line.");
     }
   }
 
+  // Autoplay chain: move to the next line and play it if it's an AI line, or
+  // pause on the actor's line (they tap the ▼ control to continue).
+  function autoAdvanceFrom(fromRow: number) {
+    const next = fromRow + 1;
+    if (next >= rows.length) {
+      setActiveLine(rows.length - 1);
+      return;
+    }
+    setActiveLine(next);
+    setTimeout(() => scrollToRow(next), 60);
+    if (rows[next].kind !== "actor") {
+      playRowAt(next);
+    }
+    // actor line → pause and wait for tap-to-continue
+  }
+
+  function handleLineTap(rowPos: number) {
+    setActiveLine(rowPos);
+    setTimeout(() => scrollToRow(rowPos), 60);
+    const row = rows[rowPos];
+    if (row && row.kind !== "actor" && aiCueReady) {
+      playRowAt(rowPos);
+    }
+  }
+
+  // ▼ control. Also serves as "tap to continue": after the actor performs their
+  // line, tapping resumes the autoplay chain on the next AI line.
   function advanceLine() {
-    setActiveLine((prev) => {
-      const next = Math.min(prev + 1, dialogueLines.length - 1);
-      // Scroll to the new active line
-      setTimeout(() => {
-        scrollRef.current?.scrollTo({ y: Math.max(0, (next - 1) * 52), animated: true });
-      }, 100);
-      return next;
-    });
+    const next = Math.min(activeLine + 1, rows.length - 1);
+    setActiveLine(next);
+    setTimeout(() => scrollToRow(next), 60);
+    const row = rows[next];
+    if (autoplayRef.current && aiCueReady && row && row.kind !== "actor") {
+      playRowAt(next);
+    }
   }
 
-  function handleLineTap(index: number) {
-    setActiveLine(index);
-    const line = dialogueLines[index];
-    if (!line.isActor && aiCueReady && line.cueIndex != null) {
-      playCue(line.cueIndex);
+  function toggleAutoplay() {
+    const next = !autoplay;
+    setAutoplay(next);
+    autoplayRef.current = next;
+    if (next) {
+      const row = rows[activeLine];
+      if (aiCueReady && row && row.kind !== "actor") playRowAt(activeLine);
+    } else {
+      stopPlayback();
     }
-    // Scroll into view
-    setTimeout(() => {
-      scrollRef.current?.scrollTo({ y: Math.max(0, (index - 1) * 52), animated: true });
-    }, 100);
   }
 
   // -------------------------------------------------------------------------
@@ -298,6 +353,7 @@ export default function RecordingStudioScreen() {
     await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
     setRecording(true);
     setActiveLine(0);
+    scrollToRow(0);
     try {
       const video = await cameraRef.current.recordAsync({ maxDuration: 300 });
       if (video) setVideoUri(video.uri);
@@ -376,13 +432,36 @@ export default function RecordingStudioScreen() {
     );
   }
 
+  if (loadError) {
+    return (
+      <View style={[s.center, { justifyContent: "center" }]}>
+        <ErrorState onRetry={retryLoad} />
+      </View>
+    );
+  }
+
+  if (rows.length === 0) {
+    return (
+      <View style={s.center}>
+        <Feather name="file-text" size={40} color={colors.textMuted} />
+        <Text style={s.permTitle}>Script still processing</Text>
+        <Text style={s.permSub}>
+          This script hasn't finished parsing yet. Check back in a moment.
+        </Text>
+        <TouchableOpacity style={s.permBtn} onPress={retryLoad}>
+          <Text style={s.permBtnText}>Reload</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   if (!permission?.granted) {
     return (
       <View style={s.center}>
         <Stack.Screen options={{ title: "Permission", headerStyle: { backgroundColor: colors.bg }, headerTintColor: "#fff" }} />
         <Feather name="camera" size={40} color={colors.textMuted} />
         <Text style={s.permTitle}>Camera Access Required</Text>
-        <Text style={s.permSub}>We need camera and microphone access to record your audition.</Text>
+        <Text style={s.permSub}>We need camera and microphone access to record your read.</Text>
         <TouchableOpacity style={s.permBtn} onPress={requestPermission}>
           <Text style={s.permBtnText}>Grant Permission</Text>
         </TouchableOpacity>
@@ -446,21 +525,96 @@ export default function RecordingStudioScreen() {
   }
 
   // -------------------------------------------------------------------------
-  // Recording view with interleaved teleprompter
+  // Recording view with full-script teleprompter
   // -------------------------------------------------------------------------
+  const activeRow = rows[activeLine];
+
+  const renderRow = ({ item, index }: { item: ScriptRow; index: number }) => {
+    const isActive = activeLine === index;
+    const isPast = index < activeLine;
+    const isCuePlaying = isActive && playingCue && item.kind !== "actor";
+
+    return (
+      <View>
+        {item.sceneHeading ? (
+          <Text style={s.sceneHeading} numberOfLines={1}>
+            {item.sceneHeading}
+          </Text>
+        ) : null}
+        <TouchableOpacity
+          style={[
+            s.lineRow,
+            isActive &&
+              (item.kind === "actor"
+                ? s.lineActiveActor
+                : item.kind === "narrator"
+                ? s.lineActiveNarrator
+                : s.lineActiveCue),
+            isPast && s.linePast,
+          ]}
+          onPress={() => handleLineTap(index)}
+          activeOpacity={0.7}
+        >
+          {item.kind === "narrator" ? (
+            <View style={[s.charLabel, s.charLabelNarrator]}>
+              <Feather name="film" size={11} color={colors.textSecondary} />
+            </View>
+          ) : (
+            <View style={[s.charLabel, item.kind === "actor" ? s.charLabelActor : s.charLabelOther]}>
+              <Text
+                style={[s.charLabelText, item.kind === "actor" ? s.charLabelTextActor : s.charLabelTextOther]}
+                numberOfLines={1}
+              >
+                {item.character}
+              </Text>
+            </View>
+          )}
+
+          <View style={s.lineContent}>
+            <Text
+              style={[
+                s.lineText,
+                item.kind === "actor" && s.lineTextActor,
+                item.kind === "narrator" && s.lineTextNarrator,
+                isActive && s.lineTextActive,
+                isPast && s.lineTextPast,
+              ]}
+              numberOfLines={4}
+            >
+              {item.text}
+            </Text>
+          </View>
+
+          <View style={s.lineStatus}>
+            {isCuePlaying ? (
+              <Animated.View style={{ opacity: pulseAnim }}>
+                <Feather name="volume-2" size={14} color={colors.teal} />
+              </Animated.View>
+            ) : item.kind === "actor" && isActive ? (
+              <Animated.View style={{ opacity: pulseAnim }}>
+                <Feather name="mic" size={14} color={colors.primary} />
+              </Animated.View>
+            ) : item.kind !== "actor" && aiCueReady ? (
+              <Feather name="play" size={12} color={colors.textMuted} />
+            ) : isPast ? (
+              <Feather name="check" size={12} color={colors.green} />
+            ) : null}
+          </View>
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
   return (
     <>
-      <Stack.Screen options={{ title: character?.name ?? "Recording", headerStyle: { backgroundColor: colors.bg }, headerTintColor: "#fff" }} />
+      <Stack.Screen options={{ title: character?.name ?? "Read", headerStyle: { backgroundColor: colors.bg }, headerTintColor: "#fff" }} />
       <View style={s.cameraContainer}>
         <CameraView ref={cameraRef} style={{ flex: 1 }} facing={facing} mode="video">
           {/* Teleprompter overlay */}
           <View style={s.teleprompter}>
-            {/* Header */}
             <View style={s.teleprompterHeader}>
               <View style={s.headerLeft}>
-                <Text style={s.teleprompterTitle}>
-                  {recording ? "Recording" : "Script"}
-                </Text>
+                <Text style={s.teleprompterTitle}>{recording ? "Recording" : "Script"}</Text>
                 {recording && <View style={s.recDot} />}
               </View>
               {!aiCueReady ? (
@@ -475,87 +629,54 @@ export default function RecordingStudioScreen() {
                   )}
                 </TouchableOpacity>
               ) : (
-                <View style={s.aiCueReady}>
-                  <Feather name="volume-2" size={12} color={colors.green} />
-                  <Text style={s.aiCueReadyText}>AI Voices On</Text>
-                </View>
+                <TouchableOpacity
+                  style={[s.aiCueBtn, autoplay && s.autoplayActive]}
+                  onPress={toggleAutoplay}
+                  activeOpacity={0.8}
+                >
+                  <Feather
+                    name={autoplay ? "pause" : "play"}
+                    size={12}
+                    color={autoplay ? "#fff" : colors.primary}
+                  />
+                  <Text style={[s.aiCueBtnText, autoplay && { color: "#fff" }]}>Autoplay</Text>
+                </TouchableOpacity>
               )}
             </View>
 
-            {/* Interleaved dialogue */}
-            <ScrollView
-              ref={scrollRef}
+            <FlatList
+              ref={listRef}
+              data={rows}
+              keyExtractor={(_item, i) => String(i)}
               style={s.teleprompterScroll}
               showsVerticalScrollIndicator={false}
-            >
-              {dialogueLines.map((line, i) => {
-                const isActive = activeLine === i;
-                const isPast = i < activeLine;
-                const isCuePlaying = isActive && playingCue && !line.isActor;
+              renderItem={renderRow}
+              initialNumToRender={20}
+              maxToRenderPerBatch={20}
+              windowSize={11}
+              removeClippedSubviews
+              onScrollToIndexFailed={(info) => {
+                listRef.current?.scrollToOffset({
+                  offset: info.averageItemLength * info.index,
+                  animated: true,
+                });
+              }}
+              ListFooterComponent={<View style={{ height: 40 }} />}
+            />
 
-                return (
-                  <TouchableOpacity
-                    key={i}
-                    style={[
-                      s.lineRow,
-                      isActive && (line.isActor ? s.lineActiveActor : s.lineActiveCue),
-                      isPast && s.linePast,
-                    ]}
-                    onPress={() => handleLineTap(i)}
-                    activeOpacity={0.7}
-                  >
-                    {/* Character label */}
-                    <View style={[s.charLabel, line.isActor ? s.charLabelActor : s.charLabelOther]}>
-                      <Text
-                        style={[s.charLabelText, line.isActor ? s.charLabelTextActor : s.charLabelTextOther]}
-                        numberOfLines={1}
-                      >
-                        {line.character}
-                      </Text>
-                    </View>
-
-                    {/* Line text */}
-                    <View style={s.lineContent}>
-                      <Text
-                        style={[
-                          s.lineText,
-                          line.isActor && s.lineTextActor,
-                          isActive && s.lineTextActive,
-                          isPast && s.lineTextPast,
-                        ]}
-                        numberOfLines={3}
-                      >
-                        {line.text}
-                      </Text>
-                    </View>
-
-                    {/* Status indicator */}
-                    <View style={s.lineStatus}>
-                      {isCuePlaying ? (
-                        <Animated.View style={{ opacity: pulseAnim }}>
-                          <Feather name="volume-2" size={14} color={colors.teal} />
-                        </Animated.View>
-                      ) : line.isActor && isActive ? (
-                        <Animated.View style={{ opacity: pulseAnim }}>
-                          <Feather name="mic" size={14} color={colors.primary} />
-                        </Animated.View>
-                      ) : !line.isActor && aiCueReady ? (
-                        <Feather name="play" size={12} color={colors.textMuted} />
-                      ) : isPast ? (
-                        <Feather name="check" size={12} color={colors.green} />
-                      ) : null}
-                    </View>
-                  </TouchableOpacity>
-                );
-              })}
-              <View style={{ height: 40 }} />
-            </ScrollView>
-
-            {/* Instruction hint */}
             <View style={s.hintBar}>
-              {dialogueLines[activeLine]?.isActor ? (
+              {activeRow?.kind === "actor" ? (
                 <Text style={s.hintText}>
-                  <Text style={{ color: colors.primary }}>Your line</Text> — perform it, then tap to advance
+                  <Text style={{ color: colors.primary }}>Your line</Text> — perform it, then tap{" "}
+                  <Feather name="chevron-down" size={12} color={colors.textSecondary} /> to continue
+                </Text>
+              ) : activeRow?.kind === "narrator" ? (
+                <Text style={s.hintText}>
+                  {aiCueReady ? (
+                    <>Tap to hear the <Text style={{ color: colors.textSecondary }}>narrator</Text></>
+                  ) : (
+                    "Stage direction — tap to advance"
+                  )}
                 </Text>
               ) : aiCueReady ? (
                 <Text style={s.hintText}>
@@ -587,7 +708,7 @@ export default function RecordingStudioScreen() {
               <TouchableOpacity
                 style={s.controlBtn}
                 onPress={advanceLine}
-                disabled={!recording && activeLine >= dialogueLines.length - 1}
+                disabled={!recording && activeLine >= rows.length - 1}
               >
                 <Feather name="chevron-down" size={24} color="#fff" />
               </TouchableOpacity>
@@ -646,7 +767,7 @@ const s = StyleSheet.create({
   // Teleprompter
   teleprompter: {
     position: "absolute", top: 0, left: 0, right: 0,
-    backgroundColor: "rgba(0,0,0,0.85)", maxHeight: "55%",
+    backgroundColor: "rgba(0,0,0,0.85)", maxHeight: "60%",
     borderBottomLeftRadius: radius.xl, borderBottomRightRadius: radius.xl,
   },
   teleprompterHeader: {
@@ -662,10 +783,18 @@ const s = StyleSheet.create({
     backgroundColor: colors.primaryMuted, paddingHorizontal: 12, paddingVertical: 6, borderRadius: radius.full,
   },
   aiCueBtnText: { color: colors.primary, fontSize: 12, fontWeight: "600" },
+  autoplayActive: { backgroundColor: colors.primary },
   aiCueReady: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 12, paddingVertical: 6 },
   aiCueReadyText: { color: colors.green, fontSize: 12, fontWeight: "600" },
 
-  teleprompterScroll: { paddingHorizontal: 12, paddingTop: 8, maxHeight: 280 },
+  teleprompterScroll: { paddingHorizontal: 12, paddingTop: 8 },
+
+  // Scene heading divider
+  sceneHeading: {
+    color: colors.textMuted, fontSize: 10, fontWeight: "700",
+    letterSpacing: 1, textTransform: "uppercase",
+    marginTop: 10, marginBottom: 4, paddingHorizontal: 10,
+  },
 
   // Dialogue lines
   lineRow: {
@@ -675,6 +804,7 @@ const s = StyleSheet.create({
   },
   lineActiveActor: { backgroundColor: "rgba(108,92,231,0.2)", borderWidth: 1, borderColor: "rgba(108,92,231,0.4)" },
   lineActiveCue: { backgroundColor: "rgba(0,206,201,0.12)", borderWidth: 1, borderColor: "rgba(0,206,201,0.3)" },
+  lineActiveNarrator: { backgroundColor: "rgba(255,255,255,0.06)", borderWidth: 1, borderColor: "rgba(255,255,255,0.18)" },
   linePast: { opacity: 0.4 },
 
   charLabel: {
@@ -683,6 +813,7 @@ const s = StyleSheet.create({
   },
   charLabelActor: { backgroundColor: colors.primaryMuted },
   charLabelOther: { backgroundColor: "rgba(255,255,255,0.08)" },
+  charLabelNarrator: { backgroundColor: "rgba(255,255,255,0.05)", minWidth: 36 },
   charLabelText: { fontSize: 10, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5 },
   charLabelTextActor: { color: colors.primary },
   charLabelTextOther: { color: colors.textSecondary },
@@ -690,6 +821,7 @@ const s = StyleSheet.create({
   lineContent: { flex: 1 },
   lineText: { color: "rgba(255,255,255,0.55)", fontSize: 14, lineHeight: 19 },
   lineTextActor: { color: "rgba(255,255,255,0.7)" },
+  lineTextNarrator: { color: "rgba(255,255,255,0.5)", fontStyle: "italic" },
   lineTextActive: { color: "#fff", fontWeight: "500" },
   lineTextPast: { color: "rgba(255,255,255,0.3)" },
 
