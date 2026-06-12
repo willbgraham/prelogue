@@ -4,8 +4,10 @@ import {
   Text,
   TouchableOpacity,
   FlatList,
+  ScrollView,
   ActivityIndicator,
   Alert,
+  Platform,
   StyleSheet,
 } from "react-native";
 import { useLocalSearchParams, useRouter, Stack, useFocusEffect } from "expo-router";
@@ -16,6 +18,11 @@ import { supabase } from "@/lib/supabase";
 import { ErrorState } from "@/components/ErrorState";
 import type { ParsedScript } from "@/lib/types";
 import { colors, radius, spacing } from "@/lib/theme";
+
+// Soft paper-white for the screenplay "page" — gentler than pure #fff against
+// the dark UI and the video clips. Monospace gives the typed-screenplay feel.
+const PAGE_BG = "#F7F6F2";
+const MONO = Platform.select({ ios: "Courier", android: "monospace", default: "monospace" });
 
 interface Row {
   elementIndex: number;
@@ -89,6 +96,7 @@ export default function TableReadPlayScreen() {
   const [playing, setPlaying] = useState(false);
   const [medium, setMedium] = useState<Medium>("idle");
   const [clipCount, setClipCount] = useState(0);
+  const [reveal, setReveal] = useState(0); // chars of the current line typed so far
 
   const manifestRef = useRef<Map<number, LoadedCue>>(new Map());
   const clipsRef = useRef<Map<number, ClipMedia>>(new Map());
@@ -96,6 +104,7 @@ export default function TableReadPlayScreen() {
   const playingRef = useRef(false);
   const activeRef = useRef(0);
   const mediumRef = useRef<Medium>("idle");
+  const pageScrollRef = useRef<ScrollView>(null);
 
   // One persistent video player drives the "stage" for cast actors' clips.
   const videoPlayer = useVideoPlayer("", (p) => {
@@ -122,6 +131,11 @@ export default function TableReadPlayScreen() {
     });
     return () => sub.remove();
   }, [videoPlayer]);
+
+  // Keep the latest typed text in view as a narrator/AI line types out.
+  useEffect(() => {
+    pageScrollRef.current?.scrollToEnd({ animated: false });
+  }, [reveal]);
 
   // Pause everything when the screen loses focus; the play button resumes.
   useFocusEffect(
@@ -298,23 +312,39 @@ export default function TableReadPlayScreen() {
       return; // the playToEnd listener advances
     }
 
-    // ---- AI voice ----
+    // ---- AI voice — type the line onto a screenplay page as it's read ----
     setMediumState("audio");
+    setReveal(0);
     try {
       videoPlayer.pause();
     } catch {}
+    const textLen = row.text.length;
     const cue = manifestRef.current.get(row.elementIndex);
     if (!cue?.signedUrl) {
+      setReveal(textLen); // no audio — show the whole line, then move on
       if (playingRef.current) setTimeout(() => advance(rowPos), 30);
       return;
     }
     try {
       await unloadAudio();
       await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
-      const { sound } = await Audio.Sound.createAsync({ uri: cue.signedUrl }, { shouldPlay: true });
+      const { sound } = await Audio.Sound.createAsync(
+        { uri: cue.signedUrl },
+        { shouldPlay: true, progressUpdateIntervalMillis: 80 }
+      );
       soundRef.current = sound;
       sound.setOnPlaybackStatusUpdate((status) => {
-        if (status.isLoaded && status.didJustFinish && playingRef.current && mediumRef.current === "audio") {
+        if (!status.isLoaded) return;
+        // Reveal text in step with how far the narration has played.
+        if (mediumRef.current === "audio") {
+          const dur = status.durationMillis ?? 0;
+          if (dur > 0) {
+            const frac = Math.min(1, (status.positionMillis ?? 0) / dur);
+            setReveal(Math.max(1, Math.ceil(textLen * frac)));
+          }
+        }
+        if (status.didJustFinish && playingRef.current && mediumRef.current === "audio") {
+          setReveal(textLen);
           advance(rowPos);
         }
       });
@@ -463,21 +493,24 @@ export default function TableReadPlayScreen() {
         <View style={s.stage}>
           <VideoView player={videoPlayer} style={StyleSheet.absoluteFill} contentFit="contain" nativeControls={false} />
           {medium !== "video" && (
-            <View style={s.stagePlaceholder}>
-              {activeRow?.kind === "narrator" ? (
-                <View style={s.stageAvatar}>
-                  <Feather name="film" size={22} color={colors.textSecondary} />
-                </View>
-              ) : (
-                <View style={s.stageAvatar}>
-                  <Text style={s.stageInitial}>{activeRow?.character?.charAt(0) ?? "?"}</Text>
-                </View>
-              )}
-              <Text style={s.stageName}>{activeRow?.kind === "narrator" ? "Narrator" : activeRow?.character}</Text>
-              <View style={s.aiPill}>
-                <Feather name="volume-2" size={11} color={colors.primary} />
-                <Text style={s.aiPillText}>AI voice</Text>
-              </View>
+            <View style={s.page}>
+              {activeRow?.sceneHeading ? (
+                <Text style={s.pageSlug} numberOfLines={1}>{activeRow.sceneHeading}</Text>
+              ) : null}
+              <ScrollView
+                ref={pageScrollRef}
+                style={s.pageScroll}
+                contentContainerStyle={s.pageScrollContent}
+                showsVerticalScrollIndicator={false}
+              >
+                {activeRow?.kind === "line" && activeRow.character ? (
+                  <Text style={s.pageChar}>{activeRow.character}</Text>
+                ) : null}
+                <Text style={activeRow?.kind === "narrator" ? s.pageAction : s.pageDialogue}>
+                  {(activeRow?.text ?? "").slice(0, reveal)}
+                  {reveal < (activeRow?.text?.length ?? 0) ? <Text style={s.cursor}>▌</Text> : null}
+                </Text>
+              </ScrollView>
             </View>
           )}
           {medium === "video" && activeClip && (
@@ -551,15 +584,15 @@ const s = StyleSheet.create({
     height: 270, backgroundColor: "#000", alignItems: "center", justifyContent: "center",
     borderBottomWidth: 1, borderBottomColor: colors.cardBorder,
   },
-  stagePlaceholder: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", backgroundColor: colors.elevated, gap: 10 },
-  stageAvatar: {
-    width: 72, height: 72, borderRadius: 36, backgroundColor: colors.primaryMuted,
-    alignItems: "center", justifyContent: "center",
-  },
-  stageInitial: { color: colors.primary, fontSize: 30, fontWeight: "800" },
-  stageName: { color: colors.text, fontSize: 16, fontWeight: "700" },
-  aiPill: { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: colors.primaryMuted, paddingHorizontal: 12, paddingVertical: 5, borderRadius: radius.full },
-  aiPillText: { color: colors.primary, fontSize: 12, fontWeight: "600" },
+  // Screenplay "page" shown while the AI reads (typed out in sync with speech).
+  page: { ...StyleSheet.absoluteFillObject, backgroundColor: PAGE_BG, paddingHorizontal: 24, paddingVertical: 16 },
+  pageSlug: { fontFamily: MONO, fontSize: 11, fontWeight: "700", color: "#8a8a8a", letterSpacing: 1, marginBottom: 10, textTransform: "uppercase" },
+  pageScroll: { flex: 1 },
+  pageScrollContent: { flexGrow: 1, justifyContent: "center" },
+  pageChar: { fontFamily: MONO, fontSize: 15, fontWeight: "700", color: "#1a1a1a", textAlign: "center", letterSpacing: 1, marginBottom: 6 },
+  pageDialogue: { fontFamily: MONO, fontSize: 16, color: "#222", textAlign: "center", lineHeight: 24, paddingHorizontal: 8 },
+  pageAction: { fontFamily: MONO, fontSize: 15, color: "#333", textAlign: "left", lineHeight: 23 },
+  cursor: { color: colors.primary, fontFamily: MONO, fontWeight: "700" },
   stageTag: {
     position: "absolute", bottom: 12, left: 12, flexDirection: "row", alignItems: "center", gap: 6,
     backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 12, paddingVertical: 6, borderRadius: radius.full,
