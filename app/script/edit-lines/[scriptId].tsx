@@ -4,7 +4,6 @@ import {
   Text,
   TouchableOpacity,
   FlatList,
-  ScrollView,
   ActivityIndicator,
   Alert,
   StyleSheet,
@@ -16,7 +15,6 @@ import { ErrorState } from "@/components/ErrorState";
 import type { ParsedScript } from "@/lib/types";
 import { colors, radius, spacing } from "@/lib/theme";
 
-const NARRATOR = "__narrator__";
 const MERGE_CAP = 2500;
 
 interface Item {
@@ -27,6 +25,35 @@ interface Item {
   text: string;
 }
 
+// Common screenplay abbreviations whose trailing period is NOT a sentence end.
+const ABBR = new Set([
+  "PVT", "SGT", "LT", "CPL", "COL", "GEN", "CAPT", "CMDR", "MAJ",
+  "MR", "MRS", "MS", "DR", "JR", "SR", "ST", "VS", "DEPT", "GOV", "REP", "SEN", "PROF", "NO",
+]);
+function endsWithAbbrev(s: string): boolean {
+  const m = s.match(/(\S+)\.$/);
+  if (!m) return false;
+  const w = m[1];
+  return /^[A-Za-z]$/.test(w) || ABBR.has(w.toUpperCase()); // single initial or known abbrev
+}
+
+// Break a chunk into sentences so each line is movable on its own — but keep
+// abbreviations/initials (PVT., D.W., etc.) attached to the next fragment.
+function splitSentences(text: string): string[] {
+  const raw = (text.match(/.*?[.!?]+(?:\s+|$)|.+$/g) ?? [text])
+    .map((p) => p.trim())
+    .filter(Boolean);
+  const out: string[] = [];
+  for (const part of raw) {
+    if (out.length && endsWithAbbrev(out[out.length - 1])) {
+      out[out.length - 1] = `${out[out.length - 1]} ${part}`;
+    } else {
+      out.push(part);
+    }
+  }
+  return out.length ? out : [text];
+}
+
 export default function EditLinesScreen() {
   const { scriptId } = useLocalSearchParams<{ scriptId: string }>();
   const router = useRouter();
@@ -34,12 +61,10 @@ export default function EditLinesScreen() {
   const [title, setTitle] = useState("Edit Lines");
   const [items, setItems] = useState<Item[]>([]);
   const [headings, setHeadings] = useState<Record<number, string>>({});
-  const [characterNames, setCharacterNames] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
-  const [sheetKey, setSheetKey] = useState<string | null>(null);
   const [mergeSourceKey, setMergeSourceKey] = useState<string | null>(null);
 
   const parsedRef = useRef<any>(null);
@@ -61,30 +86,26 @@ export default function EditLinesScreen() {
       const parsed = script.parsed_json as ParsedScript | null;
       parsedRef.current = parsed ?? {};
 
+      // Flatten + split every element into sentences so each row is movable.
       const its: Item[] = [];
       const hs: Record<number, string> = {};
       for (const scene of parsed?.scenes ?? []) {
         hs[scene.scene_index] = scene.heading ?? "";
         for (const el of scene.elements ?? []) {
           if (el.type === "character") continue; // redundant speaker label
-          its.push({
-            key: String(keyCounter.current++),
-            sceneIndex: scene.scene_index,
-            type: el.type,
-            character_name: el.character_name,
-            text: el.text,
-          });
+          for (const sent of splitSentences(el.text)) {
+            its.push({
+              key: String(keyCounter.current++),
+              sceneIndex: scene.scene_index,
+              type: el.type,
+              character_name: el.character_name,
+              text: sent,
+            });
+          }
         }
       }
       setItems(its);
       setHeadings(hs);
-      const names = Array.from(
-        new Set([
-          ...((parsed as any)?.characters ?? []).map((c: any) => c.name),
-          ...its.filter((i) => i.character_name).map((i) => i.character_name as string),
-        ])
-      ).sort();
-      setCharacterNames(names);
       setLoadError(false);
     } catch (err) {
       console.warn("Edit lines load error:", err);
@@ -94,47 +115,8 @@ export default function EditLinesScreen() {
     }
   }
 
-  function reassign(key: string, role: string) {
-    setItems((prev) =>
-      prev.map((i) =>
-        i.key === key
-          ? role === NARRATOR
-            ? { ...i, type: "action", character_name: undefined }
-            : { ...i, type: "dialogue", character_name: role }
-          : i
-      )
-    );
-    setDirty(true);
-    setSheetKey(null);
-  }
-
-  function splitItem(key: string) {
-    setItems((prev) => {
-      const idx = prev.findIndex((i) => i.key === key);
-      if (idx < 0) return prev;
-      const item = prev[idx];
-      const parts = (item.text.match(/.*?[.!?]+(?:\s+|$)|.+$/g) ?? [item.text])
-        .map((p) => p.trim())
-        .filter(Boolean);
-      if (parts.length <= 1) {
-        Alert.alert("Can't split", "This line is a single sentence.");
-        return prev;
-      }
-      const created = parts.map((t) => ({
-        key: String(keyCounter.current++),
-        sceneIndex: item.sceneIndex,
-        type: item.type,
-        character_name: item.character_name,
-        text: t,
-      }));
-      return [...prev.slice(0, idx), ...created, ...prev.slice(idx + 1)];
-    });
-    setDirty(true);
-    setSheetKey(null);
-  }
-
-  // Fold one line's text into another line (keeping the target's speaker),
-  // preserving reading order, and remove the source line.
+  // Fold one line's text into another (keeping the target's speaker), preserving
+  // reading order, and remove the source line.
   function mergeInto(sourceKey: string, targetKey: string) {
     if (sourceKey === targetKey) {
       setMergeSourceKey(null);
@@ -160,7 +142,6 @@ export default function EditLinesScreen() {
   async function save() {
     setSaving(true);
     try {
-      // Preserve scene order, regroup items by scene.
       const order: number[] = [];
       const seen = new Set<number>();
       for (const it of items) {
@@ -235,27 +216,26 @@ export default function EditLinesScreen() {
     );
   }
 
-  const sheetItem = items.find((i) => i.key === sheetKey) || null;
-
   const renderItem = ({ item, index }: { item: Item; index: number }) => {
     const prev = items[index - 1];
     const showHeading = index === 0 || prev?.sceneIndex !== item.sceneIndex;
     const isNarr = item.type !== "dialogue";
-    const isMergeSource = mergeSourceKey === item.key;
+    const isSource = mergeSourceKey === item.key;
+    const isTargetable = !!mergeSourceKey && !isSource;
     return (
       <View>
         {showHeading && headings[item.sceneIndex] ? (
           <Text style={s.heading} numberOfLines={1}>{headings[item.sceneIndex]}</Text>
         ) : null}
         <TouchableOpacity
-          style={[s.row, isMergeSource && s.rowMergeSource]}
+          style={[s.row, isSource && s.rowSource, isTargetable && s.rowTargetable]}
           activeOpacity={0.7}
           onPress={() => {
             if (mergeSourceKey) {
-              if (mergeSourceKey === item.key) setMergeSourceKey(null);
+              if (isSource) setMergeSourceKey(null);
               else mergeInto(mergeSourceKey, item.key);
             } else {
-              setSheetKey(item.key);
+              setMergeSourceKey(item.key);
             }
           }}
         >
@@ -269,7 +249,7 @@ export default function EditLinesScreen() {
           <Text style={[s.lineText, isNarr && s.lineTextNarr]} numberOfLines={3}>
             {item.text}
           </Text>
-          <Feather name="edit-2" size={13} color={colors.textMuted} />
+          {isTargetable ? <Feather name="corner-down-left" size={15} color={colors.primary} /> : null}
         </TouchableOpacity>
       </View>
     );
@@ -294,15 +274,15 @@ export default function EditLinesScreen() {
       />
 
       {mergeSourceKey ? (
-        <View style={s.mergeBanner}>
-          <Feather name="corner-up-left" size={14} color="#fff" />
-          <Text style={s.mergeBannerText} numberOfLines={1}>Tap the line to merge this into</Text>
+        <View style={s.banner}>
+          <Feather name="corner-down-left" size={14} color="#fff" />
+          <Text style={s.bannerText} numberOfLines={1}>Now tap the line this should join</Text>
           <TouchableOpacity onPress={() => setMergeSourceKey(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-            <Text style={s.mergeCancel}>Cancel</Text>
+            <Text style={s.bannerCancel}>Cancel</Text>
           </TouchableOpacity>
         </View>
       ) : (
-        <Text style={s.hint}>Tap a line to reassign it, split it, or move it into another line.</Text>
+        <Text style={s.hint}>Tap a line, then tap the line it should be joined to (it takes that line's speaker).</Text>
       )}
 
       <FlatList
@@ -311,50 +291,10 @@ export default function EditLinesScreen() {
         renderItem={renderItem}
         contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: 60 }}
         initialNumToRender={25}
+        maxToRenderPerBatch={25}
         windowSize={11}
         removeClippedSubviews
       />
-
-      {sheetItem && (
-        <View style={s.overlay}>
-          <TouchableOpacity style={s.scrim} activeOpacity={1} onPress={() => setSheetKey(null)} />
-          <View style={s.sheet}>
-            <Text style={s.sheetLine} numberOfLines={3}>“{sheetItem.text}”</Text>
-            <Text style={s.sheetLabel}>ASSIGN TO</Text>
-            <ScrollView style={{ maxHeight: 300 }} keyboardShouldPersistTaps="handled">
-              <TouchableOpacity style={s.roleBtn} onPress={() => reassign(sheetItem.key, NARRATOR)}>
-                <Feather name="film" size={15} color={colors.textSecondary} />
-                <Text style={s.roleBtnText}>Narrator</Text>
-                {sheetItem.type !== "dialogue" && <Feather name="check" size={16} color={colors.primary} />}
-              </TouchableOpacity>
-              {characterNames.map((name) => (
-                <TouchableOpacity key={name} style={s.roleBtn} onPress={() => reassign(sheetItem.key, name)}>
-                  <Feather name="user" size={15} color={colors.primary} />
-                  <Text style={s.roleBtnText}>{name}</Text>
-                  {sheetItem.type === "dialogue" && sheetItem.character_name === name && (
-                    <Feather name="check" size={16} color={colors.primary} />
-                  )}
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-            <TouchableOpacity
-              style={s.splitBtn}
-              onPress={() => { setMergeSourceKey(sheetItem.key); setSheetKey(null); }}
-              activeOpacity={0.8}
-            >
-              <Feather name="corner-up-left" size={15} color={colors.text} />
-              <Text style={s.splitBtnText}>Move into another line</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[s.splitBtn, { marginTop: spacing.sm }]} onPress={() => splitItem(sheetItem.key)} activeOpacity={0.8}>
-              <Feather name="scissors" size={15} color={colors.text} />
-              <Text style={s.splitBtnText}>Split into sentences</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={s.cancelBtn} onPress={() => setSheetKey(null)} activeOpacity={0.7}>
-              <Text style={s.cancelText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
     </View>
   );
 }
@@ -364,33 +304,19 @@ const s = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.bg, paddingHorizontal: 32 },
   saveText: { color: colors.primary, fontSize: 16, fontWeight: "700", marginRight: 8 },
   hint: { color: colors.textMuted, fontSize: 12, lineHeight: 17, paddingHorizontal: spacing.lg, paddingVertical: spacing.md },
-  mergeBanner: { flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: spacing.lg, marginVertical: spacing.sm, paddingHorizontal: spacing.md, paddingVertical: 10, borderRadius: radius.md, backgroundColor: colors.primary },
-  mergeBannerText: { color: "#fff", fontSize: 13, fontWeight: "600", flex: 1 },
-  mergeCancel: { color: "#fff", fontSize: 13, fontWeight: "700", textDecorationLine: "underline" },
+
+  banner: { flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: spacing.lg, marginVertical: spacing.sm, paddingHorizontal: spacing.md, paddingVertical: 10, borderRadius: radius.md, backgroundColor: colors.primary },
+  bannerText: { color: "#fff", fontSize: 13, fontWeight: "600", flex: 1 },
+  bannerCancel: { color: "#fff", fontSize: 13, fontWeight: "700", textDecorationLine: "underline" },
 
   heading: { color: colors.textMuted, fontSize: 10, fontWeight: "700", letterSpacing: 1, textTransform: "uppercase", marginTop: 14, marginBottom: 6, paddingHorizontal: 4 },
   row: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10, paddingHorizontal: 8, borderRadius: radius.md, marginBottom: 4, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardBorder },
-  rowMergeSource: { borderColor: colors.primary, borderWidth: 2, backgroundColor: colors.primaryMuted },
+  rowSource: { borderColor: colors.primary, borderWidth: 2, backgroundColor: colors.primaryMuted },
+  rowTargetable: { borderColor: "rgba(108,92,231,0.35)" },
   tag: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.sm, minWidth: 60, alignItems: "center" },
   tagChar: { backgroundColor: "rgba(108,92,231,0.18)" },
   tagCharText: { color: colors.primary, fontSize: 10, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.4 },
   tagNarr: { backgroundColor: colors.elevated, minWidth: 36 },
   lineText: { flex: 1, color: colors.text, fontSize: 14, lineHeight: 19 },
   lineTextNarr: { color: colors.textSecondary, fontStyle: "italic" },
-
-  overlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, justifyContent: "flex-end", zIndex: 100 },
-  scrim: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.6)" },
-  sheet: {
-    backgroundColor: colors.card, borderTopLeftRadius: radius.xxl, borderTopRightRadius: radius.xxl,
-    paddingHorizontal: spacing.xl, paddingTop: spacing.lg, paddingBottom: spacing.xxl,
-    borderTopWidth: 1, borderColor: colors.cardBorder,
-  },
-  sheetLine: { color: colors.text, fontSize: 15, fontStyle: "italic", marginBottom: spacing.lg },
-  sheetLabel: { color: colors.textMuted, fontSize: 11, fontWeight: "700", letterSpacing: 1, marginBottom: spacing.sm },
-  roleBtn: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.cardBorder },
-  roleBtnText: { color: colors.text, fontSize: 15, fontWeight: "600", flex: 1 },
-  splitBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: spacing.lg, paddingVertical: 12, borderRadius: radius.lg, backgroundColor: colors.elevated, borderWidth: 1, borderColor: colors.cardBorder },
-  splitBtnText: { color: colors.text, fontWeight: "600", fontSize: 14 },
-  cancelBtn: { alignItems: "center", paddingVertical: 14, marginTop: spacing.sm },
-  cancelText: { color: colors.textSecondary, fontSize: 15, fontWeight: "600" },
 });
