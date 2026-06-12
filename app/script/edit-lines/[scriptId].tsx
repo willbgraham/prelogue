@@ -40,6 +40,7 @@ export default function EditLinesScreen() {
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [sheetKey, setSheetKey] = useState<string | null>(null);
+  const [mergeSourceKey, setMergeSourceKey] = useState<string | null>(null);
 
   const parsedRef = useRef<any>(null);
   const keyCounter = useRef(0);
@@ -132,6 +133,30 @@ export default function EditLinesScreen() {
     setSheetKey(null);
   }
 
+  // Fold one line's text into another line (keeping the target's speaker),
+  // preserving reading order, and remove the source line.
+  function mergeInto(sourceKey: string, targetKey: string) {
+    if (sourceKey === targetKey) {
+      setMergeSourceKey(null);
+      return;
+    }
+    setItems((prev) => {
+      const srcIdx = prev.findIndex((i) => i.key === sourceKey);
+      const tgtIdx = prev.findIndex((i) => i.key === targetKey);
+      if (srcIdx < 0 || tgtIdx < 0) return prev;
+      const src = prev[srcIdx];
+      const tgt = prev[tgtIdx];
+      const mergedText = (srcIdx < tgtIdx ? `${src.text} ${tgt.text}` : `${tgt.text} ${src.text}`)
+        .replace(/\s+/g, " ")
+        .trim();
+      return prev
+        .map((i) => (i.key === targetKey ? { ...i, text: mergedText } : i))
+        .filter((i) => i.key !== sourceKey);
+    });
+    setMergeSourceKey(null);
+    setDirty(true);
+  }
+
   async function save() {
     setSaving(true);
     try {
@@ -216,12 +241,24 @@ export default function EditLinesScreen() {
     const prev = items[index - 1];
     const showHeading = index === 0 || prev?.sceneIndex !== item.sceneIndex;
     const isNarr = item.type !== "dialogue";
+    const isMergeSource = mergeSourceKey === item.key;
     return (
       <View>
         {showHeading && headings[item.sceneIndex] ? (
           <Text style={s.heading} numberOfLines={1}>{headings[item.sceneIndex]}</Text>
         ) : null}
-        <TouchableOpacity style={s.row} activeOpacity={0.7} onPress={() => setSheetKey(item.key)}>
+        <TouchableOpacity
+          style={[s.row, isMergeSource && s.rowMergeSource]}
+          activeOpacity={0.7}
+          onPress={() => {
+            if (mergeSourceKey) {
+              if (mergeSourceKey === item.key) setMergeSourceKey(null);
+              else mergeInto(mergeSourceKey, item.key);
+            } else {
+              setSheetKey(item.key);
+            }
+          }}
+        >
           <View style={[s.tag, isNarr ? s.tagNarr : s.tagChar]}>
             {isNarr ? (
               <Feather name="film" size={11} color={colors.textSecondary} />
@@ -256,7 +293,17 @@ export default function EditLinesScreen() {
         }}
       />
 
-      <Text style={s.hint}>Tap a line to reassign it to a character or the narrator. Split a chunk first if only part of it is wrong.</Text>
+      {mergeSourceKey ? (
+        <View style={s.mergeBanner}>
+          <Feather name="corner-up-left" size={14} color="#fff" />
+          <Text style={s.mergeBannerText} numberOfLines={1}>Tap the line to merge this into</Text>
+          <TouchableOpacity onPress={() => setMergeSourceKey(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Text style={s.mergeCancel}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <Text style={s.hint}>Tap a line to reassign it, split it, or move it into another line.</Text>
+      )}
 
       <FlatList
         data={items}
@@ -290,7 +337,15 @@ export default function EditLinesScreen() {
                 </TouchableOpacity>
               ))}
             </ScrollView>
-            <TouchableOpacity style={s.splitBtn} onPress={() => splitItem(sheetItem.key)} activeOpacity={0.8}>
+            <TouchableOpacity
+              style={s.splitBtn}
+              onPress={() => { setMergeSourceKey(sheetItem.key); setSheetKey(null); }}
+              activeOpacity={0.8}
+            >
+              <Feather name="corner-up-left" size={15} color={colors.text} />
+              <Text style={s.splitBtnText}>Move into another line</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[s.splitBtn, { marginTop: spacing.sm }]} onPress={() => splitItem(sheetItem.key)} activeOpacity={0.8}>
               <Feather name="scissors" size={15} color={colors.text} />
               <Text style={s.splitBtnText}>Split into sentences</Text>
             </TouchableOpacity>
@@ -309,9 +364,13 @@ const s = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.bg, paddingHorizontal: 32 },
   saveText: { color: colors.primary, fontSize: 16, fontWeight: "700", marginRight: 8 },
   hint: { color: colors.textMuted, fontSize: 12, lineHeight: 17, paddingHorizontal: spacing.lg, paddingVertical: spacing.md },
+  mergeBanner: { flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: spacing.lg, marginVertical: spacing.sm, paddingHorizontal: spacing.md, paddingVertical: 10, borderRadius: radius.md, backgroundColor: colors.primary },
+  mergeBannerText: { color: "#fff", fontSize: 13, fontWeight: "600", flex: 1 },
+  mergeCancel: { color: "#fff", fontSize: 13, fontWeight: "700", textDecorationLine: "underline" },
 
   heading: { color: colors.textMuted, fontSize: 10, fontWeight: "700", letterSpacing: 1, textTransform: "uppercase", marginTop: 14, marginBottom: 6, paddingHorizontal: 4 },
   row: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10, paddingHorizontal: 8, borderRadius: radius.md, marginBottom: 4, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardBorder },
+  rowMergeSource: { borderColor: colors.primary, borderWidth: 2, backgroundColor: colors.primaryMuted },
   tag: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.sm, minWidth: 60, alignItems: "center" },
   tagChar: { backgroundColor: "rgba(108,92,231,0.18)" },
   tagCharText: { color: colors.primary, fontSize: 10, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.4 },
