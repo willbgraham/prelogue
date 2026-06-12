@@ -246,6 +246,31 @@ Deno.serve(async (req) => {
       current.elements.push({ type: "action", text: line });
     }
 
+    // -----------------------------------------------------------------------
+    // Merge consecutive same-speaker lines into one chunk so the narrator (and
+    // each character) reads a continuous block instead of pausing/hard-cutting
+    // on every wrapped line. Action runs merge until the next character speaks;
+    // dialogue runs merge per speaker. Capped so a single TTS stays reasonable.
+    // -----------------------------------------------------------------------
+    const MERGE_CAP = 2500;
+    for (const scene of scenes) {
+      const merged: SceneElement[] = [];
+      for (const el of scene.elements) {
+        const last = merged[merged.length - 1];
+        const sameRun =
+          !!last &&
+          last.type === el.type &&
+          (el.type === "action" ||
+            (el.type === "dialogue" && last.character_name === el.character_name));
+        if (sameRun && last!.text.length + el.text.length + 1 <= MERGE_CAP) {
+          last!.text = `${last!.text} ${el.text}`;
+        } else {
+          merged.push({ ...el });
+        }
+      }
+      scene.elements = merged;
+    }
+
     const totalElements = scenes.reduce((n, s) => n + s.elements.length, 0);
 
     // Debug mode: inspect extraction without writing to the DB.
