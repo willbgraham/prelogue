@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { useLocalSearchParams, useRouter, Stack, useFocusEffect } from "expo-router";
 import { Audio } from "expo-av";
+import { useVideoPlayer, VideoView } from "expo-video";
 import { Feather } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
 import { ErrorState } from "@/components/ErrorState";
@@ -29,6 +30,13 @@ interface LoadedCue {
   audio_path: string;
   signedUrl: string;
 }
+/** A cast actor's recorded clip for one line. */
+interface ClipMedia {
+  uri: string;
+  actor: string;
+}
+
+type Medium = "idle" | "audio" | "video";
 
 function buildRows(
   parsed: ParsedScript | undefined,
@@ -79,30 +87,54 @@ export default function TableReadPlayScreen() {
   const [ready, setReady] = useState(false);
   const [active, setActive] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const [medium, setMedium] = useState<Medium>("idle");
+  const [clipCount, setClipCount] = useState(0);
 
   const manifestRef = useRef<Map<number, LoadedCue>>(new Map());
+  const clipsRef = useRef<Map<number, ClipMedia>>(new Map());
   const soundRef = useRef<Audio.Sound | null>(null);
   const playingRef = useRef(false);
+  const activeRef = useRef(0);
+  const mediumRef = useRef<Medium>("idle");
+
+  // One persistent video player drives the "stage" for cast actors' clips.
+  const videoPlayer = useVideoPlayer("", (p) => {
+    p.loop = false;
+  });
 
   useEffect(() => {
     load();
     return () => {
       playingRef.current = false;
       soundRef.current?.unloadAsync().catch(() => {});
+      try {
+        videoPlayer.pause();
+      } catch {}
     };
   }, [scriptId]);
 
-  // Pause whenever the screen loses focus (back, tab switch, app backgrounded)
-  // so the voices never keep playing once you've left. The transport's play
-  // button doubles as Resume when you come back.
+  // Advance when a cast actor's clip finishes.
+  useEffect(() => {
+    const sub = videoPlayer.addListener("playToEnd", () => {
+      if (playingRef.current && mediumRef.current === "video") {
+        advance(activeRef.current);
+      }
+    });
+    return () => sub.remove();
+  }, [videoPlayer]);
+
+  // Pause everything when the screen loses focus; the play button resumes.
   useFocusEffect(
     useCallback(() => {
       return () => {
         playingRef.current = false;
         setPlaying(false);
         soundRef.current?.pauseAsync().catch(() => {});
+        try {
+          videoPlayer.pause();
+        } catch {}
       };
-    }, [])
+    }, [videoPlayer])
   );
 
   async function load() {
@@ -115,19 +147,47 @@ export default function TableReadPlayScreen() {
       if (error) throw error;
       setTitle(script.title ?? "Table Read");
 
-      // Which characters are cast by a real actor (Writer's Choice)?
+      // Writer's Choice submissions = the cast. Pull their per-line clips so we
+      // can play the real actor's video where they have one.
       const { data: subs } = await supabase
         .from("submissions")
         .select(
-          "character:characters!submissions_character_id_fkey(name), actor:users!submissions_actor_id_fkey(display_name)"
+          "clips, video_url, character:characters!submissions_character_id_fkey(name), actor:users!submissions_actor_id_fkey(display_name)"
         )
         .eq("script_id", scriptId)
         .eq("is_writers_choice", true);
+
       const castByChar: Record<string, string> = {};
+      const clipPaths: { element_index: number; path: string; actor: string }[] = [];
       for (const sub of (subs as any[]) ?? []) {
         const name = sub.character?.name?.toUpperCase();
-        if (name) castByChar[name] = sub.actor?.display_name ?? "Actor";
+        const actorName = sub.actor?.display_name ?? "Actor";
+        if (name) castByChar[name] = actorName;
+        if (Array.isArray(sub.clips)) {
+          for (const c of sub.clips) {
+            if (c && typeof c.element_index === "number" && c.clip_url) {
+              clipPaths.push({ element_index: c.element_index, path: c.clip_url, actor: actorName });
+            }
+          }
+        }
       }
+
+      // Sign the clip paths once for the session.
+      const clipMap = new Map<number, ClipMedia>();
+      const uniquePaths = [...new Set(clipPaths.map((c) => c.path))];
+      if (uniquePaths.length) {
+        const { data: signed } = await supabase.storage
+          .from("submissions")
+          .createSignedUrls(uniquePaths, 86400);
+        const urlByPath = new Map<string, string>();
+        uniquePaths.forEach((p, i) => urlByPath.set(p, signed?.[i]?.signedUrl ?? ""));
+        for (const c of clipPaths) {
+          const uri = urlByPath.get(c.path);
+          if (uri) clipMap.set(c.element_index, { uri, actor: c.actor });
+        }
+      }
+      clipsRef.current = clipMap;
+      setClipCount(clipMap.size);
 
       setRows(buildRows(script.parsed_json as any, castByChar));
       setLoadError(false);
@@ -194,35 +254,67 @@ export default function TableReadPlayScreen() {
     }
   }
 
+  async function unloadAudio() {
+    if (soundRef.current) {
+      await soundRef.current.unloadAsync().catch(() => {});
+      soundRef.current = null;
+    }
+  }
+
+  function setActiveRow(pos: number) {
+    activeRef.current = pos;
+    setActive(pos);
+  }
+  function setMediumState(m: Medium) {
+    mediumRef.current = m;
+    setMedium(m);
+  }
+
   async function playRow(rowPos: number) {
     const row = rows[rowPos];
     if (!row) {
       stop();
       return;
     }
-    // Bail if we're no longer meant to be playing (paused, or the screen was
-    // left while a queued advance was pending) — otherwise this would spin up a
-    // fresh sound that nothing stops.
+    // Bail if we're paused or left the screen while an advance was queued —
+    // otherwise this would restart media that nothing stops.
     if (!playingRef.current) return;
-    setActive(rowPos);
+
+    setActiveRow(rowPos);
     setTimeout(() => scrollTo(rowPos), 60);
 
+    const clip = clipsRef.current.get(row.elementIndex);
+    if (clip?.uri) {
+      // ---- Cast actor's recorded clip (video + their own audio) ----
+      setMediumState("video");
+      await unloadAudio();
+      try {
+        videoPlayer.replace(clip.uri);
+        videoPlayer.play();
+      } catch (err) {
+        console.warn("Clip playback error:", err);
+        if (playingRef.current) setTimeout(() => advance(rowPos), 200);
+      }
+      return; // the playToEnd listener advances
+    }
+
+    // ---- AI voice ----
+    setMediumState("audio");
+    try {
+      videoPlayer.pause();
+    } catch {}
     const cue = manifestRef.current.get(row.elementIndex);
     if (!cue?.signedUrl) {
-      // No audio for this line yet — skip ahead so playback doesn't stall.
       if (playingRef.current) setTimeout(() => advance(rowPos), 30);
       return;
     }
     try {
-      if (soundRef.current) {
-        await soundRef.current.unloadAsync();
-        soundRef.current = null;
-      }
+      await unloadAudio();
       await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
       const { sound } = await Audio.Sound.createAsync({ uri: cue.signedUrl }, { shouldPlay: true });
       soundRef.current = sound;
       sound.setOnPlaybackStatusUpdate((status) => {
-        if (status.isLoaded && status.didJustFinish && playingRef.current) {
+        if (status.isLoaded && status.didJustFinish && playingRef.current && mediumRef.current === "audio") {
           advance(rowPos);
         }
       });
@@ -236,7 +328,7 @@ export default function TableReadPlayScreen() {
     const next = fromRow + 1;
     if (next >= rows.length) {
       stop();
-      setActive(rows.length - 1);
+      setActiveRow(rows.length - 1);
       return;
     }
     playRow(next);
@@ -252,17 +344,22 @@ export default function TableReadPlayScreen() {
     playingRef.current = false;
     setPlaying(false);
     await soundRef.current?.pauseAsync().catch(() => {});
+    try {
+      videoPlayer.pause();
+    } catch {}
   }
 
-  async function resume() {
+  function resume() {
     playingRef.current = true;
     setPlaying(true);
-    const status = await soundRef.current?.getStatusAsync().catch(() => null);
-    if (status && (status as any).isLoaded && !(status as any).didJustFinish) {
-      await soundRef.current?.playAsync().catch(() => {});
-    } else {
-      playRow(active);
+    if (mediumRef.current === "video") {
+      try {
+        videoPlayer.play();
+        return;
+      } catch {}
     }
+    // Audio (or fallback): replay the current line cleanly.
+    playRow(activeRef.current);
   }
 
   function stop() {
@@ -276,7 +373,7 @@ export default function TableReadPlayScreen() {
   }
 
   function restart() {
-    setActive(0);
+    setActiveRow(0);
     scrollTo(0);
     startFrom(0);
   }
@@ -310,16 +407,20 @@ export default function TableReadPlayScreen() {
     );
   }
 
+  const activeRow = rows[active];
+  const activeClip = activeRow ? clipsRef.current.get(activeRow.elementIndex) : undefined;
+
   const renderRow = ({ item, index }: { item: Row; index: number }) => {
     const isActive = active === index;
     const isPast = index < active;
+    const hasClip = clipsRef.current.has(item.elementIndex);
     return (
       <View>
         {item.sceneHeading ? <Text style={s.sceneHeading} numberOfLines={1}>{item.sceneHeading}</Text> : null}
         <TouchableOpacity
           style={[s.row, isActive && s.rowActive, isPast && s.rowPast]}
           activeOpacity={0.7}
-          onPress={() => { setActive(index); scrollTo(index); if (ready) startFrom(index); }}
+          onPress={() => { setActiveRow(index); scrollTo(index); if (ready) startFrom(index); }}
         >
           {item.kind === "narrator" ? (
             <View style={[s.tag, s.tagNarrator]}>
@@ -339,12 +440,14 @@ export default function TableReadPlayScreen() {
             </Text>
             {item.castActor ? (
               <View style={s.castBadge}>
-                <Feather name="user-check" size={10} color={colors.green} />
-                <Text style={s.castBadgeText}>{item.castActor}</Text>
+                <Feather name={hasClip ? "video" : "user-check"} size={10} color={colors.green} />
+                <Text style={s.castBadgeText}>{item.castActor}{hasClip ? "" : " (voice)"}</Text>
               </View>
             ) : null}
           </View>
-          {isActive && playing ? <Feather name="volume-2" size={14} color={colors.teal} /> : null}
+          {isActive && playing ? (
+            <Feather name={hasClip ? "video" : "volume-2"} size={14} color={colors.teal} />
+          ) : null}
         </TouchableOpacity>
       </View>
     );
@@ -354,11 +457,44 @@ export default function TableReadPlayScreen() {
     <View style={s.container}>
       <Stack.Screen options={{ title, headerStyle: { backgroundColor: colors.bg }, headerTintColor: "#fff" }} />
 
+      {/* Stage — appears once playback starts. Shows the cast actor's clip, or a
+          tasteful placeholder for AI-voiced lines / narration. */}
+      {ready && (
+        <View style={s.stage}>
+          <VideoView player={videoPlayer} style={StyleSheet.absoluteFill} contentFit="contain" nativeControls={false} />
+          {medium !== "video" && (
+            <View style={s.stagePlaceholder}>
+              {activeRow?.kind === "narrator" ? (
+                <View style={s.stageAvatar}>
+                  <Feather name="film" size={22} color={colors.textSecondary} />
+                </View>
+              ) : (
+                <View style={s.stageAvatar}>
+                  <Text style={s.stageInitial}>{activeRow?.character?.charAt(0) ?? "?"}</Text>
+                </View>
+              )}
+              <Text style={s.stageName}>{activeRow?.kind === "narrator" ? "Narrator" : activeRow?.character}</Text>
+              <View style={s.aiPill}>
+                <Feather name="volume-2" size={11} color={colors.primary} />
+                <Text style={s.aiPillText}>AI voice</Text>
+              </View>
+            </View>
+          )}
+          {medium === "video" && activeClip && (
+            <View style={s.stageTag}>
+              <Feather name="user-check" size={12} color="#fff" />
+              <Text style={s.stageTagText}>{activeClip.actor}</Text>
+            </View>
+          )}
+        </View>
+      )}
+
       <FlatList
         ref={listRef}
         data={rows}
         keyExtractor={(_i, i) => String(i)}
         renderItem={renderRow}
+        extraData={`${active}-${playing}-${medium}-${clipCount}`}
         contentContainerStyle={{ padding: spacing.lg, paddingBottom: 140 }}
         initialNumToRender={20}
         maxToRenderPerBatch={20}
@@ -381,7 +517,9 @@ export default function TableReadPlayScreen() {
             ) : (
               <>
                 <Feather name="play" size={18} color="#fff" />
-                <Text style={s.playBtnText}>Play Table Read</Text>
+                <Text style={s.playBtnText}>
+                  Play Table Read{clipCount > 0 ? "  ·  with cast" : ""}
+                </Text>
               </>
             )}
           </TouchableOpacity>
@@ -407,6 +545,26 @@ const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   center: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.bg, paddingHorizontal: 32 },
   emptyText: { color: colors.textSecondary, fontSize: 15, marginTop: 12, textAlign: "center" },
+
+  // Stage
+  stage: {
+    height: 270, backgroundColor: "#000", alignItems: "center", justifyContent: "center",
+    borderBottomWidth: 1, borderBottomColor: colors.cardBorder,
+  },
+  stagePlaceholder: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", backgroundColor: colors.elevated, gap: 10 },
+  stageAvatar: {
+    width: 72, height: 72, borderRadius: 36, backgroundColor: colors.primaryMuted,
+    alignItems: "center", justifyContent: "center",
+  },
+  stageInitial: { color: colors.primary, fontSize: 30, fontWeight: "800" },
+  stageName: { color: colors.text, fontSize: 16, fontWeight: "700" },
+  aiPill: { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: colors.primaryMuted, paddingHorizontal: 12, paddingVertical: 5, borderRadius: radius.full },
+  aiPillText: { color: colors.primary, fontSize: 12, fontWeight: "600" },
+  stageTag: {
+    position: "absolute", bottom: 12, left: 12, flexDirection: "row", alignItems: "center", gap: 6,
+    backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 12, paddingVertical: 6, borderRadius: radius.full,
+  },
+  stageTagText: { color: "#fff", fontSize: 12, fontWeight: "600" },
 
   sceneHeading: {
     color: colors.textMuted, fontSize: 10, fontWeight: "700", letterSpacing: 1,
