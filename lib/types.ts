@@ -99,12 +99,23 @@ export interface Character {
   submissions?: Submission[];
 }
 
+/** One gap-free clip of a per-line submission. */
+export interface SubmissionClip {
+  /** Global index in the script's flattened scenes[].elements[] stream. */
+  element_index: number;
+  /** Storage path in the private `submissions` bucket. */
+  clip_url: string;
+}
+
 export interface Submission {
   id: string;
   actor_id: string;
   character_id: string;
   script_id: string;
-  video_url: string;
+  /** Legacy single continuous take. Null for per-line clip submissions. */
+  video_url: string | null;
+  /** Per-line clips (ordered by element_index). Null for legacy single-video takes. */
+  clips: SubmissionClip[] | null;
   take_number: number;
   is_writers_choice: boolean;
   is_audience_favorite: boolean;

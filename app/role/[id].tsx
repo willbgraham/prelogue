@@ -16,7 +16,7 @@ import type { Character, Submission } from "@/lib/types";
 import { formatDistanceToNow } from "date-fns";
 import { colors, radius, spacing } from "@/lib/theme";
 import { VoteButton } from "@/components/VoteButton";
-import { VideoPlayer } from "@/components/VideoPlayer";
+import { SubmissionMedia } from "@/components/SubmissionMedia";
 
 export default function RoleDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -133,7 +133,7 @@ export default function RoleDetailScreen() {
                   </View>
                 )}
               </View>
-              <VideoPlayer storagePath={sub.video_url} bucket="submissions" aspectRatio={9/16} />
+              <SubmissionMedia submission={sub} aspectRatio={9 / 16} />
               <View style={{ marginTop: 8 }}>
                 <VoteButton submissionId={sub.id} initialVoteCount={sub.vote_count} />
               </View>
