@@ -1,5 +1,8 @@
 import { supabase } from "./supabase";
-import * as FileSystem from "expo-file-system";
+// Use the legacy FS API explicitly: getInfoAsync/readAsStringAsync moved to the
+// "/legacy" entry in expo-file-system (SDK 54) — importing them from the root
+// now throws a deprecation error (broke avatar/script/doc uploads).
+import * as FileSystem from "expo-file-system/legacy";
 import { Upload } from "tus-js-client";
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL!;

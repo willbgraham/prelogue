@@ -3,7 +3,7 @@ import type { UserRole } from "./types";
 export const ROLE_OPTIONS: { value: UserRole; label: string; icon: string; description: string }[] = [
   {
     value: "writer",
-    label: "Writer / Producer",
+    label: "Writer",
     icon: "edit-3",
     description: "Upload scripts, cast actors, and produce table reads",
   },
