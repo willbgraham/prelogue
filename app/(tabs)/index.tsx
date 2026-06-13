@@ -39,6 +39,47 @@ const genreColors: Record<string, string> = {
   Western: "#cd853f",
 };
 
+const HOW_STEPS = [
+  { h: "Upload", t: "A writer adds a screenplay — it's parsed into scenes, characters, and lines." },
+  { h: "Hear it", t: "Press play and AI voices perform the whole script, with the narration typed on screen." },
+  { h: "Showcase", t: "Actors record reads for any role; audiences watch and champion the best." },
+];
+const WRITER_POINTS = [
+  "Hear your script performed instantly with AI voices",
+  "Cast a distinct voice for every character",
+  "Collect real actor reads of your roles",
+  "Keep copyright + treatment on file",
+];
+const ACTOR_POINTS = [
+  "Build a reel by reading roles you love",
+  "Perform against an AI scene partner",
+  "Earn Writer's Choice & Audience Favorite",
+  "No auditions, no gatekeeping — just your talent",
+];
+
+const intro = StyleSheet.create({
+  card: {
+    marginHorizontal: spacing.xl, marginTop: spacing.lg, backgroundColor: colors.card,
+    borderRadius: radius.xl, borderWidth: 1, borderColor: colors.cardBorder, padding: spacing.xl,
+  },
+  head: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
+  title: { color: colors.text, fontSize: 18, fontWeight: "800", lineHeight: 24 },
+  tagline: { color: colors.textSecondary, fontSize: 13, lineHeight: 19, marginTop: 6 },
+  sectionLabel: {
+    color: colors.textMuted, fontSize: 11, fontWeight: "700", letterSpacing: 1.5,
+    marginTop: spacing.xl, marginBottom: spacing.md,
+  },
+  step: { flexDirection: "row", alignItems: "flex-start", gap: 12, marginBottom: spacing.md },
+  stepNum: { width: 24, height: 24, borderRadius: 12, backgroundColor: colors.primaryMuted, alignItems: "center", justifyContent: "center" },
+  stepNumText: { color: colors.primary, fontSize: 12, fontWeight: "800" },
+  stepText: { flex: 1, color: colors.textSecondary, fontSize: 13, lineHeight: 20 },
+  bold: { color: colors.text, fontWeight: "700" },
+  col: { backgroundColor: colors.elevated, borderRadius: radius.lg, padding: spacing.lg, marginTop: spacing.md },
+  colHead: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: spacing.sm },
+  colTitle: { color: colors.text, fontSize: 14, fontWeight: "700" },
+  point: { color: colors.textSecondary, fontSize: 12.5, lineHeight: 18, marginBottom: 5 },
+});
+
 export default function HomeScreen() {
   const router = useRouter();
   const { profile } = useAuth();
@@ -48,6 +89,7 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [introOpen, setIntroOpen] = useState(true);
 
   async function fetchData() {
     try {
@@ -138,37 +180,54 @@ export default function HomeScreen() {
             </Text>
           </View>
 
-          {/* What is Cast — intro / positioning */}
-          <View
-            style={{
-              marginHorizontal: spacing.xl,
-              marginTop: spacing.lg,
-              backgroundColor: colors.card,
-              borderRadius: radius.xl,
-              borderWidth: 1,
-              borderColor: colors.cardBorder,
-              padding: spacing.xl,
-              gap: 10,
-            }}
-          >
-            <Text style={{ color: colors.text, fontSize: 16, fontWeight: "800" }}>What is Cast?</Text>
-            <Text style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 19 }}>
-              Cast turns screenplays into living table reads — a showcase, not a casting service. No roles are
-              cast here.
-            </Text>
-            {[
-              { icon: "edit-3", bold: "Writers", rest: " upload a script and hear it performed instantly with AI voices." },
-              { icon: "video", bold: "Actors", rest: " read for any role to showcase their talent — performances, not auditions." },
-              { icon: "eye", bold: "Audience", rest: " watches and champions the best reads." },
-            ].map((row) => (
-              <View key={row.bold} style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
-                <Feather name={row.icon as any} size={14} color={colors.primary} style={{ marginTop: 2 }} />
-                <Text style={{ flex: 1, color: colors.textSecondary, fontSize: 13, lineHeight: 19 }}>
-                  <Text style={{ color: colors.text, fontWeight: "700" }}>{row.bold}</Text>
-                  {row.rest}
+          {/* What is Cast — explainer (collapsible) */}
+          <View style={intro.card}>
+            <TouchableOpacity style={intro.head} onPress={() => setIntroOpen((v) => !v)} activeOpacity={0.8}>
+              <View style={{ flex: 1 }}>
+                <Text style={intro.title}>Where screenplays come to life</Text>
+                <Text style={intro.tagline}>
+                  Cast turns a script into a performed table read — AI voices for every character, and real
+                  actors reading the roles they choose. A showcase, not a casting service.
                 </Text>
               </View>
-            ))}
+              <Feather name={introOpen ? "chevron-up" : "chevron-down"} size={20} color={colors.textMuted} />
+            </TouchableOpacity>
+
+            {introOpen && (
+              <>
+                <Text style={intro.sectionLabel}>HOW IT WORKS</Text>
+                {HOW_STEPS.map((st, i) => (
+                  <View key={st.h} style={intro.step}>
+                    <View style={intro.stepNum}>
+                      <Text style={intro.stepNumText}>{i + 1}</Text>
+                    </View>
+                    <Text style={intro.stepText}>
+                      <Text style={intro.bold}>{st.h}.</Text> {st.t}
+                    </Text>
+                  </View>
+                ))}
+
+                <View style={intro.col}>
+                  <View style={intro.colHead}>
+                    <Feather name="edit-3" size={14} color={colors.primary} />
+                    <Text style={intro.colTitle}>For Writers</Text>
+                  </View>
+                  {WRITER_POINTS.map((p) => (
+                    <Text key={p} style={intro.point}>•  {p}</Text>
+                  ))}
+                </View>
+
+                <View style={intro.col}>
+                  <View style={intro.colHead}>
+                    <Feather name="video" size={14} color={colors.teal} />
+                    <Text style={intro.colTitle}>For Actors</Text>
+                  </View>
+                  {ACTOR_POINTS.map((p) => (
+                    <Text key={p} style={intro.point}>•  {p}</Text>
+                  ))}
+                </View>
+              </>
+            )}
           </View>
 
           {/* Section: Scripts to Read */}
