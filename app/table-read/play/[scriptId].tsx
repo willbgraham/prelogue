@@ -16,6 +16,7 @@ import { useVideoPlayer, VideoView } from "expo-video";
 import { Feather } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
 import { ErrorState } from "@/components/ErrorState";
+import { prepareVoiceCues, VoiceCueEntry } from "@/lib/voiceCues";
 import type { ParsedScript } from "@/lib/types";
 import { colors, radius, spacing } from "@/lib/theme";
 
@@ -31,11 +32,6 @@ interface Row {
   text: string;
   sceneHeading?: string;
   castActor?: string | null;
-}
-interface LoadedCue {
-  element_index: number;
-  audio_path: string;
-  signedUrl: string;
 }
 /** A cast actor's recorded clip for one line. */
 interface ClipMedia {
@@ -97,14 +93,18 @@ export default function TableReadPlayScreen() {
   const [medium, setMedium] = useState<Medium>("idle");
   const [clipCount, setClipCount] = useState(0);
   const [reveal, setReveal] = useState(0); // chars of the current line typed so far
+  const [progress, setProgress] = useState(0); // voice-generation progress 0..1
 
-  const manifestRef = useRef<Map<number, LoadedCue>>(new Map());
+  const manifestRef = useRef<Map<number, VoiceCueEntry>>(new Map());
   const clipsRef = useRef<Map<number, ClipMedia>>(new Map());
   const soundRef = useRef<Audio.Sound | null>(null);
   const playingRef = useRef(false);
   const activeRef = useRef(0);
   const mediumRef = useRef<Medium>("idle");
   const pageScrollRef = useRef<ScrollView>(null);
+  const aliveRef = useRef(true);
+  const focusedRef = useRef(true);
+  const preparingRef = useRef(false);
 
   // One persistent video player drives the "stage" for cast actors' clips.
   const videoPlayer = useVideoPlayer("", (p) => {
@@ -114,6 +114,7 @@ export default function TableReadPlayScreen() {
   useEffect(() => {
     load();
     return () => {
+      aliveRef.current = false;
       playingRef.current = false;
       soundRef.current?.unloadAsync().catch(() => {});
       try {
@@ -140,7 +141,9 @@ export default function TableReadPlayScreen() {
   // Pause everything when the screen loses focus; the play button resumes.
   useFocusEffect(
     useCallback(() => {
+      focusedRef.current = true;
       return () => {
+        focusedRef.current = false;
         playingRef.current = false;
         setPlaying(false);
         soundRef.current?.pauseAsync().catch(() => {});
@@ -223,47 +226,26 @@ export default function TableReadPlayScreen() {
   }, []);
 
   async function prepareAndPlay() {
+    if (preparingRef.current) return; // ignore re-taps while already preparing
+    preparingRef.current = true;
     setPreparing(true);
+    setProgress(0);
     try {
-      let manifestPath: string | null = null;
-      for (let r = 0; r < 12; r++) {
-        const { data, error } = await supabase.functions.invoke("generate-voice-cues", {
-          body: { script_id: scriptId },
-        });
-        if (error) {
-          Alert.alert("Couldn't prepare voices", String(error?.message ?? error));
-          return;
-        }
-        manifestPath = data?.manifest_path ?? manifestPath;
-        if (data?.done) break;
-      }
-
-      if (manifestPath) {
-        const { data: signed } = await supabase.storage
-          .from("scripts")
-          .createSignedUrl(manifestPath, 3600);
-        if (signed?.signedUrl) {
-          const res = await fetch(signed.signedUrl);
-          const cues: LoadedCue[] = await res.json();
-          const uniquePaths = [...new Set(cues.map((c) => c.audio_path))];
-          const { data: fresh } = await supabase.storage
-            .from("scripts")
-            .createSignedUrls(uniquePaths, 86400);
-          const urlByPath = new Map<string, string>();
-          uniquePaths.forEach((p, i) => urlByPath.set(p, fresh?.[i]?.signedUrl ?? ""));
-          const map = new Map<number, LoadedCue>();
-          for (const c of cues) {
-            map.set(c.element_index, { ...c, signedUrl: urlByPath.get(c.audio_path) ?? "" });
-          }
-          manifestRef.current = map;
-        }
-      }
-
+      const map = await prepareVoiceCues(
+        scriptId,
+        (p) => setProgress(p),
+        () => !aliveRef.current || !focusedRef.current
+      );
+      // If we left the screen while preparing, don't auto-start (this is what
+      // caused the "double play" — a stale prepare resuming playback).
+      if (!aliveRef.current || !focusedRef.current) return;
+      manifestRef.current = map;
       setReady(true);
       startFrom(0);
     } catch (e: any) {
-      Alert.alert("Error", e?.message ?? String(e));
+      Alert.alert("Couldn't prepare voices", e?.message ?? String(e));
     } finally {
+      preparingRef.current = false;
       setPreparing(false);
     }
   }
@@ -541,21 +523,21 @@ export default function TableReadPlayScreen() {
       {/* Transport bar */}
       <View style={s.transport}>
         {!ready ? (
-          <TouchableOpacity style={s.playBtn} onPress={prepareAndPlay} disabled={preparing} activeOpacity={0.85}>
-            {preparing ? (
-              <>
-                <ActivityIndicator color="#fff" />
-                <Text style={s.playBtnText}>Preparing voices…</Text>
-              </>
-            ) : (
-              <>
-                <Feather name="play" size={18} color="#fff" />
-                <Text style={s.playBtnText}>
-                  Play Table Read{clipCount > 0 ? "  ·  with cast" : ""}
-                </Text>
-              </>
-            )}
-          </TouchableOpacity>
+          preparing ? (
+            <View style={s.prepWrap}>
+              <View style={s.prepTrack}>
+                <View style={[s.prepFill, { width: `${Math.round(progress * 100)}%` }]} />
+              </View>
+              <Text style={s.prepText}>Generating AI voices… {Math.round(progress * 100)}%</Text>
+            </View>
+          ) : (
+            <TouchableOpacity style={s.playBtn} onPress={prepareAndPlay} activeOpacity={0.85}>
+              <Feather name="play" size={18} color="#fff" />
+              <Text style={s.playBtnText}>
+                Play Table Read{clipCount > 0 ? "  ·  with cast" : ""}
+              </Text>
+            </TouchableOpacity>
+          )
         ) : (
           <View style={s.transportRow}>
             <TouchableOpacity onPress={restart} style={s.transportSecondary} activeOpacity={0.8}>
@@ -621,6 +603,10 @@ const s = StyleSheet.create({
   transport: { position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: spacing.xl, paddingTop: spacing.md, paddingBottom: 36, backgroundColor: colors.elevated, borderTopWidth: 1, borderTopColor: colors.cardBorder },
   playBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, backgroundColor: colors.primary, borderRadius: radius.xl, paddingVertical: 16 },
   playBtnText: { color: "#fff", fontWeight: "700", fontSize: 16 },
+  prepWrap: { paddingVertical: 12, gap: 8 },
+  prepTrack: { height: 6, backgroundColor: colors.cardBorder, borderRadius: 3, overflow: "hidden" },
+  prepFill: { height: "100%", backgroundColor: colors.primary, borderRadius: 3 },
+  prepText: { color: colors.textSecondary, fontSize: 13, textAlign: "center", fontWeight: "600" },
   transportRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.xxl },
   transportSecondary: { width: 56, alignItems: "center" },
   transportPlay: { width: 64, height: 64, borderRadius: 32, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },

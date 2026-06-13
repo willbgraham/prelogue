@@ -19,6 +19,7 @@ import { useAuth } from "@/lib/auth";
 import { uploadVideoResumable } from "@/lib/storage";
 import { ClipReelPlayer } from "@/components/ClipReelPlayer";
 import { ErrorState } from "@/components/ErrorState";
+import { prepareVoiceCues, VoiceCueEntry } from "@/lib/voiceCues";
 import type { Character, ParsedScript } from "@/lib/types";
 import { colors, radius, spacing } from "@/lib/theme";
 
@@ -32,16 +33,6 @@ interface ScriptRow {
   character?: string;
   text: string;
   sceneHeading?: string;
-}
-
-interface LoadedCue {
-  element_index: number;
-  type: string;
-  character: string | null;
-  text: string;
-  voice_id: string;
-  audio_path: string;
-  signedUrl: string;
 }
 
 /** A recorded clip for one of the actor's lines, keyed by element index. */
@@ -151,10 +142,11 @@ export default function RecordingStudioScreen() {
   // AI scene-partner cues
   const [aiCueReady, setAiCueReady] = useState(false);
   const [generatingCues, setGeneratingCues] = useState(false);
-  const [manifest, setManifest] = useState<Map<number, LoadedCue>>(new Map());
+  const [manifest, setManifest] = useState<Map<number, VoiceCueEntry>>(new Map());
   const [playingCue, setPlayingCue] = useState(false);
+  const [aiProgress, setAiProgress] = useState(0);
   const aiReadyRef = useRef(false);
-  const manifestRef = useRef<Map<number, LoadedCue>>(new Map());
+  const manifestRef = useRef<Map<number, VoiceCueEntry>>(new Map());
   const soundRef = useRef<Audio.Sound | null>(null);
   const focusedRef = useRef(true);
 
@@ -270,53 +262,23 @@ export default function RecordingStudioScreen() {
   // -------------------------------------------------------------------------
   async function generateAICues() {
     const scriptId = (character as any)?.script_id ?? (character as any)?.script?.id;
-    if (!scriptId) return;
+    if (!scriptId || generatingCues) return;
 
     setGeneratingCues(true);
+    setAiProgress(0);
     try {
-      let manifestPath: string | null = null;
-      for (let round = 0; round < 10; round++) {
-        const { data, error } = await supabase.functions.invoke("generate-voice-cues", {
-          body: { script_id: scriptId },
-        });
-        if (error) {
-          Alert.alert("AI Voices Error", String(error?.message ?? error));
-          return;
-        }
-        manifestPath = data?.manifest_path ?? manifestPath;
-        if (data?.done) break;
-      }
-
-      if (manifestPath) {
-        const { data: signed } = await supabase.storage
-          .from("scripts")
-          .createSignedUrl(manifestPath, 3600);
-        if (signed?.signedUrl) {
-          const res = await fetch(signed.signedUrl);
-          const cues: LoadedCue[] = await res.json();
-
-          const uniquePaths = [...new Set(cues.map((c) => c.audio_path))];
-          const { data: freshSigned } = await supabase.storage
-            .from("scripts")
-            .createSignedUrls(uniquePaths, 86400);
-          const urlByPath = new Map<string, string>();
-          uniquePaths.forEach((p, i) => urlByPath.set(p, freshSigned?.[i]?.signedUrl ?? ""));
-
-          const map = new Map<number, LoadedCue>();
-          for (const c of cues) {
-            map.set(c.element_index, { ...c, signedUrl: urlByPath.get(c.audio_path) ?? "" });
-          }
-          setManifest(map);
-          manifestRef.current = map;
-        }
-      }
-
+      // Same writer-chosen voices as "Play with AI Voices"; loops to completion
+      // so every other character / narration line actually has audio.
+      const map = await prepareVoiceCues(
+        scriptId,
+        (p) => setAiProgress(p),
+        () => !focusedRef.current
+      );
+      if (!focusedRef.current) return;
+      setManifest(map);
+      manifestRef.current = map;
       setAiCueReady(true);
       aiReadyRef.current = true;
-      Alert.alert(
-        "Scene partner ready",
-        "The AI will read the other characters and narration between your lines."
-      );
     } catch (err: any) {
       Alert.alert("AI Voices Error", err?.message ?? String(err));
     } finally {
@@ -354,7 +316,11 @@ export default function RecordingStudioScreen() {
     try {
       await stopPlayback();
       setPlayingCue(true);
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false, // switch off record category → route to speaker
+        playsInSilentModeIOS: true,
+        playThroughEarpieceAndroid: false,
+      });
       const { sound } = await Audio.Sound.createAsync({ uri: cue.signedUrl }, { shouldPlay: true });
       soundRef.current = sound;
       sound.setOnPlaybackStatusUpdate((status) => {
@@ -841,21 +807,27 @@ export default function RecordingStudioScreen() {
               ) : !aiCueReady ? (
                 <TouchableOpacity style={s.aiCueBtn} onPress={generateAICues} disabled={generatingCues}>
                   {generatingCues ? (
-                    <ActivityIndicator size="small" color={colors.primary} />
+                    <Text style={s.aiCueBtnText}>Loading… {Math.round(aiProgress * 100)}%</Text>
                   ) : (
                     <>
                       <Feather name="volume-2" size={12} color={colors.primary} />
-                      <Text style={s.aiCueBtnText}>Scene partner</Text>
+                      <Text style={s.aiCueBtnText}>AI Voices</Text>
                     </>
                   )}
                 </TouchableOpacity>
               ) : (
                 <View style={s.aiReadyChip}>
                   <Feather name="check-circle" size={12} color={colors.green} />
-                  <Text style={s.aiReadyText}>Partner ready</Text>
+                  <Text style={s.aiReadyText}>AI Voices on</Text>
                 </View>
               )}
             </View>
+
+            {generatingCues && (
+              <View style={s.aiGenBar}>
+                <View style={[s.aiGenFill, { width: `${Math.round(aiProgress * 100)}%` }]} />
+              </View>
+            )}
 
             <FlatList
               ref={listRef}
@@ -882,7 +854,7 @@ export default function RecordingStudioScreen() {
               {!isRecordingSession ? (
                 <Text style={s.hintText}>
                   Tap <Text style={{ color: colors.red }}>Record</Text> to read your lines —
-                  {aiCueReady ? " the partner feeds you cues" : " load a scene partner above to hear cues"}
+                  {aiCueReady ? " AI voices read the other parts" : " tap AI Voices above to hear the other parts"}
                 </Text>
               ) : isActorRow ? (
                 <Text style={s.hintText}>
@@ -1045,6 +1017,8 @@ const s = StyleSheet.create({
     backgroundColor: colors.primaryMuted, paddingHorizontal: 12, paddingVertical: 6, borderRadius: radius.full,
   },
   aiCueBtnText: { color: colors.primary, fontSize: 12, fontWeight: "600" },
+  aiGenBar: { height: 3, backgroundColor: "rgba(255,255,255,0.12)", overflow: "hidden" },
+  aiGenFill: { height: "100%", backgroundColor: colors.primary },
   aiReadyChip: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10, paddingVertical: 6 },
   aiReadyText: { color: colors.green, fontSize: 12, fontWeight: "600" },
   finishBtn: { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: colors.primary, paddingHorizontal: 14, paddingVertical: 6, borderRadius: radius.full },
