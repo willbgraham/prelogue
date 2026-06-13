@@ -33,6 +33,7 @@ export default function UploadScriptScreen() {
   const [agreed, setAgreed] = useState(false);
   const [copyrightDoc, setCopyrightDoc] = useState<DocumentPicker.DocumentPickerAsset | null>(null);
   const [regNumber, setRegNumber] = useState("");
+  const [treatmentDoc, setTreatmentDoc] = useState<DocumentPicker.DocumentPickerAsset | null>(null);
 
   async function pickFile() {
     const result = await DocumentPicker.getDocumentAsync({
@@ -68,6 +69,16 @@ export default function UploadScriptScreen() {
     });
     if (!result.canceled && result.assets.length > 0) {
       setCopyrightDoc(result.assets[0]);
+    }
+  }
+
+  async function pickTreatment() {
+    const result = await DocumentPicker.getDocumentAsync({
+      type: ["application/pdf"],
+      copyToCacheDirectory: true,
+    });
+    if (!result.canceled && result.assets.length > 0) {
+      setTreatmentDoc(result.assets[0]);
     }
   }
 
@@ -107,6 +118,14 @@ export default function UploadScriptScreen() {
         copyrightDocUrl = cPath;
       }
 
+      // Optional treatment PDF → private scripts bucket
+      let treatmentUrl: string | null = null;
+      if (treatmentDoc) {
+        const tPath = `${session.user.id}/treatment/${Date.now()}.pdf`;
+        await uploadFile("scripts", tPath, treatmentDoc.uri, treatmentDoc.mimeType || "application/pdf");
+        treatmentUrl = tPath;
+      }
+
       // No expiration — set far-future deadline
       const deadline = new Date("2099-12-31");
 
@@ -135,6 +154,7 @@ export default function UploadScriptScreen() {
           rights_acknowledged_at: new Date().toISOString(),
           copyright_doc_url: copyrightDocUrl,
           copyright_reg_number: regNumber.trim() || null,
+          treatment_url: treatmentUrl,
         })
         .eq("id", scriptData.id);
 
@@ -238,6 +258,21 @@ export default function UploadScriptScreen() {
             {file ? file.name : "Tap to select script"}
           </Text>
         </TouchableOpacity>
+
+        {/* Treatment (optional) */}
+        <View style={s.fieldGroup}>
+          <Text style={s.label}>TREATMENT (OPTIONAL)</Text>
+          <TouchableOpacity style={s.docPicker} onPress={pickTreatment} activeOpacity={0.8}>
+            <Feather
+              name={treatmentDoc ? "check-circle" : "file-text"}
+              size={20}
+              color={treatmentDoc ? colors.green : colors.textMuted}
+            />
+            <Text style={[s.docPickerText, treatmentDoc && { color: colors.text }]} numberOfLines={1}>
+              {treatmentDoc ? treatmentDoc.name : "Attach a treatment PDF — many producers read this first"}
+            </Text>
+          </TouchableOpacity>
+        </View>
 
         {/* Copyright / registration (optional) */}
         <View style={s.fieldGroup}>

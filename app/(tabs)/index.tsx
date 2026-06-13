@@ -19,15 +19,24 @@ import { ScriptCardSkeleton } from "@/components/Skeleton";
 import { ErrorState } from "@/components/ErrorState";
 
 const genreColors: Record<string, string> = {
-  "Sci-Fi": "#00cec9",
-  Drama: "#e17055",
-  Comedy: "#fdcb6e",
-  Thriller: "#d63031",
-  Horror: "#6c5ce7",
-  Romance: "#e84393",
   Action: "#ff7675",
-  Mystery: "#a29bfe",
+  Adventure: "#0984e3",
+  Animation: "#00b894",
+  Comedy: "#fdcb6e",
+  Crime: "#636e72",
+  Documentary: "#b2bec3",
+  Drama: "#e17055",
+  Family: "#fab1a0",
   Fantasy: "#55efc4",
+  Historical: "#b8860b",
+  Horror: "#6c5ce7",
+  Musical: "#fd79a8",
+  Mystery: "#a29bfe",
+  Romance: "#e84393",
+  "Sci-Fi": "#00cec9",
+  Thriller: "#d63031",
+  War: "#7f8c8d",
+  Western: "#cd853f",
 };
 
 export default function HomeScreen() {

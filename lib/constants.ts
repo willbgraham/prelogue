@@ -22,17 +22,24 @@ export const ROLE_OPTIONS: { value: UserRole; label: string; icon: string; descr
 ];
 
 export const GENRES = [
-  "Drama",
-  "Comedy",
-  "Thriller",
-  "Horror",
-  "Sci-Fi",
-  "Romance",
   "Action",
-  "Mystery",
-  "Fantasy",
+  "Adventure",
   "Animation",
+  "Comedy",
+  "Crime",
   "Documentary",
+  "Drama",
+  "Family",
+  "Fantasy",
+  "Historical",
+  "Horror",
+  "Musical",
+  "Mystery",
+  "Romance",
+  "Sci-Fi",
+  "Thriller",
+  "War",
+  "Western",
   "Other",
 ] as const;
 

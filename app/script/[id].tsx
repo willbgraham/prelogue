@@ -68,6 +68,14 @@ export default function ScriptDetailScreen() {
     if (data?.signedUrl) Linking.openURL(data.signedUrl);
   }
 
+  async function viewTreatment() {
+    if (!script?.treatment_url) return;
+    const { data } = await supabase.storage
+      .from("scripts")
+      .createSignedUrl(script.treatment_url, 3600);
+    if (data?.signedUrl) Linking.openURL(data.signedUrl);
+  }
+
   async function pickPoster() {
     if (!session) return;
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -110,13 +118,24 @@ export default function ScriptDetailScreen() {
   const isOpen = script.status === "open";
 
   const genreColorMap: Record<string, string> = {
-    "Sci-Fi": colors.teal,
-    Drama: "#e17055",
-    Comedy: colors.yellow,
-    Thriller: "#d63031",
-    Horror: colors.primary,
-    Romance: "#e84393",
     Action: colors.red,
+    Adventure: "#0984e3",
+    Animation: "#00b894",
+    Comedy: colors.yellow,
+    Crime: "#636e72",
+    Documentary: "#b2bec3",
+    Drama: "#e17055",
+    Family: "#fab1a0",
+    Fantasy: "#55efc4",
+    Historical: "#b8860b",
+    Horror: colors.primary,
+    Musical: "#fd79a8",
+    Mystery: "#a29bfe",
+    Romance: "#e84393",
+    "Sci-Fi": colors.teal,
+    Thriller: "#d63031",
+    War: "#7f8c8d",
+    Western: "#cd853f",
   };
   const genreColor = genreColorMap[script.genre] || colors.primary;
 
@@ -212,6 +231,13 @@ export default function ScriptDetailScreen() {
             <Feather name="play" size={16} color="#fff" />
             <Text style={s.playAiText}>Play with AI Voices</Text>
           </TouchableOpacity>
+
+          {script.treatment_url && (
+            <TouchableOpacity style={s.treatmentBtn} onPress={viewTreatment} activeOpacity={0.85}>
+              <Feather name="file-text" size={16} color={colors.text} />
+              <Text style={s.treatmentBtnText}>View Treatment</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Casting Dashboard button for writers */}
@@ -337,6 +363,12 @@ const s = StyleSheet.create({
     paddingVertical: 14, marginTop: spacing.lg,
   },
   playAiText: { color: "#fff", fontSize: 15, fontWeight: "700" },
+  treatmentBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    backgroundColor: colors.card, borderRadius: radius.lg, paddingVertical: 13, marginTop: spacing.md,
+    borderWidth: 1, borderColor: colors.cardBorder,
+  },
+  treatmentBtnText: { color: colors.text, fontSize: 14, fontWeight: "700" },
   castingBtn: {
     marginHorizontal: spacing.xl, marginBottom: spacing.lg,
     backgroundColor: colors.primary, borderRadius: radius.xl,
