@@ -70,16 +70,15 @@ Deno.serve(async (req) => {
     const successUrl = Deno.env.get("STRIPE_SUCCESS_URL") ?? `${Deno.env.get("SUPABASE_URL")}`;
     const cancelUrl = Deno.env.get("STRIPE_CANCEL_URL") ?? `${Deno.env.get("SUPABASE_URL")}`;
 
+    // No free trial: "trying it" is the free first-scene preview (no card).
+    // Checkout is an immediate paid subscription; card is collected only here,
+    // when the writer chooses to unlock full scripts. Promo codes stay enabled
+    // so you can still run a discounted first month if you want.
     const checkoutSession = await stripe.checkout.sessions.create({
       mode: "subscription",
       customer: customerId,
       line_items: [{ price: priceId, quantity: 1 }],
-      subscription_data: {
-        trial_period_days: 7,
-        metadata: { user_id: user.id },
-      },
-      // Require a card even for the trial — prevents free-generation farming.
-      payment_method_collection: "always",
+      subscription_data: { metadata: { user_id: user.id } },
       client_reference_id: user.id,
       allow_promotion_codes: true,
       success_url: successUrl,
