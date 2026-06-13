@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Image,
+  Linking,
   StyleSheet,
 } from "react-native";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
@@ -53,6 +54,14 @@ export default function ScriptDetailScreen() {
 
   function openScript() {
     router.push(`/script/read?id=${script.id}` as any);
+  }
+
+  async function viewCopyrightDoc() {
+    if (!script?.copyright_doc_url) return;
+    const { data } = await supabase.storage
+      .from("scripts")
+      .createSignedUrl(script.copyright_doc_url, 3600);
+    if (data?.signedUrl) Linking.openURL(data.signedUrl);
   }
 
   if (loading || !script) {
@@ -110,6 +119,22 @@ export default function ScriptDetailScreen() {
 
           <Text style={s.title}>{script.title}</Text>
           <Text style={s.logline}>{script.logline}</Text>
+
+          {(script.copyright_doc_url || script.copyright_reg_number) && (
+            <TouchableOpacity
+              style={s.copyrightBadge}
+              onPress={viewCopyrightDoc}
+              activeOpacity={script.copyright_doc_url ? 0.8 : 1}
+            >
+              <Feather name="shield" size={13} color={colors.green} />
+              <Text style={s.copyrightBadgeText}>
+                Copyright on file{script.copyright_reg_number ? ` · ${script.copyright_reg_number}` : ""}
+              </Text>
+              {script.copyright_doc_url ? (
+                <Feather name="external-link" size={11} color={colors.green} />
+              ) : null}
+            </TouchableOpacity>
+          )}
 
           {/* Stats + Read Script */}
           <View style={s.actionRow}>
@@ -221,6 +246,12 @@ const s = StyleSheet.create({
   statusText: { fontSize: 12, fontWeight: "600" },
   title: { color: colors.text, fontSize: 28, fontWeight: "800", lineHeight: 34 },
   logline: { color: colors.textSecondary, fontSize: 15, marginTop: spacing.md, lineHeight: 22 },
+  copyrightBadge: {
+    flexDirection: "row", alignItems: "center", alignSelf: "flex-start", gap: 6,
+    backgroundColor: colors.greenMuted, paddingHorizontal: spacing.md, paddingVertical: 7,
+    borderRadius: radius.full, marginTop: spacing.md,
+  },
+  copyrightBadgeText: { color: colors.green, fontSize: 12, fontWeight: "700" },
   actionRow: { flexDirection: "row", marginTop: spacing.xl, gap: spacing.md },
   statChip: {
     flexDirection: "row", alignItems: "center",

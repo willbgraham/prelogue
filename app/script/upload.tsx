@@ -31,6 +31,8 @@ export default function UploadScriptScreen() {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [agreed, setAgreed] = useState(false);
+  const [copyrightDoc, setCopyrightDoc] = useState<DocumentPicker.DocumentPickerAsset | null>(null);
+  const [regNumber, setRegNumber] = useState("");
 
   async function pickFile() {
     const result = await DocumentPicker.getDocumentAsync({
@@ -56,6 +58,16 @@ export default function UploadScriptScreen() {
     });
     if (!result.canceled && result.assets.length > 0) {
       setCoverImage(result.assets[0]);
+    }
+  }
+
+  async function pickCopyrightDoc() {
+    const result = await DocumentPicker.getDocumentAsync({
+      type: ["application/pdf", "image/*"],
+      copyToCacheDirectory: true,
+    });
+    if (!result.canceled && result.assets.length > 0) {
+      setCopyrightDoc(result.assets[0]);
     }
   }
 
@@ -86,6 +98,15 @@ export default function UploadScriptScreen() {
         coverImageUrl = data.publicUrl;
       }
 
+      // Optional copyright/registration document → private scripts bucket
+      let copyrightDocUrl: string | null = null;
+      if (copyrightDoc) {
+        const cExt = (copyrightDoc.name?.split(".").pop() || "pdf").toLowerCase();
+        const cPath = `${session.user.id}/copyright/${Date.now()}.${cExt}`;
+        await uploadFile("scripts", cPath, copyrightDoc.uri, copyrightDoc.mimeType || "application/pdf");
+        copyrightDocUrl = cPath;
+      }
+
       // No expiration — set far-future deadline
       const deadline = new Date("2099-12-31");
 
@@ -106,11 +127,15 @@ export default function UploadScriptScreen() {
 
       if (insertError) throw insertError;
 
-      // Record the rights attestation (best-effort; harmless no-op if the
-      // rights_acknowledged_at column hasn't been added yet).
+      // Record the rights attestation + any copyright doc/registration
+      // (best-effort; harmless no-op if those columns haven't been added yet).
       void supabase
         .from("scripts")
-        .update({ rights_acknowledged_at: new Date().toISOString() })
+        .update({
+          rights_acknowledged_at: new Date().toISOString(),
+          copyright_doc_url: copyrightDocUrl,
+          copyright_reg_number: regNumber.trim() || null,
+        })
         .eq("id", scriptData.id);
 
       // Trigger PDF parsing edge function
@@ -214,6 +239,32 @@ export default function UploadScriptScreen() {
           </Text>
         </TouchableOpacity>
 
+        {/* Copyright / registration (optional) */}
+        <View style={s.fieldGroup}>
+          <Text style={s.label}>COPYRIGHT / REGISTRATION (OPTIONAL)</Text>
+          <TouchableOpacity style={s.docPicker} onPress={pickCopyrightDoc} activeOpacity={0.8}>
+            <Feather
+              name={copyrightDoc ? "check-circle" : "shield"}
+              size={20}
+              color={copyrightDoc ? colors.green : colors.textMuted}
+            />
+            <Text style={[s.docPickerText, copyrightDoc && { color: colors.text }]} numberOfLines={1}>
+              {copyrightDoc ? copyrightDoc.name : "Attach copyright or WGA registration (PDF / image)"}
+            </Text>
+          </TouchableOpacity>
+          <TextInput
+            style={[s.input, { marginTop: 8 }]}
+            placeholder="Registration number (optional)"
+            placeholderTextColor={colors.textMuted}
+            value={regNumber}
+            onChangeText={setRegNumber}
+            autoCapitalize="characters"
+          />
+          <Text style={s.docHint}>
+            Scripts with copyright on file get a badge — many directors look for it before reading.
+          </Text>
+        </View>
+
         {/* Progress */}
         {uploading && (
           <View style={s.progressContainer}>
@@ -293,6 +344,13 @@ const s = StyleSheet.create({
     borderRadius: radius.xl, padding: 32, alignItems: "center", marginBottom: spacing.xxl,
   },
   filePickerText: { color: colors.textSecondary, marginTop: 8, fontSize: 14 },
+  docPicker: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    borderWidth: 1, borderColor: colors.cardBorder, borderRadius: radius.xl,
+    paddingHorizontal: 16, paddingVertical: 14, backgroundColor: colors.card,
+  },
+  docPickerText: { flex: 1, color: colors.textSecondary, fontSize: 14 },
+  docHint: { color: colors.textMuted, fontSize: 12, marginTop: 8, marginLeft: 4, lineHeight: 17 },
   progressContainer: { marginBottom: spacing.lg },
   progressTrack: { height: 6, backgroundColor: colors.cardBorder, borderRadius: radius.full, overflow: "hidden" },
   progressFill: { height: "100%", backgroundColor: colors.primary, borderRadius: radius.full },
