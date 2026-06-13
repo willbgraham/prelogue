@@ -30,6 +30,7 @@ export default function UploadScriptScreen() {
   const [coverImage, setCoverImage] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [agreed, setAgreed] = useState(false);
 
   async function pickFile() {
     const result = await DocumentPicker.getDocumentAsync({
@@ -61,6 +62,10 @@ export default function UploadScriptScreen() {
   async function handleUpload() {
     if (!title || !logline || !file || !session) {
       Alert.alert("Error", "Please fill in all fields and select a PDF.");
+      return;
+    }
+    if (!agreed) {
+      Alert.alert("Confirm rights", "Please confirm you have the rights to this screenplay before uploading.");
       return;
     }
 
@@ -100,6 +105,13 @@ export default function UploadScriptScreen() {
         .single();
 
       if (insertError) throw insertError;
+
+      // Record the rights attestation (best-effort; harmless no-op if the
+      // rights_acknowledged_at column hasn't been added yet).
+      void supabase
+        .from("scripts")
+        .update({ rights_acknowledged_at: new Date().toISOString() })
+        .eq("id", scriptData.id);
 
       // Trigger PDF parsing edge function
       const { error: fnError } = await supabase.functions.invoke("parse-script", {
@@ -214,11 +226,22 @@ export default function UploadScriptScreen() {
           </View>
         )}
 
+        {/* Rights attestation — required before upload */}
+        <TouchableOpacity style={s.agreeRow} onPress={() => setAgreed(!agreed)} activeOpacity={0.7}>
+          <View style={[s.checkbox, agreed && s.checkboxOn]}>
+            {agreed && <Feather name="check" size={14} color="#fff" />}
+          </View>
+          <Text style={s.agreeText}>
+            I confirm I own or control all rights to this screenplay, that it doesn't infringe
+            anyone else's copyright, and I accept responsibility for what I upload.
+          </Text>
+        </TouchableOpacity>
+
         {/* Submit */}
         <TouchableOpacity
-          style={[s.submitBtn, uploading && s.submitBtnDisabled]}
+          style={[s.submitBtn, (uploading || !agreed) && s.submitBtnDisabled]}
           onPress={handleUpload}
-          disabled={uploading}
+          disabled={uploading || !agreed}
           activeOpacity={0.85}
         >
           {uploading ? (
@@ -274,6 +297,13 @@ const s = StyleSheet.create({
   progressTrack: { height: 6, backgroundColor: colors.cardBorder, borderRadius: radius.full, overflow: "hidden" },
   progressFill: { height: "100%", backgroundColor: colors.primary, borderRadius: radius.full },
   progressText: { fontSize: 12, color: colors.textMuted, textAlign: "center", marginTop: 4 },
+  agreeRow: { flexDirection: "row", alignItems: "flex-start", gap: 10, marginBottom: spacing.lg, paddingHorizontal: 4 },
+  checkbox: {
+    width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: colors.cardBorder,
+    alignItems: "center", justifyContent: "center", marginTop: 1,
+  },
+  checkboxOn: { backgroundColor: colors.primary, borderColor: colors.primary },
+  agreeText: { flex: 1, color: colors.textSecondary, fontSize: 13, lineHeight: 19 },
   submitBtn: { backgroundColor: colors.primary, borderRadius: radius.xl, paddingVertical: 16, alignItems: "center" },
   submitBtnDisabled: { backgroundColor: colors.cardBorder },
   submitBtnText: { color: "#fff", fontWeight: "700", fontSize: 16 },
