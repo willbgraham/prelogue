@@ -145,7 +145,7 @@ Deno.serve(async (req) => {
     // Fetch parsed script + voice config
     const { data: script, error: scriptErr } = await supabase
       .from("scripts")
-      .select("parsed_json, voice_config")
+      .select("parsed_json, voice_config, writer_id")
       .eq("id", script_id)
       .single();
 
@@ -167,6 +167,28 @@ Deno.serve(async (req) => {
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+
+    // ----- Plan gate -----
+    // A script is voice-unlocked when its writer is paid (active/trialing/pro).
+    // Free writers get only a short preview (the opening) so they can hear it,
+    // then upgrade to voice the whole script. Enforced here (service role), so
+    // it can't be bypassed from the client.
+    const FREE_PREVIEW_LIMIT = 30; // spoken elements voiced on the free tier
+    let writerPlan = "pro";
+    let fullAccess = true;
+    if (script.writer_id) {
+      const { data: writer } = await supabase
+        .from("users")
+        .select("plan, plan_status")
+        .eq("id", script.writer_id)
+        .single();
+      writerPlan = (writer?.plan as string) ?? "free";
+      fullAccess =
+        writer?.plan === "pro" ||
+        writer?.plan_status === "active" ||
+        writer?.plan_status === "trialing";
+    }
+    const locked = !fullAccess;
 
     // Resolve voice configuration (with sane defaults when unset).
     const cfg = (script.voice_config as any) || {};
@@ -230,6 +252,11 @@ Deno.serve(async (req) => {
         }
         // character / parenthetical: index consumed, no audio entry
       }
+    }
+
+    // Free tier: voice only the opening of the script.
+    if (locked && entries.length > FREE_PREVIEW_LIMIT) {
+      entries.length = FREE_PREVIEW_LIMIT;
     }
 
     // Config hash over only the output-affecting fields (canonical/sorted).
@@ -300,6 +327,9 @@ Deno.serve(async (req) => {
       JSON.stringify({
         success: true,
         script_id,
+        plan: writerPlan,
+        locked,
+        preview_limit: FREE_PREVIEW_LIMIT,
         voice_config_hash: voiceConfigHash,
         manifest_path: manifestPath,
         mode,

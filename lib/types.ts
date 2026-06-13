@@ -24,7 +24,22 @@ export interface User {
   genre_specialties: string[] | null;
   writers_choice_count: number;
   audience_favorite_count: number;
+  /** Billing: 'free' (preview only) or 'pro' (full AI voicing). */
+  plan?: "free" | "pro" | string;
+  /** Stripe subscription status: active | trialing | past_due | canceled | ... */
+  plan_status?: string | null;
+  plan_renews_at?: string | null;
   created_at: string;
+}
+
+/** True when the writer's plan unlocks full AI-voice generation. */
+export function hasFullVoiceAccess(user?: Pick<User, "plan" | "plan_status"> | null): boolean {
+  if (!user) return false;
+  return (
+    user.plan === "pro" ||
+    user.plan_status === "active" ||
+    user.plan_status === "trialing"
+  );
 }
 
 export interface Script {
