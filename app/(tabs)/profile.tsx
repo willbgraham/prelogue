@@ -59,7 +59,6 @@ export default function ProfileScreen() {
     );
   }
 
-  const roleIcon = roleIconFor(profile.role);
   const myRoles: UserRole[] = profile.roles ?? (profile.role ? [profile.role] : []);
 
   return (
@@ -82,11 +81,13 @@ export default function ProfileScreen() {
           <Text style={s.displayName}>
             {profile.display_name}
           </Text>
-          <View style={s.roleBadge}>
-            <Feather name={roleIcon as any} size={12} color={colors.textSecondary} />
-            <Text style={s.roleText}>
-              {profile.role}
-            </Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 6 }}>
+            {myRoles.map((r) => (
+              <View key={r} style={s.roleBadge}>
+                <Feather name={roleIconFor(r) as any} size={12} color={colors.textSecondary} />
+                <Text style={s.roleText}>{r.charAt(0).toUpperCase() + r.slice(1)}</Text>
+              </View>
+            ))}
           </View>
           {profile.bio && (
             <Text style={s.bio}>

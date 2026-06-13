@@ -124,15 +124,48 @@ export default function HomeScreen() {
             </Text>
             <Text style={s.heroSub}>
               {profile
-                ? "Find your next role or review auditions"
-                : "Browse scripts, watch performances, discover talent"}
+                ? "Find a script to read — or hear yours performed"
+                : "Hear screenplays performed — by AI voices and real actors"}
             </Text>
           </View>
 
-          {/* Section: Open Auditions */}
+          {/* What is Cast — intro / positioning */}
+          <View
+            style={{
+              marginHorizontal: spacing.xl,
+              marginTop: spacing.lg,
+              backgroundColor: colors.card,
+              borderRadius: radius.xl,
+              borderWidth: 1,
+              borderColor: colors.cardBorder,
+              padding: spacing.xl,
+              gap: 10,
+            }}
+          >
+            <Text style={{ color: colors.text, fontSize: 16, fontWeight: "800" }}>What is Cast?</Text>
+            <Text style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 19 }}>
+              Cast turns screenplays into living table reads — a showcase, not a casting service. No roles are
+              cast here.
+            </Text>
+            {[
+              { icon: "edit-3", bold: "Writers", rest: " upload a script and hear it performed instantly with AI voices." },
+              { icon: "video", bold: "Actors", rest: " read for any role to showcase their talent — performances, not auditions." },
+              { icon: "eye", bold: "Audience", rest: " watches and champions the best reads." },
+            ].map((row) => (
+              <View key={row.bold} style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
+                <Feather name={row.icon as any} size={14} color={colors.primary} style={{ marginTop: 2 }} />
+                <Text style={{ flex: 1, color: colors.textSecondary, fontSize: 13, lineHeight: 19 }}>
+                  <Text style={{ color: colors.text, fontWeight: "700" }}>{row.bold}</Text>
+                  {row.rest}
+                </Text>
+              </View>
+            ))}
+          </View>
+
+          {/* Section: Scripts to Read */}
           <View style={s.sectionHeader}>
             <View style={s.accentBar} />
-            <Text style={s.sectionTitle}>Open Auditions</Text>
+            <Text style={s.sectionTitle}>Scripts to Read</Text>
             {!error && (
               <Text style={s.sectionCount}>
                 {scripts.length} {scripts.length === 1 ? "script" : "scripts"}

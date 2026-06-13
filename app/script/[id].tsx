@@ -7,13 +7,16 @@ import {
   ActivityIndicator,
   Image,
   Linking,
+  Alert,
   StyleSheet,
 } from "react-native";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
+import * as ImagePicker from "expo-image-picker";
 import { Feather } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
 import { useRequireAuth } from "@/lib/useRequireAuth";
+import { uploadFile } from "@/lib/storage";
 import { SCRIPT_STATUS_LABELS } from "@/lib/constants";
 import { colors, radius, spacing } from "@/lib/theme";
 
@@ -25,6 +28,7 @@ export default function ScriptDetailScreen() {
   const [script, setScript] = useState<any>(null);
   const [characters, setCharacters] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [posterUploading, setPosterUploading] = useState(false);
 
   useEffect(() => {
     fetchScript();
@@ -64,6 +68,36 @@ export default function ScriptDetailScreen() {
     if (data?.signedUrl) Linking.openURL(data.signedUrl);
   }
 
+  async function pickPoster() {
+    if (!session) return;
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission needed", "Please allow access to your photo library.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: true,
+      aspect: [16, 9],
+      quality: 0.8,
+    });
+    if (result.canceled || !result.assets?.[0]) return;
+    try {
+      setPosterUploading(true);
+      const asset = result.assets[0];
+      const ext = asset.uri.split(".").pop() || "jpg";
+      const path = `${session.user.id}/${Date.now()}-poster.${ext}`;
+      await uploadFile("avatars", path, asset.uri, `image/${ext}`);
+      const { data } = supabase.storage.from("avatars").getPublicUrl(path);
+      await supabase.from("scripts").update({ cover_image_url: data.publicUrl }).eq("id", script.id);
+      setScript({ ...script, cover_image_url: data.publicUrl });
+    } catch (e: any) {
+      Alert.alert("Upload failed", e?.message ?? String(e));
+    } finally {
+      setPosterUploading(false);
+    }
+  }
+
   if (loading || !script) {
     return (
       <View style={s.loadingContainer}>
@@ -96,10 +130,31 @@ export default function ScriptDetailScreen() {
         }}
       />
       <ScrollView style={s.container}>
-        {/* Cover image */}
-        {script.cover_image_url && (
-          <Image source={{ uri: script.cover_image_url }} style={s.coverImage} />
-        )}
+        {/* Cover image / poster */}
+        {script.cover_image_url ? (
+          <View>
+            <Image source={{ uri: script.cover_image_url }} style={s.coverImage} />
+            {isOwner && (
+              <TouchableOpacity style={s.posterEditBtn} onPress={pickPoster} disabled={posterUploading}>
+                {posterUploading ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Feather name="camera" size={13} color="#fff" />
+                )}
+                <Text style={s.posterEditText}>{posterUploading ? "Uploading…" : "Change poster"}</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        ) : isOwner ? (
+          <TouchableOpacity style={s.posterAdd} onPress={pickPoster} disabled={posterUploading} activeOpacity={0.8}>
+            {posterUploading ? (
+              <ActivityIndicator color={colors.primary} />
+            ) : (
+              <Feather name="image" size={22} color={colors.textMuted} />
+            )}
+            <Text style={s.posterAddText}>{posterUploading ? "Uploading…" : "Add a poster (optional)"}</Text>
+          </TouchableOpacity>
+        ) : null}
 
         {/* Header */}
         <View style={s.header}>
@@ -234,6 +289,17 @@ const s = StyleSheet.create({
   },
   container: { flex: 1, backgroundColor: colors.bg },
   coverImage: { width: "100%", height: 200 },
+  posterEditBtn: {
+    position: "absolute", bottom: 12, right: 12, flexDirection: "row", alignItems: "center", gap: 6,
+    backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 12, paddingVertical: 7, borderRadius: radius.full,
+  },
+  posterEditText: { color: "#fff", fontSize: 12, fontWeight: "600" },
+  posterAdd: {
+    margin: spacing.xl, marginBottom: 0, height: 120, borderRadius: radius.xl,
+    borderWidth: 2, borderStyle: "dashed", borderColor: colors.cardBorder,
+    alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: colors.card,
+  },
+  posterAddText: { color: colors.textMuted, fontSize: 13 },
   header: { paddingHorizontal: spacing.xl, paddingTop: spacing.lg, paddingBottom: spacing.xl },
   badgeRow: { flexDirection: "row", alignItems: "center", marginBottom: spacing.md, gap: 8 },
   genreBadge: { paddingHorizontal: spacing.md, paddingVertical: 6, borderRadius: radius.full },
