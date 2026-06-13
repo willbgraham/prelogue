@@ -45,16 +45,15 @@ const HOW_STEPS = [
   { h: "Showcase", t: "Actors record reads for any role; audiences watch and champion the best." },
 ];
 const WRITER_POINTS = [
-  "Hear your script performed instantly with AI voices",
-  "Cast a distinct voice for every character",
-  "Collect real actor reads of your roles",
-  "Keep copyright + treatment on file",
+  "Hear your script performed instantly",
+  "Cast a voice per character",
+  "Collect real actor reads",
+  "Copyright + treatment on file",
 ];
 const ACTOR_POINTS = [
-  "Build a reel by reading roles you love",
-  "Perform against an AI scene partner",
-  "Earn Writer's Choice & Audience Favorite",
-  "No auditions, no gatekeeping — just your talent",
+  "Showcase your talent through table reads",
+  "Perform with AI voices",
+  "Earn Writer's Choice / Audience Favorite",
 ];
 
 const intro = StyleSheet.create({
@@ -186,8 +185,7 @@ export default function HomeScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={intro.title}>Where screenplays come to life</Text>
                 <Text style={intro.tagline}>
-                  Cast turns a script into a performed table read — AI voices for every character, and real
-                  actors reading the roles they choose. A showcase, not a casting service.
+                  Cast turns a script into a performed table read (AI voices and/or real actors).
                 </Text>
               </View>
               <Feather name={introOpen ? "chevron-up" : "chevron-down"} size={20} color={colors.textMuted} />
@@ -230,19 +228,23 @@ export default function HomeScreen() {
             )}
           </View>
 
-          {/* Section: Scripts to Read */}
+          {/* Section: Featured Scripts */}
           <View style={s.sectionHeader}>
             <View style={s.accentBar} />
-            <Text style={s.sectionTitle}>Scripts to Read</Text>
-            {!error && (
-              <Text style={s.sectionCount}>
-                {scripts.length} {scripts.length === 1 ? "script" : "scripts"}
-              </Text>
+            <Text style={s.sectionTitle}>Featured Scripts</Text>
+            {!error && !loading && (
+              <TouchableOpacity
+                onPress={() => router.push("/(tabs)/scripts" as any)}
+                style={{ marginLeft: "auto" }}
+                activeOpacity={0.7}
+              >
+                <Text style={{ color: colors.primary, fontSize: 13, fontWeight: "700" }}>View all →</Text>
+              </TouchableOpacity>
             )}
           </View>
         </View>
       }
-      data={loading ? [] : scripts}
+      data={loading ? [] : scripts.slice(0, 3)}
       keyExtractor={(item) => item.id}
       renderItem={({ item }) => {
         const charCount = item.characters?.[0]?.count ?? 0;
