@@ -7,6 +7,7 @@ import {
   ScrollView,
   ActivityIndicator,
   Alert,
+  Image,
   Platform,
   StyleSheet,
 } from "react-native";
@@ -15,6 +16,7 @@ import { Audio } from "expo-av";
 import { useVideoPlayer, VideoView } from "expo-video";
 import { Feather } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/lib/auth";
 import { ErrorState } from "@/components/ErrorState";
 import { prepareVoiceCues, VoiceCueEntry } from "@/lib/voiceCues";
 import type { ParsedScript } from "@/lib/types";
@@ -37,6 +39,23 @@ interface Row {
 interface ClipMedia {
   uri: string;
   actor: string;
+}
+
+/** A clip submission that can read a role (one actor's per-line video). */
+interface CastSub {
+  id: string;
+  character_id: string;
+  characterName: string; // UPPER
+  actor: string;
+  avatar: string | null;
+  isWritersChoice: boolean;
+  chosenCount: number;
+  clips: { element_index: number; clip_url: string }[];
+}
+interface CastRole {
+  characterId: string;
+  name: string;
+  options: CastSub[]; // ranked most-chosen first
 }
 
 type Medium = "idle" | "audio" | "video";
@@ -80,6 +99,7 @@ function buildRows(
 export default function TableReadPlayScreen() {
   const { scriptId } = useLocalSearchParams<{ scriptId: string }>();
   const router = useRouter();
+  const { session } = useAuth();
   const listRef = useRef<FlatList<Row>>(null);
 
   const [title, setTitle] = useState("Table Read");
@@ -94,6 +114,9 @@ export default function TableReadPlayScreen() {
   const [clipCount, setClipCount] = useState(0);
   const [reveal, setReveal] = useState(0); // chars of the current line typed so far
   const [progress, setProgress] = useState(0); // voice-generation progress 0..1
+  const [castRoles, setCastRoles] = useState<CastRole[]>([]);
+  const [castSheetOpen, setCastSheetOpen] = useState(false);
+  const [castVersion, setCastVersion] = useState(0);
 
   const manifestRef = useRef<Map<number, VoiceCueEntry>>(new Map());
   const clipsRef = useRef<Map<number, ClipMedia>>(new Map());
@@ -105,6 +128,11 @@ export default function TableReadPlayScreen() {
   const aliveRef = useRef(true);
   const focusedRef = useRef(true);
   const preparingRef = useRef(false);
+  // Viewer casting
+  const activeByCharRef = useRef<Map<string, string>>(new Map()); // characterId → submissionId
+  const subsByIdRef = useRef<Map<string, CastSub>>(new Map());
+  const urlByPathRef = useRef<Map<string, string>>(new Map());
+  const castByNameRef = useRef<Map<string, { actor: string; hasClip: boolean }>>(new Map());
 
   // One persistent video player drives the "stage" for cast actors' clips.
   const videoPlayer = useVideoPlayer("", (p) => {
@@ -164,49 +192,90 @@ export default function TableReadPlayScreen() {
       if (error) throw error;
       setTitle(script.title ?? "Table Read");
 
-      // Writer's Choice submissions = the cast. Pull their per-line clips so we
-      // can play the real actor's video where they have one.
-      const { data: subs } = await supabase
+      // Load every per-line clip submission for the script + this viewer's picks.
+      const { data: subsRaw } = await supabase
         .from("submissions")
         .select(
-          "clips, video_url, character:characters!submissions_character_id_fkey(name), actor:users!submissions_actor_id_fkey(display_name)"
+          "*, character:characters!submissions_character_id_fkey(id, name), actor:users!submissions_actor_id_fkey(id, display_name, avatar_url)"
         )
-        .eq("script_id", scriptId)
-        .eq("is_writers_choice", true);
+        .eq("script_id", scriptId);
 
-      const castByChar: Record<string, string> = {};
-      const clipPaths: { element_index: number; path: string; actor: string }[] = [];
-      for (const sub of (subs as any[]) ?? []) {
-        const name = sub.character?.name?.toUpperCase();
-        const actorName = sub.actor?.display_name ?? "Actor";
-        if (name) castByChar[name] = actorName;
-        if (Array.isArray(sub.clips)) {
-          for (const c of sub.clips) {
-            if (c && typeof c.element_index === "number" && c.clip_url) {
-              clipPaths.push({ element_index: c.element_index, path: c.clip_url, actor: actorName });
-            }
-          }
+      const userId = session?.user?.id ?? null;
+      const myChoices: Record<string, string> = {};
+      if (userId) {
+        try {
+          const { data: cc } = await supabase
+            .from("casting_choices")
+            .select("character_id, submission_id")
+            .eq("script_id", scriptId)
+            .eq("user_id", userId);
+          for (const c of (cc as any[]) ?? []) myChoices[c.character_id] = c.submission_id;
+        } catch {
+          // casting_choices not migrated yet → no saved picks
         }
       }
 
-      // Sign the clip paths once for the session.
-      const clipMap = new Map<number, ClipMedia>();
-      const uniquePaths = [...new Set(clipPaths.map((c) => c.path))];
-      if (uniquePaths.length) {
+      const subsById = new Map<string, CastSub>();
+      const byChar = new Map<string, CastSub[]>();
+      const charNames = new Map<string, string>();
+      const allPaths = new Set<string>();
+      for (const sub of (subsRaw as any[]) ?? []) {
+        const clips = Array.isArray(sub.clips)
+          ? sub.clips.filter((c: any) => c && typeof c.element_index === "number" && c.clip_url)
+          : [];
+        if (!clips.length) continue; // need per-line clips to splice into the read
+        const charId = sub.character?.id ?? sub.character_id;
+        if (!charId) continue;
+        const cs: CastSub = {
+          id: sub.id,
+          character_id: charId,
+          characterName: (sub.character?.name ?? "").toUpperCase(),
+          actor: sub.actor?.display_name ?? "Actor",
+          avatar: sub.actor?.avatar_url ?? null,
+          isWritersChoice: !!sub.is_writers_choice,
+          chosenCount: sub.chosen_count ?? 0,
+          clips,
+        };
+        subsById.set(cs.id, cs);
+        charNames.set(charId, sub.character?.name ?? cs.characterName);
+        if (!byChar.has(charId)) byChar.set(charId, []);
+        byChar.get(charId)!.push(cs);
+        for (const c of clips) allPaths.add(c.clip_url);
+      }
+
+      // Sign every clip path once — switching casts is then instant.
+      const urlByPath = new Map<string, string>();
+      const paths = [...allPaths];
+      if (paths.length) {
         const { data: signed } = await supabase.storage
           .from("submissions")
-          .createSignedUrls(uniquePaths, 86400);
-        const urlByPath = new Map<string, string>();
-        uniquePaths.forEach((p, i) => urlByPath.set(p, signed?.[i]?.signedUrl ?? ""));
-        for (const c of clipPaths) {
-          const uri = urlByPath.get(c.path);
-          if (uri) clipMap.set(c.element_index, { uri, actor: c.actor });
-        }
+          .createSignedUrls(paths, 86400);
+        paths.forEach((p, i) => urlByPath.set(p, signed?.[i]?.signedUrl ?? ""));
       }
-      clipsRef.current = clipMap;
-      setClipCount(clipMap.size);
 
-      setRows(buildRows(script.parsed_json as any, castByChar));
+      // Rank each role's actors (most chosen → Writer's Choice tiebreak) and set
+      // the active one — this viewer's saved pick wins, else the top-ranked.
+      const roles: CastRole[] = [];
+      const activeByChar = new Map<string, string>();
+      for (const [charId, list] of byChar) {
+        list.sort(
+          (a, b) =>
+            b.chosenCount - a.chosenCount ||
+            Number(b.isWritersChoice) - Number(a.isWritersChoice)
+        );
+        roles.push({ characterId: charId, name: charNames.get(charId) ?? list[0].characterName, options: list });
+        const mine = myChoices[charId];
+        const active = (mine && list.find((sb) => sb.id === mine)?.id) || list[0].id;
+        activeByChar.set(charId, active);
+      }
+
+      subsByIdRef.current = subsById;
+      urlByPathRef.current = urlByPath;
+      activeByCharRef.current = activeByChar;
+      setCastRoles(roles);
+      recomputeClips();
+
+      setRows(buildRows(script.parsed_json as any, {}));
       setLoadError(false);
     } catch (err) {
       console.warn("Table read load error:", err);
@@ -264,6 +333,59 @@ export default function TableReadPlayScreen() {
   function setMediumState(m: Medium) {
     mediumRef.current = m;
     setMedium(m);
+  }
+
+  // Rebuild the line→clip map (and per-role active-actor labels) from whichever
+  // submission is active for each character. Called on load and on each re-cast.
+  function recomputeClips() {
+    const clipMap = new Map<number, ClipMedia>();
+    const nameMap = new Map<string, { actor: string; hasClip: boolean }>();
+    for (const [, subId] of activeByCharRef.current) {
+      const sub = subsByIdRef.current.get(subId);
+      if (!sub) continue;
+      nameMap.set(sub.characterName, { actor: sub.actor, hasClip: sub.clips.length > 0 });
+      for (const c of sub.clips) {
+        const uri = urlByPathRef.current.get(c.clip_url);
+        if (uri) clipMap.set(c.element_index, { uri, actor: sub.actor });
+      }
+    }
+    clipsRef.current = clipMap;
+    castByNameRef.current = nameMap;
+    setClipCount(clipMap.size);
+  }
+
+  // The viewer picks an actor for a role: re-cast instantly + remember it.
+  async function chooseActor(characterId: string, submissionId: string) {
+    const prev = activeByCharRef.current.get(characterId);
+    if (prev === submissionId) {
+      setCastSheetOpen(false);
+      return;
+    }
+    activeByCharRef.current.set(characterId, submissionId);
+    // Optimistic local tally so the picker reflects it immediately.
+    const next = subsByIdRef.current.get(submissionId);
+    const old = prev ? subsByIdRef.current.get(prev) : undefined;
+    if (next) next.chosenCount += 1;
+    if (old && old.chosenCount > 0) old.chosenCount -= 1;
+    recomputeClips();
+    setCastVersion((v) => v + 1);
+    const userId = session?.user?.id;
+    if (userId) {
+      try {
+        await supabase.from("casting_choices").upsert(
+          {
+            user_id: userId,
+            script_id: scriptId,
+            character_id: characterId,
+            submission_id: submissionId,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "user_id,character_id" }
+        );
+      } catch {
+        // casting_choices not migrated yet — the pick still applies this session
+      }
+    }
   }
 
   async function playRow(rowPos: number) {
@@ -426,6 +548,7 @@ export default function TableReadPlayScreen() {
     const isActive = active === index;
     const isPast = index < active;
     const hasClip = clipsRef.current.has(item.elementIndex);
+    const castInfo = item.character ? castByNameRef.current.get(item.character.toUpperCase()) : undefined;
     return (
       <View>
         {item.sceneHeading ? <Text style={s.sceneHeading} numberOfLines={1}>{item.sceneHeading}</Text> : null}
@@ -450,10 +573,10 @@ export default function TableReadPlayScreen() {
             >
               {item.text}
             </Text>
-            {item.castActor ? (
+            {castInfo ? (
               <View style={s.castBadge}>
                 <Feather name={hasClip ? "video" : "user-check"} size={10} color={colors.green} />
-                <Text style={s.castBadgeText}>{item.castActor}{hasClip ? "" : " (voice)"}</Text>
+                <Text style={s.castBadgeText}>{castInfo.actor}{hasClip ? "" : " (voice)"}</Text>
               </View>
             ) : null}
           </View>
@@ -468,6 +591,13 @@ export default function TableReadPlayScreen() {
   return (
     <View style={s.container}>
       <Stack.Screen options={{ title, headerStyle: { backgroundColor: colors.bg }, headerTintColor: "#fff" }} />
+
+      {castRoles.length > 0 && (
+        <TouchableOpacity style={s.castBtn} onPress={() => setCastSheetOpen(true)} activeOpacity={0.85}>
+          <Feather name="users" size={13} color="#fff" />
+          <Text style={s.castBtnText}>Cast</Text>
+        </TouchableOpacity>
+      )}
 
       {/* Stage — appears once playback starts. Shows the cast actor's clip, or a
           tasteful placeholder for AI-voiced lines / narration. */}
@@ -509,7 +639,7 @@ export default function TableReadPlayScreen() {
         data={rows}
         keyExtractor={(_i, i) => String(i)}
         renderItem={renderRow}
-        extraData={`${active}-${playing}-${medium}-${clipCount}`}
+        extraData={`${active}-${playing}-${medium}-${clipCount}-${castVersion}`}
         contentContainerStyle={{ padding: spacing.lg, paddingBottom: 140 }}
         initialNumToRender={20}
         maxToRenderPerBatch={20}
@@ -552,6 +682,64 @@ export default function TableReadPlayScreen() {
           </View>
         )}
       </View>
+
+      {/* Choose-cast sheet */}
+      {castSheetOpen && (
+        <View style={s.sheetOverlay}>
+          <View style={s.sheet}>
+            <View style={s.sheetHeader}>
+              <Text style={s.sheetTitle}>Choose your cast</Text>
+              <TouchableOpacity onPress={() => setCastSheetOpen(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                <Feather name="x" size={22} color={colors.text} />
+              </TouchableOpacity>
+            </View>
+            <Text style={s.sheetSub}>
+              Pick who reads each role — ranked by how often viewers pick them.
+            </Text>
+            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 24 }}>
+              {castRoles.map((role) => {
+                const activeId = activeByCharRef.current.get(role.characterId);
+                return (
+                  <View key={role.characterId} style={s.roleBlock}>
+                    <Text style={s.roleName}>{role.name}</Text>
+                    {role.options.map((opt) => {
+                      const isSel = opt.id === activeId;
+                      return (
+                        <TouchableOpacity
+                          key={opt.id}
+                          style={[s.optRow, isSel && s.optRowActive]}
+                          onPress={() => chooseActor(role.characterId, opt.id)}
+                          activeOpacity={0.8}
+                        >
+                          {opt.avatar ? (
+                            <Image source={{ uri: opt.avatar }} style={s.optAvatar} />
+                          ) : (
+                            <View style={s.optAvatarPh}>
+                              <Feather name="user" size={16} color={colors.primary} />
+                            </View>
+                          )}
+                          <View style={{ flex: 1 }}>
+                            <Text style={s.optName}>{opt.actor}</Text>
+                            <Text style={s.optMeta}>
+                              {opt.chosenCount} pick{opt.chosenCount === 1 ? "" : "s"}
+                              {opt.isWritersChoice ? " · Writer's Choice" : ""}
+                            </Text>
+                          </View>
+                          <Feather
+                            name={isSel ? "check-circle" : "circle"}
+                            size={20}
+                            color={isSel ? colors.green : colors.cardBorder}
+                          />
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -611,4 +799,33 @@ const s = StyleSheet.create({
   transportSecondary: { width: 56, alignItems: "center" },
   transportPlay: { width: 64, height: 64, borderRadius: 32, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
   progressText: { color: colors.textSecondary, fontSize: 13, fontWeight: "600" },
+
+  // Choose-cast
+  castBtn: {
+    position: "absolute", top: 10, right: 14, zIndex: 30,
+    flexDirection: "row", alignItems: "center", gap: 6,
+    backgroundColor: "rgba(108,92,231,0.95)", paddingHorizontal: 14, paddingVertical: 8, borderRadius: radius.full,
+  },
+  castBtnText: { color: "#fff", fontSize: 13, fontWeight: "700" },
+  sheetOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end", zIndex: 50 },
+  sheet: {
+    maxHeight: "82%", backgroundColor: colors.bg,
+    borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl,
+    padding: spacing.xl, borderTopWidth: 1, borderColor: colors.cardBorder,
+  },
+  sheetHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  sheetTitle: { color: colors.text, fontSize: 18, fontWeight: "800" },
+  sheetSub: { color: colors.textSecondary, fontSize: 13, lineHeight: 18, marginTop: 4, marginBottom: spacing.md },
+  roleBlock: { marginBottom: spacing.lg },
+  roleName: { color: colors.textMuted, fontSize: 11, fontWeight: "700", letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 },
+  optRow: {
+    flexDirection: "row", alignItems: "center", gap: spacing.md,
+    backgroundColor: colors.card, borderRadius: radius.lg, padding: spacing.md, marginBottom: 8,
+    borderWidth: 1, borderColor: colors.cardBorder,
+  },
+  optRowActive: { borderColor: colors.green, backgroundColor: colors.greenMuted },
+  optAvatar: { width: 40, height: 40, borderRadius: radius.full },
+  optAvatarPh: { width: 40, height: 40, borderRadius: radius.full, backgroundColor: colors.primaryMuted, alignItems: "center", justifyContent: "center" },
+  optName: { color: colors.text, fontSize: 14, fontWeight: "600" },
+  optMeta: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
 });

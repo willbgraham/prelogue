@@ -218,7 +218,9 @@ export default function CastingDashboardScreen() {
                   s.subRow,
                   sub.is_writers_choice && s.subRowSelected,
                 ]}
-                onPress={() => setWritersChoice(sub.id, char.id)}
+                onPress={() => {
+                  if (char.submissions.length > 1) setWritersChoice(sub.id, char.id);
+                }}
               >
                 {sub.actor?.avatar_url ? (
                   <Image
@@ -236,17 +238,16 @@ export default function CastingDashboardScreen() {
                   </Text>
                   <Text style={s.subTake}>Take #{sub.take_number}</Text>
                 </View>
-                {sub.is_writers_choice ? (
-                  <View style={s.wcBadgeActive}>
-                    <Text style={s.wcBadgeActiveText}>
-                      Writer's Choice
-                    </Text>
-                  </View>
-                ) : (
-                  <View style={s.selectBadge}>
-                    <Text style={s.selectBadgeText}>Select</Text>
-                  </View>
-                )}
+                {char.submissions.length > 1 &&
+                  (sub.is_writers_choice ? (
+                    <View style={s.wcBadgeActive}>
+                      <Text style={s.wcBadgeActiveText}>Writer's Choice</Text>
+                    </View>
+                  ) : (
+                    <View style={s.selectBadge}>
+                      <Text style={s.selectBadgeText}>Select</Text>
+                    </View>
+                  ))}
                 {!sub.is_writers_choice && (
                   <View style={s.noteSection}>
                     <TextInput
