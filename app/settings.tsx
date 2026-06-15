@@ -33,6 +33,7 @@ export default function SettingsScreen() {
   );
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   // Notification preferences
   const defaultPrefs = {
@@ -125,6 +126,33 @@ export default function SettingsScreen() {
     } finally {
       setSaving(false);
     }
+  }
+
+  function handleDeleteAccount() {
+    Alert.alert(
+      "Delete account?",
+      "This permanently deletes your account, your scripts, your reads, and all your data. This cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            setDeleting(true);
+            try {
+              const { data, error } = await supabase.functions.invoke("delete-account", { body: {} });
+              if (error || (data as any)?.error) {
+                throw new Error((error as any)?.message ?? (data as any)?.error);
+              }
+              await signOut();
+            } catch (e: any) {
+              Alert.alert("Couldn't delete account", e?.message ?? String(e));
+              setDeleting(false);
+            }
+          },
+        },
+      ]
+    );
   }
 
   const notifLabels: Record<string, string> = {
@@ -298,6 +326,20 @@ export default function SettingsScreen() {
         <TouchableOpacity style={s.signOutBtn} onPress={signOut} activeOpacity={0.7}>
           <Text style={s.signOutText}>Sign Out</Text>
         </TouchableOpacity>
+
+        {/* Delete account (required by the App Store) */}
+        <TouchableOpacity
+          style={s.deleteBtn}
+          onPress={handleDeleteAccount}
+          disabled={deleting}
+          activeOpacity={0.7}
+        >
+          {deleting ? (
+            <ActivityIndicator color={colors.textMuted} />
+          ) : (
+            <Text style={s.deleteText}>Delete account</Text>
+          )}
+        </TouchableOpacity>
       </ScrollView>
     </>
   );
@@ -366,4 +408,6 @@ const s = StyleSheet.create({
     borderRadius: radius.xl, paddingVertical: 14, alignItems: "center", marginTop: spacing.lg,
   },
   signOutText: { color: colors.red, fontWeight: "700" },
+  deleteBtn: { paddingVertical: 14, alignItems: "center", marginTop: spacing.sm, marginBottom: spacing.xl },
+  deleteText: { color: colors.textMuted, fontSize: 13, fontWeight: "600", textDecorationLine: "underline" },
 });
