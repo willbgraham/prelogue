@@ -18,6 +18,7 @@ import { useAuth } from "@/lib/auth";
 import { useRequireAuth } from "@/lib/useRequireAuth";
 import { uploadFile } from "@/lib/storage";
 import { SCRIPT_STATUS_LABELS } from "@/lib/constants";
+import { reportContent, blockUser } from "@/lib/moderation";
 import { colors, radius, spacing } from "@/lib/theme";
 
 export default function ScriptDetailScreen() {
@@ -238,6 +239,21 @@ export default function ScriptDetailScreen() {
               <Text style={s.treatmentBtnText}>View Treatment</Text>
             </TouchableOpacity>
           )}
+
+          {!isOwner && (
+            <View style={s.modRow}>
+              <TouchableOpacity style={s.modBtn} onPress={() => reportContent("script", script.id)} hitSlop={8}>
+                <Feather name="flag" size={12} color={colors.textMuted} />
+                <Text style={s.modText}>Report</Text>
+              </TouchableOpacity>
+              {script.writer_id && (
+                <TouchableOpacity style={s.modBtn} onPress={() => blockUser(script.writer_id, "this writer")} hitSlop={8}>
+                  <Feather name="slash" size={12} color={colors.textMuted} />
+                  <Text style={s.modText}>Block writer</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
         </View>
 
         {/* Casting Dashboard button for writers */}
@@ -369,6 +385,9 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: colors.cardBorder,
   },
   treatmentBtnText: { color: colors.text, fontSize: 14, fontWeight: "700" },
+  modRow: { flexDirection: "row", gap: spacing.xl, marginTop: spacing.lg },
+  modBtn: { flexDirection: "row", alignItems: "center", gap: 5 },
+  modText: { color: colors.textMuted, fontSize: 12, fontWeight: "600" },
   castingBtn: {
     marginHorizontal: spacing.xl, marginBottom: spacing.lg,
     backgroundColor: colors.primary, borderRadius: radius.xl,

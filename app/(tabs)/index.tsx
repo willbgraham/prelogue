@@ -17,6 +17,7 @@ import { useAuth } from "@/lib/auth";
 import { colors, radius, spacing } from "@/lib/theme";
 import { ScriptCardSkeleton } from "@/components/Skeleton";
 import { ErrorState } from "@/components/ErrorState";
+import { getBlockedIds } from "@/lib/moderation";
 
 const genreColors: Record<string, string> = {
   Action: "#ff7675",
@@ -113,7 +114,8 @@ export default function HomeScreen() {
       // Gate the screen on the primary content (scripts); the leaderboard and
       // trending sections fail soft since they only render when populated.
       if (scriptsRes.error) throw scriptsRes.error;
-      setScripts(scriptsRes.data ?? []);
+      const blocked = await getBlockedIds();
+      setScripts(((scriptsRes.data as any[]) ?? []).filter((sc) => !blocked.has(sc.writer_id)));
       setLeaderboard(leaderRes.data ?? []);
       setTrending(trendingRes.data ?? []);
       setError(false);

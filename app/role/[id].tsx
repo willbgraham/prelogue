@@ -17,6 +17,7 @@ import { formatDistanceToNow } from "date-fns";
 import { colors, radius, spacing } from "@/lib/theme";
 import { VoteButton } from "@/components/VoteButton";
 import { SubmissionMedia } from "@/components/SubmissionMedia";
+import { reportContent, blockUser, getBlockedIds } from "@/lib/moderation";
 
 export default function RoleDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -45,7 +46,11 @@ export default function RoleDetailScreen() {
       .eq("character_id", id)
       .order("created_at", { ascending: false });
 
-    if (subData) setSubmissions(subData as any);
+    const blocked = await getBlockedIds();
+    const visible = ((subData as any[]) ?? []).filter(
+      (sb) => !blocked.has(sb.actor?.id ?? sb.actor_id)
+    );
+    setSubmissions(visible as any);
     setLoading(false);
   }
 
@@ -136,6 +141,24 @@ export default function RoleDetailScreen() {
               <SubmissionMedia submission={sub} aspectRatio={9 / 16} />
               <View style={{ marginTop: 8 }}>
                 <VoteButton submissionId={sub.id} initialVoteCount={sub.vote_count} />
+              </View>
+              <View style={s.modRow}>
+                <TouchableOpacity style={s.modBtn} onPress={() => reportContent("submission", sub.id)} hitSlop={8}>
+                  <Feather name="flag" size={12} color={colors.textMuted} />
+                  <Text style={s.modText}>Report</Text>
+                </TouchableOpacity>
+                {(sub as any).actor?.id && (sub as any).actor.id !== profile?.id && (
+                  <TouchableOpacity
+                    style={s.modBtn}
+                    onPress={() =>
+                      blockUser((sub as any).actor.id, (sub as any).actor.display_name ?? "this user", fetchData)
+                    }
+                    hitSlop={8}
+                  >
+                    <Feather name="slash" size={12} color={colors.textMuted} />
+                    <Text style={s.modText}>Block</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             </View>
           ))}
@@ -282,4 +305,7 @@ const s = StyleSheet.create({
     color: colors.textMuted,
     marginLeft: 4,
   },
+  modRow: { flexDirection: "row", gap: spacing.lg, marginTop: 10 },
+  modBtn: { flexDirection: "row", alignItems: "center", gap: 5 },
+  modText: { color: colors.textMuted, fontSize: 12, fontWeight: "600" },
 });
