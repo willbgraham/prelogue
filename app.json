@@ -8,15 +8,21 @@
     "scheme": "cast",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "runtimeVersion": { "policy": "appVersion" },
     "splash": {
       "image": "./assets/images/splash-icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.castapp.cast",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
+      "package": "com.castapp.cast",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
@@ -34,7 +40,21 @@
       "expo-font",
       "expo-secure-store",
       "expo-video",
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-notifications",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Cast uses the camera so you can record your read for a role.",
+          "microphonePermission": "Cast uses the microphone to capture your audio while you record your read."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Cast needs access to your photos so you can set a profile picture and script posters."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
