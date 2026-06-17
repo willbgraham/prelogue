@@ -194,7 +194,7 @@ export default function CastingDashboardScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: `Cast: ${scriptTitle}`, headerStyle: { backgroundColor: colors.bg }, headerTintColor: "#fff" }} />
+      <Stack.Screen options={{ title: `Casting: ${scriptTitle}`, headerStyle: { backgroundColor: colors.bg }, headerTintColor: "#fff" }} />
       <ScrollView style={s.container} contentContainerStyle={{ padding: spacing.lg }}>
         {characters.map((char) => (
           <View key={char.id} style={s.charBlock}>

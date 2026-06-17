@@ -46,9 +46,9 @@ export default function SignInScreen() {
         {/* Logo */}
         <View style={s.logoSection}>
           <View style={s.logoBox}>
-            <Text style={s.logoLetter}>C</Text>
+            <Text style={s.logoLetter}>P</Text>
           </View>
-          <Text style={s.appName}>Cast</Text>
+          <Text style={s.appName}>Prelogue</Text>
           <Text style={s.tagline}>Table reads, reimagined</Text>
         </View>
 

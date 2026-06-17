@@ -154,7 +154,7 @@ export default function HomeScreen() {
           <View style={s.hero}>
             <View style={s.logoRow}>
               <View style={s.logoBox}>
-                <Text style={s.logoText}>C</Text>
+                <Text style={s.logoText}>P</Text>
               </View>
               <TouchableOpacity
                 style={s.bellBtn}
@@ -181,13 +181,13 @@ export default function HomeScreen() {
             </Text>
           </View>
 
-          {/* What is Cast — explainer (collapsible) */}
+          {/* What is Prelogue — explainer (collapsible) */}
           <View style={intro.card}>
             <TouchableOpacity style={intro.head} onPress={() => setIntroOpen((v) => !v)} activeOpacity={0.8}>
               <View style={{ flex: 1 }}>
                 <Text style={intro.title}>Where screenplays come to life</Text>
                 <Text style={intro.tagline}>
-                  Cast turns a script into a performed table read (AI voices and/or real actors).
+                  Prelogue turns a script into a performed table read (AI voices and/or real actors).
                 </Text>
               </View>
               <Feather name={introOpen ? "chevron-up" : "chevron-down"} size={20} color={colors.textMuted} />

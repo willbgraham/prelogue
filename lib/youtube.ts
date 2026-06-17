@@ -46,17 +46,17 @@ export async function exportToYouTube(
   }
 
   // Generate YouTube metadata
-  const title = `${scriptTitle} — Table Read | Cast App`;
+  const title = `${scriptTitle} — Table Read | Prelogue`;
   const description = [
     `Table read of "${scriptTitle}" (${genre})`,
     "",
     "Cast:",
     ...castNames.map((name, i) => `  ${i + 1}. ${name}`),
     "",
-    "Created with Cast — the platform for screenwriters and actors.",
-    "https://cast.app",
+    "Created with Prelogue — the platform for screenwriters and actors.",
+    "https://prelogue.app",
   ].join("\n");
-  const tags = [genre, "table read", "screenplay", "acting", "cast app", scriptTitle]
+  const tags = [genre, "table read", "screenplay", "acting", "prelogue", scriptTitle]
     .join(",");
 
   // For full implementation, use YouTube Data API:

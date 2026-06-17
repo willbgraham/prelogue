@@ -61,7 +61,7 @@ export default function SignUpScreen() {
       <ScrollView contentContainerStyle={s.inner} keyboardShouldPersistTaps="handled">
         <View style={s.header}>
           <Text style={s.title}>Create Account</Text>
-          <Text style={s.subtitle}>Join the Cast community</Text>
+          <Text style={s.subtitle}>Join the Prelogue community</Text>
         </View>
 
         <Text style={s.label}>DISPLAY NAME</Text>
@@ -81,7 +81,7 @@ export default function SignUpScreen() {
             I agree to the{" "}
             <Text style={s.agreeLink} onPress={() => Linking.openURL(TERMS_URL)}>Terms of Use</Text> and{" "}
             <Text style={s.agreeLink} onPress={() => Linking.openURL(PRIVACY_URL)}>Privacy Policy</Text>. I understand
-            Cast has zero tolerance for objectionable content or abusive behavior.
+            Prelogue has zero tolerance for objectionable content or abusive behavior.
           </Text>
         </TouchableOpacity>
 

@@ -43,9 +43,9 @@ export default function OnboardingScreen() {
     <View style={s.container}>
       <View style={s.header}>
         <View style={s.logoBox}>
-          <Text style={s.logoLetter}>C</Text>
+          <Text style={s.logoLetter}>P</Text>
         </View>
-        <Text style={s.title}>Welcome to Cast</Text>
+        <Text style={s.title}>Welcome to Prelogue</Text>
         <Text style={s.subtitle}>How will you use the platform? Pick all that apply.</Text>
       </View>
 

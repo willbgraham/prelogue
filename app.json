@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "cast",
+    "name": "Prelogue",
     "slug": "cast",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -53,14 +53,14 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Cast uses the camera so you can record your read for a role.",
-          "microphonePermission": "Cast uses the microphone to capture your audio while you record your read."
+          "cameraPermission": "Prelogue uses the camera so you can record your read for a role.",
+          "microphonePermission": "Prelogue uses the microphone to capture your audio while you record your read."
         }
       ],
       [
         "expo-image-picker",
         {
-          "photosPermission": "Cast needs access to your photos so you can set a profile picture and script posters."
+          "photosPermission": "Prelogue needs access to your photos so you can set a profile picture and script posters."
         }
       ]
     ],
