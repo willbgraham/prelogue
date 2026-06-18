@@ -18,20 +18,25 @@ function json(body: unknown, status = 200) {
   });
 }
 
+// Per-script unlock price, in cents. Override with STRIPE_UNLOCK_PRICE_CENTS.
+const UNLOCK_PRICE_CENTS = Number(Deno.env.get("STRIPE_UNLOCK_PRICE_CENTS") ?? "2999");
+
 /**
- * Creates a Stripe Checkout session for the writer "Pro" subscription and
- * returns its URL. The client opens that URL in an external browser (App Store
- * compliant in the US as of 2026), completes payment, and the stripe-webhook
- * function flips the user's plan. Includes a 7-day trial with a card required
- * up front (so the trial can't be farmed for free generation).
+ * Creates a Stripe Checkout session to UNLOCK ONE SCRIPT (one-time payment).
+ * Unlocking grants that script its full AI table read + invite-only sharing.
+ * The client opens the returned URL in an external browser; on payment the
+ * stripe-webhook function flips scripts.full_read_unlocked via the script_id we
+ * stash in the session metadata. Body: { script_id }.
  */
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   try {
-    const priceId = Deno.env.get("STRIPE_PRICE_ID");
-    if (!Deno.env.get("STRIPE_SECRET_KEY") || !priceId) {
-      return json({ error: "Stripe not configured (STRIPE_SECRET_KEY / STRIPE_PRICE_ID)" }, 500);
+    if (!Deno.env.get("STRIPE_SECRET_KEY")) {
+      return json({ error: "Stripe not configured (STRIPE_SECRET_KEY)" }, 500);
     }
+
+    const { script_id } = await req.json().catch(() => ({}));
+    if (!script_id) return json({ error: "Missing script_id" }, 400);
 
     // Identify the caller from their Supabase auth token.
     const authHeader = req.headers.get("Authorization") ?? "";
@@ -49,6 +54,17 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
+
+    // The buyer must own the script, and it can't already be unlocked.
+    const { data: script } = await admin
+      .from("scripts")
+      .select("id, title, writer_id, full_read_unlocked")
+      .eq("id", script_id)
+      .single();
+    if (!script) return json({ error: "Script not found" }, 404);
+    if (script.writer_id !== user.id) return json({ error: "Not your script" }, 403);
+    if (script.full_read_unlocked) return json({ error: "Script is already unlocked" }, 409);
+
     const { data: profile } = await admin
       .from("users")
       .select("stripe_customer_id, display_name")
@@ -70,15 +86,26 @@ Deno.serve(async (req) => {
     const successUrl = Deno.env.get("STRIPE_SUCCESS_URL") ?? `${Deno.env.get("SUPABASE_URL")}`;
     const cancelUrl = Deno.env.get("STRIPE_CANCEL_URL") ?? `${Deno.env.get("SUPABASE_URL")}`;
 
-    // No free trial: "trying it" is the free first-scene preview (no card).
-    // Checkout is an immediate paid subscription; card is collected only here,
-    // when the writer chooses to unlock full scripts. Promo codes stay enabled
-    // so you can still run a discounted first month if you want.
+    // One-time payment. Price is set inline so there's no Stripe dashboard
+    // product to maintain. Promo codes stay on for launch discounts.
     const checkoutSession = await stripe.checkout.sessions.create({
-      mode: "subscription",
+      mode: "payment",
       customer: customerId,
-      line_items: [{ price: priceId, quantity: 1 }],
-      subscription_data: { metadata: { user_id: user.id } },
+      line_items: [
+        {
+          quantity: 1,
+          price_data: {
+            currency: "usd",
+            unit_amount: UNLOCK_PRICE_CENTS,
+            product_data: {
+              name: "Full script unlock — Prelogue",
+              description: `Full AI table read + invite-only sharing for "${script.title}"`,
+            },
+          },
+        },
+      ],
+      payment_intent_data: { metadata: { user_id: user.id, script_id } },
+      metadata: { user_id: user.id, script_id },
       client_reference_id: user.id,
       allow_promotion_codes: true,
       success_url: successUrl,

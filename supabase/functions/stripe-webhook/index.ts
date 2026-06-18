@@ -16,28 +16,13 @@ const admin = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
 );
 
-/** Map a Stripe subscription onto the user's plan columns. */
-async function applySubscription(
-  sub: Stripe.Subscription,
-  userId?: string,
-  customerId?: string
-) {
-  const status = sub.status; // active | trialing | past_due | canceled | unpaid | incomplete...
-  const paid = status === "active" || status === "trialing";
-  const update = {
-    plan: paid ? "pro" : "free",
-    plan_status: status,
-    stripe_subscription_id: sub.id,
-    plan_renews_at: sub.current_period_end
-      ? new Date(sub.current_period_end * 1000).toISOString()
-      : null,
-  };
-
-  if (userId) {
-    await admin.from("users").update(update).eq("id", userId);
-  } else if (customerId) {
-    await admin.from("users").update(update).eq("stripe_customer_id", customerId);
-  }
+/** Mark a script's full read as unlocked (idempotent). */
+async function unlockScript(scriptId: string) {
+  if (!scriptId) return;
+  await admin
+    .from("scripts")
+    .update({ full_read_unlocked: true, unlocked_at: new Date().toISOString() })
+    .eq("id", scriptId);
 }
 
 Deno.serve(async (req) => {
@@ -55,23 +40,21 @@ Deno.serve(async (req) => {
 
   try {
     switch (event.type) {
+      // One-time per-script unlock. Honor only fully-paid sessions.
       case "checkout.session.completed": {
         const s = event.data.object as Stripe.Checkout.Session;
-        const userId = s.client_reference_id || (s.metadata?.user_id as string | undefined);
-        const customerId = typeof s.customer === "string" ? s.customer : s.customer?.id;
-        const subId = typeof s.subscription === "string" ? s.subscription : s.subscription?.id;
-        if (subId) {
-          const sub = await stripe.subscriptions.retrieve(subId);
-          await applySubscription(sub, userId, customerId);
+        const scriptId = s.metadata?.script_id as string | undefined;
+        if (scriptId && (s.payment_status === "paid" || s.payment_status === "no_payment_required")) {
+          await unlockScript(scriptId);
         }
         break;
       }
-      case "customer.subscription.created":
-      case "customer.subscription.updated":
-      case "customer.subscription.deleted": {
-        const sub = event.data.object as Stripe.Subscription;
-        const customerId = typeof sub.customer === "string" ? sub.customer : sub.customer?.id;
-        await applySubscription(sub, sub.metadata?.user_id as string | undefined, customerId);
+      // Belt-and-suspenders: also unlock when the payment intent succeeds
+      // (covers async payment methods that settle after checkout).
+      case "payment_intent.succeeded": {
+        const pi = event.data.object as Stripe.PaymentIntent;
+        const scriptId = pi.metadata?.script_id as string | undefined;
+        if (scriptId) await unlockScript(scriptId);
         break;
       }
       default:

@@ -1,19 +1,23 @@
 import * as WebBrowser from "expo-web-browser";
 import { supabase } from "./supabase";
 
+export const UNLOCK_PRICE_LABEL = "$29.99";
+
 /**
- * Starts the writer "Pro" subscription checkout. Invokes the
- * create-checkout-session edge function and opens Stripe Checkout in an
- * external browser (App Store-compliant link-out in the US as of 2026).
+ * Starts the one-time checkout to UNLOCK ONE SCRIPT's full AI table read +
+ * invite-only sharing. Invokes create-checkout-session and opens Stripe
+ * Checkout in an external browser (App Store-compliant link-out in the US).
  *
- * The stripe-webhook function is the source of truth for plan status, so after
- * the browser closes the caller should refetch the user's profile to pick up
- * the new plan.
+ * The stripe-webhook function is the source of truth — it flips
+ * scripts.full_read_unlocked on payment — so after the browser closes the
+ * caller should re-fetch the script to pick up the unlocked state.
  */
-export async function startWriterCheckout(): Promise<{ ok: boolean; error?: string }> {
+export async function startScriptUnlock(
+  scriptId: string
+): Promise<{ ok: boolean; error?: string }> {
   try {
     const { data, error } = await supabase.functions.invoke("create-checkout-session", {
-      body: {},
+      body: { script_id: scriptId },
     });
     if (error) return { ok: false, error: error.message ?? String(error) };
     if (data?.error) return { ok: false, error: data.error };

@@ -145,7 +145,7 @@ Deno.serve(async (req) => {
     // Fetch parsed script + voice config
     const { data: script, error: scriptErr } = await supabase
       .from("scripts")
-      .select("parsed_json, voice_config, writer_id")
+      .select("parsed_json, voice_config, writer_id, full_read_unlocked")
       .eq("id", script_id)
       .single();
 
@@ -168,26 +168,13 @@ Deno.serve(async (req) => {
       );
     }
 
-    // ----- Plan gate -----
-    // A script is voice-unlocked when its writer is paid (active/trialing/pro).
-    // Free writers get only a short preview (the opening) so they can hear it,
-    // then upgrade to voice the whole script. Enforced here (service role), so
+    // ----- Unlock gate -----
+    // A script's full read is unlocked by a one-time purchase
+    // (scripts.full_read_unlocked, flipped by the Stripe webhook). Until then
+    // only a short opening preview is voiced. Enforced here (service role) so
     // it can't be bypassed from the client.
-    const FREE_PREVIEW_LIMIT = 30; // spoken elements voiced on the free tier
-    let writerPlan = "pro";
-    let fullAccess = true;
-    if (script.writer_id) {
-      const { data: writer } = await supabase
-        .from("users")
-        .select("plan, plan_status")
-        .eq("id", script.writer_id)
-        .single();
-      writerPlan = (writer?.plan as string) ?? "free";
-      fullAccess =
-        writer?.plan === "pro" ||
-        writer?.plan_status === "active" ||
-        writer?.plan_status === "trialing";
-    }
+    const FREE_PREVIEW_LIMIT = 30; // spoken elements voiced before unlock
+    const fullAccess = (script as any).full_read_unlocked === true;
     const locked = !fullAccess;
 
     // Resolve voice configuration (with sane defaults when unset).
@@ -327,7 +314,7 @@ Deno.serve(async (req) => {
       JSON.stringify({
         success: true,
         script_id,
-        plan: writerPlan,
+        unlocked: fullAccess,
         locked,
         preview_limit: FREE_PREVIEW_LIMIT,
         voice_config_hash: voiceConfigHash,
