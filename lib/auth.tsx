@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { Session } from "@supabase/supabase-js";
+import * as Linking from "expo-linking";
 import { supabase } from "./supabase";
 import type { User } from "./types";
 
@@ -84,7 +85,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   async function resetPassword(email: string) {
     // Supabase returns success even when the email has no account, to avoid
     // leaking which addresses are registered.
-    const { error } = await supabase.auth.resetPasswordForEmail(email);
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: Linking.createURL("/reset-password"),
+    });
     if (error) throw error;
   }
 

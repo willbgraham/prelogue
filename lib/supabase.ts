@@ -25,5 +25,8 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,
+    // PKCE so password recovery / magic links return a ?code= we can exchange
+    // on-device via the deep link. Doesn't affect email/password sign-in.
+    flowType: "pkce",
   },
 });
