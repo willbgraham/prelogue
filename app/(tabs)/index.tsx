@@ -115,7 +115,11 @@ export default function HomeScreen() {
       // trending sections fail soft since they only render when populated.
       if (scriptsRes.error) throw scriptsRes.error;
       const blocked = await getBlockedIds();
-      setScripts(((scriptsRes.data as any[]) ?? []).filter((sc) => !blocked.has(sc.writer_id)));
+      setScripts(
+        ((scriptsRes.data as any[]) ?? []).filter(
+          (sc) => !blocked.has(sc.writer_id) && (sc.visibility ?? "public") === "public"
+        )
+      );
       setLeaderboard(leaderRes.data ?? []);
       setTrending(trendingRes.data ?? []);
       setError(false);

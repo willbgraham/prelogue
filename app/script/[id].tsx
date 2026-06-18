@@ -30,6 +30,7 @@ export default function ScriptDetailScreen() {
   const [characters, setCharacters] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [posterUploading, setPosterUploading] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     fetchScript();
@@ -105,6 +106,40 @@ export default function ScriptDetailScreen() {
     } finally {
       setPosterUploading(false);
     }
+  }
+
+  async function toggleHidden() {
+    const next = script.visibility === "hidden" ? "public" : "hidden";
+    setBusy(true);
+    const { error } = await supabase.from("scripts").update({ visibility: next }).eq("id", script.id);
+    setBusy(false);
+    if (error) {
+      Alert.alert("Couldn't update", error.message);
+      return;
+    }
+    setScript({ ...script, visibility: next });
+  }
+
+  function confirmDelete() {
+    Alert.alert(
+      "Delete screenplay?",
+      `"${script.title}" and all of its roles, reads, and casting will be permanently deleted. This can't be undone.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Delete", style: "destructive", onPress: doDelete },
+      ]
+    );
+  }
+
+  async function doDelete() {
+    setBusy(true);
+    const { error } = await supabase.rpc("delete_script", { p_script_id: script.id });
+    setBusy(false);
+    if (error) {
+      Alert.alert("Couldn't delete", error.message);
+      return;
+    }
+    router.replace("/(tabs)/scripts" as any);
   }
 
   if (loading || !script) {
@@ -190,6 +225,12 @@ export default function ScriptDetailScreen() {
                 {SCRIPT_STATUS_LABELS[script.status]}
               </Text>
             </View>
+            {isOwner && script.visibility === "hidden" && (
+              <View style={s.hiddenPill}>
+                <Feather name="eye-off" size={11} color={colors.textSecondary} />
+                <Text style={s.hiddenPillText}>Hidden</Text>
+              </View>
+            )}
           </View>
 
           <Text style={s.title}>{script.title}</Text>
@@ -266,6 +307,35 @@ export default function ScriptDetailScreen() {
             <Feather name="layout" size={16} color="#fff" />
             <Text style={s.castingBtnText}>Open Casting Dashboard</Text>
           </TouchableOpacity>
+        )}
+
+        {/* Owner controls: hide from the public lists, or delete entirely */}
+        {isOwner && (
+          <View style={s.ownerControls}>
+            <TouchableOpacity style={s.ownerBtn} onPress={toggleHidden} disabled={busy} activeOpacity={0.85}>
+              <Feather
+                name={script.visibility === "hidden" ? "eye" : "eye-off"}
+                size={15}
+                color={colors.text}
+              />
+              <Text style={s.ownerBtnText}>
+                {script.visibility === "hidden" ? "Make visible" : "Hide"}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[s.ownerBtn, s.ownerBtnDanger]}
+              onPress={confirmDelete}
+              disabled={busy}
+              activeOpacity={0.85}
+            >
+              {busy ? (
+                <ActivityIndicator size="small" color={colors.red} />
+              ) : (
+                <Feather name="trash-2" size={15} color={colors.red} />
+              )}
+              <Text style={[s.ownerBtnText, { color: colors.red }]}>Delete</Text>
+            </TouchableOpacity>
+          </View>
         )}
 
         {/* Characters */}
@@ -394,6 +464,18 @@ const s = StyleSheet.create({
     paddingVertical: 14, alignItems: "center", flexDirection: "row", justifyContent: "center", gap: 8,
   },
   castingBtnText: { color: "#fff", fontWeight: "700", fontSize: 14 },
+  hiddenPill: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    backgroundColor: colors.elevated, paddingHorizontal: spacing.md, paddingVertical: 6, borderRadius: radius.full,
+  },
+  hiddenPillText: { color: colors.textSecondary, fontSize: 12, fontWeight: "600" },
+  ownerControls: { flexDirection: "row", gap: spacing.md, marginHorizontal: spacing.xl, marginBottom: spacing.lg },
+  ownerBtn: {
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardBorder, borderRadius: radius.lg, paddingVertical: 13,
+  },
+  ownerBtnDanger: { borderColor: "rgba(255,90,90,0.35)" },
+  ownerBtnText: { color: colors.text, fontSize: 14, fontWeight: "700" },
   charsSection: { paddingHorizontal: spacing.xl, marginTop: spacing.sm, paddingBottom: 40 },
   sectionHeader: { flexDirection: "row", alignItems: "center", marginBottom: spacing.lg },
   sectionAccent: { width: 4, height: 20, backgroundColor: colors.primary, borderRadius: radius.full, marginRight: 10 },

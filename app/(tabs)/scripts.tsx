@@ -49,7 +49,11 @@ export default function ScriptsScreen() {
     try {
       const { data, error: queryError } = await query;
       if (queryError) throw queryError;
-      setScripts(data ?? []);
+      const rows = (data ?? []) as any[];
+      // Writers see all of their own scripts (incl. hidden); browsing shows public only.
+      setScripts(
+        isWriter && session ? rows : rows.filter((r) => (r.visibility ?? "public") === "public")
+      );
       setError(false);
     } catch (e) {
       setError(true);
