@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -11,70 +11,90 @@ import {
   StyleSheet,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import * as Linking from "expo-linking";
 import { Feather } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
 import { colors, radius, spacing } from "@/lib/theme";
 
 /**
- * Lands here from the password-recovery email deep link
- * (cast://reset-password?code=...). Establishes the recovery session from
- * whatever the link carries (PKCE code, token_hash, or tokens), then lets the
- * user set a new password.
+ * Lands here from the password-recovery email deep link. Supabase may deliver
+ * the recovery credential as a query param (?code= / ?token_hash=) OR in the URL
+ * fragment (#access_token=...&type=recovery) depending on flow, so we read from
+ * both the route params AND the raw URL (query + fragment), then establish the
+ * recovery session and let the user set a new password.
  */
 export default function ResetPasswordScreen() {
-  const params = useLocalSearchParams<{
-    code?: string;
-    token_hash?: string;
-    type?: string;
-    access_token?: string;
-    refresh_token?: string;
-    error?: string;
-    error_description?: string;
-  }>();
+  const routeParams = useLocalSearchParams<Record<string, string>>();
+  const linkUrl = Linking.useURL();
   const router = useRouter();
   const [status, setStatus] = useState<"verifying" | "ready" | "error">("verifying");
   const [errorMsg, setErrorMsg] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [saving, setSaving] = useState(false);
+  const handledRef = useRef(false);
 
   useEffect(() => {
-    let active = true;
-    (async () => {
+    if (handledRef.current) return;
+
+    // Collect auth params from route query + the raw URL's query and #fragment.
+    const p: Record<string, string> = {};
+    const add = (obj?: Record<string, any> | null) => {
+      if (!obj) return;
+      for (const k in obj) if (obj[k] != null) p[k] = String(obj[k]);
+    };
+    add(routeParams as any);
+    if (linkUrl) {
       try {
-        if (params.error) {
-          throw new Error(String(params.error_description || params.error));
-        }
-        if (params.code) {
-          const { error } = await supabase.auth.exchangeCodeForSession(String(params.code));
-          if (error) throw error;
-        } else if (params.token_hash) {
-          const { error } = await supabase.auth.verifyOtp({
-            type: "recovery",
-            token_hash: String(params.token_hash),
-          });
-          if (error) throw error;
-        } else if (params.access_token && params.refresh_token) {
-          const { error } = await supabase.auth.setSession({
-            access_token: String(params.access_token),
-            refresh_token: String(params.refresh_token),
-          });
-          if (error) throw error;
-        } else {
-          throw new Error("This reset link is missing its token. Request a new one.");
-        }
-        if (active) setStatus("ready");
-      } catch (e: any) {
-        if (active) {
-          setErrorMsg(e?.message ?? "This reset link is invalid or has expired.");
-          setStatus("error");
+        add(Linking.parse(linkUrl).queryParams as any);
+      } catch {}
+      const hashIdx = linkUrl.indexOf("#");
+      if (hashIdx >= 0) {
+        for (const seg of linkUrl.slice(hashIdx + 1).split("&")) {
+          const i = seg.indexOf("=");
+          const k = decodeURIComponent(i < 0 ? seg : seg.slice(0, i));
+          const v = decodeURIComponent(i < 0 ? "" : seg.slice(i + 1));
+          if (k) p[k] = v;
         }
       }
+    }
+
+    const { code, token_hash, access_token, refresh_token } = p;
+    const err = p.error_description || p.error;
+    if (!code && !token_hash && !access_token && !err) return; // wait for the link to resolve
+
+    handledRef.current = true;
+    (async () => {
+      try {
+        if (err) throw new Error(err);
+        if (code) {
+          const { error } = await supabase.auth.exchangeCodeForSession(code);
+          if (error) throw error;
+        } else if (token_hash) {
+          const { error } = await supabase.auth.verifyOtp({ type: "recovery", token_hash });
+          if (error) throw error;
+        } else if (access_token && refresh_token) {
+          const { error } = await supabase.auth.setSession({ access_token, refresh_token });
+          if (error) throw error;
+        }
+        setStatus("ready");
+      } catch (e: any) {
+        setErrorMsg(e?.message ?? "This reset link is invalid or has expired.");
+        setStatus("error");
+      }
     })();
-    return () => {
-      active = false;
-    };
-  }, [params.code, params.token_hash, params.access_token]);
+  }, [linkUrl, routeParams.code, routeParams.token_hash, routeParams.access_token]);
+
+  // If no recovery token ever arrives, don't spin forever.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (!handledRef.current) {
+        setErrorMsg("This reset link is missing its token. Request a new one.");
+        setStatus("error");
+      }
+    }, 6000);
+    return () => clearTimeout(t);
+  }, []);
 
   async function handleUpdate() {
     if (password.length < 6) {
