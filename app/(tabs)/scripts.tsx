@@ -209,7 +209,7 @@ const s = StyleSheet.create({
   headerTitle: {
     color: themeColors.text,
     fontSize: 18,
-    fontWeight: "700",
+    fontFamily: "RobotoSlab_700Bold",
     flex: 1,
   },
   emptyContainer: {
@@ -251,7 +251,7 @@ const s = StyleSheet.create({
   cardTitle: {
     color: themeColors.text,
     fontSize: 18,
-    fontWeight: "700",
+    fontFamily: "RobotoSlab_700Bold",
     flex: 1,
     marginRight: spacing.md,
   },

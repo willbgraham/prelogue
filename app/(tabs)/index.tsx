@@ -432,7 +432,7 @@ const s = StyleSheet.create({
     paddingHorizontal: spacing.xl, marginBottom: spacing.lg, marginTop: spacing.sm,
   },
   accentBar: { width: 3, height: 20, backgroundColor: colors.primary, borderRadius: 2, marginRight: 10 },
-  sectionTitle: { fontSize: 18, fontWeight: "700", color: colors.text, flex: 1 },
+  sectionTitle: { fontSize: 18, fontFamily: "RobotoSlab_700Bold", color: colors.text, flex: 1 },
   sectionCount: { fontSize: 13, fontWeight: "600", color: colors.primary },
 
   // Script card
@@ -450,7 +450,7 @@ const s = StyleSheet.create({
   openBadge: { flexDirection: "row", alignItems: "center", gap: 4 },
   openDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.green },
   openText: { color: colors.green, fontSize: 12, fontWeight: "600" },
-  cardTitle: { fontSize: 22, fontWeight: "800", color: colors.text, marginBottom: 8 },
+  cardTitle: { fontSize: 22, fontFamily: "RobotoSlab_700Bold", color: colors.text, marginBottom: 8 },
   cardLogline: { fontSize: 14, color: colors.textSecondary, lineHeight: 20, marginBottom: spacing.lg },
   cardFooter: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",

@@ -243,7 +243,7 @@ export default function ScriptDetailScreen() {
     <>
       <Stack.Screen
         options={{
-          title: script.title,
+          title: "",
           headerStyle: { backgroundColor: colors.bg },
           headerTintColor: colors.text,
         }}
@@ -598,7 +598,7 @@ const s = StyleSheet.create({
   },
   statusDot: { width: 6, height: 6, borderRadius: 3 },
   statusText: { fontSize: 12, fontWeight: "600" },
-  title: { color: colors.text, fontSize: 28, fontWeight: "800", lineHeight: 34 },
+  title: { color: colors.text, fontSize: 28, fontFamily: "RobotoSlab_700Bold", lineHeight: 34 },
   logline: { color: colors.textSecondary, fontSize: 15, marginTop: spacing.md, lineHeight: 22 },
   copyrightBadge: {
     flexDirection: "row", alignItems: "center", alignSelf: "flex-start", gap: 6,
@@ -699,7 +699,7 @@ const s = StyleSheet.create({
   charsSection: { paddingHorizontal: spacing.xl, marginTop: spacing.sm, paddingBottom: 40 },
   sectionHeader: { flexDirection: "row", alignItems: "center", marginBottom: spacing.lg },
   sectionAccent: { width: 4, height: 20, backgroundColor: colors.primary, borderRadius: radius.full, marginRight: 10 },
-  sectionTitle: { color: colors.text, fontSize: 18, fontWeight: "700" },
+  sectionTitle: { color: colors.text, fontSize: 18, fontFamily: "RobotoSlab_700Bold" },
   charCard: {
     backgroundColor: colors.card, borderRadius: radius.xl, padding: spacing.xl,
     marginBottom: spacing.md, borderWidth: 1, borderColor: colors.cardBorder,
