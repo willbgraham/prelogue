@@ -471,8 +471,8 @@ const s = StyleSheet.create({
     borderColor: colors.cardBorder,
   },
   notifUnread: {
-    backgroundColor: "rgba(108, 92, 231, 0.06)",
-    borderColor: "rgba(108, 92, 231, 0.25)",
+    backgroundColor: "rgba(188, 64, 38, 0.06)",
+    borderColor: "rgba(188, 64, 38, 0.25)",
   },
   notifIcon: {
     width: 42,

@@ -1,25 +1,50 @@
-// Cast design system — single source of truth for all colors, spacing, typography
+// Prelogue design system — single source of truth for all colors, spacing, typography.
+// Warm "vintage paper / typewriter" palette drawn from the app icon: parchment
+// surfaces, espresso-brown ink, and a brick red-orange accent (the waveform).
 export const colors = {
-  bg: "#0a0a0f",
-  card: "#16161f",
-  cardBorder: "#2a2a3d",
-  elevated: "#1e1e2e",
-  primary: "#6c5ce7",
-  primaryMuted: "rgba(108, 92, 231, 0.15)",
+  bg: "#E9DFC9",        // parchment (app background)
+  card: "#F4EEDF",      // ivory card surface (lifts off bg)
+  cardBorder: "#D9CCB0",// muted tan border (visible on both bg and card)
+  elevated: "#FBF7EC",  // highest surface — inputs, sheets
+  primary: "#BC4026",   // brick red-orange (the icon waveform)
+  primaryMuted: "rgba(188, 64, 38, 0.12)",
   primaryText: "#ffffff",
-  text: "#ffffff",
-  textSecondary: "#8b8b9e",
-  textMuted: "#4a4a5e",
-  red: "#ff7675",
-  redMuted: "rgba(255, 118, 117, 0.15)",
-  yellow: "#fdcb6e",
-  yellowMuted: "rgba(253, 203, 110, 0.15)",
-  teal: "#00cec9",
-  tealMuted: "rgba(0, 206, 201, 0.15)",
-  green: "#00b894",
-  greenMuted: "rgba(0, 184, 148, 0.15)",
-  pink: "#e84393",
-  orange: "#e17055",
+  text: "#2A2420",      // espresso ink (the icon "P")
+  textSecondary: "#5E5141", // warm taupe
+  textMuted: "#736249", // muted tan-brown
+  red: "#A82F1C",       // deep red (destructive / errors)
+  redMuted: "rgba(168, 47, 28, 0.12)",
+  yellow: "#A9791F",    // ochre
+  yellowMuted: "rgba(169, 121, 31, 0.16)",
+  teal: "#2C7E75",      // muted teal
+  tealMuted: "rgba(44, 126, 117, 0.14)",
+  green: "#3C7A4E",     // forest green (success / unlocked)
+  greenMuted: "rgba(60, 122, 78, 0.14)",
+  pink: "#B23A72",      // deep rose
+  orange: "#BC5A36",    // burnt orange
+};
+
+// Genre accent colors — earthy mid-deep tones that read on both the paper
+// chrome and the dark performance screens. Single source for every genre chip.
+export const genreColors: Record<string, string> = {
+  Action: "#A8392A",
+  Adventure: "#2E6E8E",
+  Animation: "#2E8B57",
+  Comedy: "#B07D16",
+  Crime: "#574B3F",
+  Documentary: "#6E6456",
+  Drama: "#B5552F",
+  Family: "#C06A4A",
+  Fantasy: "#6A4C93",
+  Historical: "#8A6A2E",
+  Horror: "#7E2E2A",
+  Musical: "#A8447A",
+  Mystery: "#4C4A7A",
+  Romance: "#B23A6B",
+  "Sci-Fi": "#2C7E75",
+  Thriller: "#9E3024",
+  War: "#5C5448",
+  Western: "#9C6B3F",
 };
 
 export const spacing = {

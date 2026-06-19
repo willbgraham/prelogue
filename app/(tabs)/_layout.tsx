@@ -11,8 +11,8 @@ export default function TabLayout() {
         headerTintColor: colors.text,
         headerTitleStyle: { fontWeight: "700", fontSize: 18 },
         tabBarStyle: {
-          backgroundColor: colors.bg,
-          borderTopColor: colors.elevated,
+          backgroundColor: colors.card,
+          borderTopColor: colors.cardBorder,
           borderTopWidth: 1,
           height: 88,
           paddingTop: 8,
@@ -76,5 +76,5 @@ export default function TabLayout() {
 
 const s = StyleSheet.create({
   iconWrap: { padding: 6, borderRadius: 12 },
-  iconFocused: { backgroundColor: "rgba(108, 92, 231, 0.15)" },
+  iconFocused: { backgroundColor: "rgba(188, 64, 38, 0.15)" },
 });

@@ -14,31 +14,10 @@ import { useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
-import { colors, radius, spacing } from "@/lib/theme";
+import { colors, radius, spacing, genreColors } from "@/lib/theme";
 import { ScriptCardSkeleton } from "@/components/Skeleton";
 import { ErrorState } from "@/components/ErrorState";
 import { getBlockedIds } from "@/lib/moderation";
-
-const genreColors: Record<string, string> = {
-  Action: "#ff7675",
-  Adventure: "#0984e3",
-  Animation: "#00b894",
-  Comedy: "#fdcb6e",
-  Crime: "#636e72",
-  Documentary: "#b2bec3",
-  Drama: "#e17055",
-  Family: "#fab1a0",
-  Fantasy: "#55efc4",
-  Historical: "#b8860b",
-  Horror: "#6c5ce7",
-  Musical: "#fd79a8",
-  Mystery: "#a29bfe",
-  Romance: "#e84393",
-  "Sci-Fi": "#00cec9",
-  Thriller: "#d63031",
-  War: "#7f8c8d",
-  Western: "#cd853f",
-};
 
 const HOW_STEPS = [
   { h: "Upload", t: "A writer adds a screenplay — it's parsed into scenes, characters, and lines." },

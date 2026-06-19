@@ -190,7 +190,7 @@ const s = StyleSheet.create({
   },
   accentBar: {
     height: 80,
-    backgroundColor: "rgba(108, 92, 231, 0.2)",
+    backgroundColor: "rgba(188, 64, 38, 0.2)",
   },
   headerContent: {
     alignItems: "center",
@@ -209,7 +209,7 @@ const s = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: radius.lg,
-    backgroundColor: "rgba(108, 92, 231, 0.2)",
+    backgroundColor: "rgba(188, 64, 38, 0.2)",
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 4,

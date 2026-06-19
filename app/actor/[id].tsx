@@ -53,7 +53,7 @@ export default function ActorProfileScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: actor.display_name, headerStyle: { backgroundColor: colors.bg }, headerTintColor: "#fff" }} />
+      <Stack.Screen options={{ title: actor.display_name, headerStyle: { backgroundColor: colors.bg }, headerTintColor: colors.text }} />
       <ScrollView style={s.container}>
         <View style={s.profileHeader}>
           {actor.avatar_url ? (

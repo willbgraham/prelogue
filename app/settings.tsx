@@ -171,7 +171,7 @@ export default function SettingsScreen() {
           title: "Settings",
           headerShown: true,
           headerStyle: { backgroundColor: colors.bg },
-          headerTintColor: "#fff",
+          headerTintColor: colors.text,
           headerLeft: ({ tintColor }) => <HeaderBackButton tintColor={tintColor} />,
         }}
       />
@@ -404,7 +404,7 @@ const s = StyleSheet.create({
   infoLine: { color: colors.textMuted, fontSize: 14 },
   infoValue: { color: colors.text, textTransform: "capitalize" },
   signOutBtn: {
-    backgroundColor: colors.redMuted, borderWidth: 1, borderColor: "rgba(255,118,117,0.2)",
+    backgroundColor: colors.redMuted, borderWidth: 1, borderColor: "rgba(168,47,28,0.25)",
     borderRadius: radius.xl, paddingVertical: 14, alignItems: "center", marginTop: spacing.lg,
   },
   signOutText: { color: colors.red, fontWeight: "700" },

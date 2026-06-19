@@ -1078,6 +1078,6 @@ const s = StyleSheet.create({
   recordBtnActive: { borderColor: colors.red },
   recordDot: { width: 56, height: 56, borderRadius: 28, backgroundColor: colors.red },
   stopIcon: { width: 28, height: 28, borderRadius: 4, backgroundColor: colors.red },
-  nextBtn: { width: 80, height: 80, borderRadius: 40, backgroundColor: "rgba(108,92,231,0.9)", alignItems: "center", justifyContent: "center" },
+  nextBtn: { width: 80, height: 80, borderRadius: 40, backgroundColor: "rgba(188, 64, 38,0.9)", alignItems: "center", justifyContent: "center" },
   nextBtnLabel: { color: "#fff", fontSize: 11, fontWeight: "700", marginTop: -2 },
 });

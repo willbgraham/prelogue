@@ -179,7 +179,7 @@ export default function UploadScriptScreen() {
         options={{
           title: "Upload Script",
           headerStyle: { backgroundColor: colors.bg },
-          headerTintColor: "#fff",
+          headerTintColor: colors.text,
         }}
       />
       <ScrollView style={s.container} contentContainerStyle={{ padding: spacing.xxl }}>

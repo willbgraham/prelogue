@@ -7,6 +7,7 @@ import { useEffect } from "react";
 import { StatusBar } from "expo-status-bar";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { AppErrorBoundary } from "@/components/ErrorBoundary";
+import { colors } from "@/lib/theme";
 import {
   registerForPushNotifications,
   setupNotificationHandlers,
@@ -16,10 +17,10 @@ export { ErrorBoundary } from "expo-router";
 
 SplashScreen.preventAutoHideAsync();
 
-const darkHeader = {
+const appHeader = {
   headerShown: true,
-  headerStyle: { backgroundColor: "#0a0a0f" },
-  headerTintColor: "#ffffff",
+  headerStyle: { backgroundColor: colors.bg },
+  headerTintColor: colors.text,
   headerTitleStyle: { fontWeight: "700" as const },
 };
 
@@ -39,11 +40,11 @@ function RootLayoutNav() {
 
   return (
     <>
-      <StatusBar style="light" />
+      <StatusBar style="dark" />
       <Stack
         screenOptions={{
           headerShown: false,
-          contentStyle: { backgroundColor: "#0a0a0f" },
+          contentStyle: { backgroundColor: colors.bg },
         }}
       >
         <Stack.Screen name="(tabs)" />
@@ -56,9 +57,9 @@ function RootLayoutNav() {
         <Stack.Screen name="actor" />
         <Stack.Screen
           name="settings"
-          options={{ ...darkHeader, presentation: "modal", title: "Settings" }}
+          options={{ ...appHeader, presentation: "modal", title: "Settings" }}
         />
-        <Stack.Screen name="+not-found" options={darkHeader} />
+        <Stack.Screen name="+not-found" options={appHeader} />
       </Stack>
     </>
   );

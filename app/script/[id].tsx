@@ -21,7 +21,7 @@ import { uploadFile } from "@/lib/storage";
 import { SCRIPT_STATUS_LABELS } from "@/lib/constants";
 import { reportContent, blockUser } from "@/lib/moderation";
 import { startScriptUnlock, UNLOCK_PRICE_LABEL } from "@/lib/billing";
-import { colors, radius, spacing } from "@/lib/theme";
+import { colors, radius, spacing, genreColors } from "@/lib/theme";
 
 export default function ScriptDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -237,27 +237,7 @@ export default function ScriptDetailScreen() {
   const isOwner = session?.user?.id === script.writer_id;
   const isOpen = script.status === "open";
 
-  const genreColorMap: Record<string, string> = {
-    Action: colors.red,
-    Adventure: "#0984e3",
-    Animation: "#00b894",
-    Comedy: colors.yellow,
-    Crime: "#636e72",
-    Documentary: "#b2bec3",
-    Drama: "#e17055",
-    Family: "#fab1a0",
-    Fantasy: "#55efc4",
-    Historical: "#b8860b",
-    Horror: colors.primary,
-    Musical: "#fd79a8",
-    Mystery: "#a29bfe",
-    Romance: "#e84393",
-    "Sci-Fi": colors.teal,
-    Thriller: "#d63031",
-    War: "#7f8c8d",
-    Western: "#cd853f",
-  };
-  const genreColor = genreColorMap[script.genre] || colors.primary;
+  const genreColor = genreColors[script.genre] || colors.primary;
 
   return (
     <>
@@ -636,7 +616,7 @@ const s = StyleSheet.create({
   readScriptBtn: {
     flexDirection: "row", alignItems: "center",
     backgroundColor: colors.primaryMuted, paddingHorizontal: spacing.lg, paddingVertical: 10,
-    borderRadius: radius.md, gap: 8, borderWidth: 1, borderColor: "rgba(108,92,231,0.2)",
+    borderRadius: radius.md, gap: 8, borderWidth: 1, borderColor: "rgba(188, 64, 38,0.2)",
   },
   readScriptText: { color: colors.primary, fontSize: 14, fontWeight: "700" },
   playAiBtn: {
@@ -667,7 +647,7 @@ const s = StyleSheet.create({
   hiddenPillText: { color: colors.textSecondary, fontSize: 12, fontWeight: "600" },
   ownerPanel: { marginHorizontal: spacing.xl, marginBottom: spacing.lg },
   unlockCard: {
-    backgroundColor: colors.primaryMuted, borderWidth: 1, borderColor: "rgba(108,92,231,0.25)",
+    backgroundColor: colors.primaryMuted, borderWidth: 1, borderColor: "rgba(188, 64, 38,0.25)",
     borderRadius: radius.xl, padding: spacing.lg, marginBottom: spacing.lg,
   },
   unlockHead: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
@@ -714,7 +694,7 @@ const s = StyleSheet.create({
     flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
     backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardBorder, borderRadius: radius.lg, paddingVertical: 13,
   },
-  ownerBtnDanger: { borderColor: "rgba(255,90,90,0.35)" },
+  ownerBtnDanger: { borderColor: "rgba(168,47,28,0.4)" },
   ownerBtnText: { color: colors.text, fontSize: 14, fontWeight: "700" },
   charsSection: { paddingHorizontal: spacing.xl, marginTop: spacing.sm, paddingBottom: 40 },
   sectionHeader: { flexDirection: "row", alignItems: "center", marginBottom: spacing.lg },
@@ -740,7 +720,7 @@ const s = StyleSheet.create({
   auditionBtn: {
     marginTop: spacing.lg, backgroundColor: colors.primaryMuted,
     borderRadius: radius.md, paddingVertical: 10, alignItems: "center",
-    borderWidth: 1, borderColor: "rgba(108,92,231,0.2)",
+    borderWidth: 1, borderColor: "rgba(188, 64, 38,0.2)",
     flexDirection: "row", justifyContent: "center", gap: 8,
   },
   auditionBtnText: { color: colors.primary, fontWeight: "700", fontSize: 14 },

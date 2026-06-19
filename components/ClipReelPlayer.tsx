@@ -116,7 +116,7 @@ const s = StyleSheet.create({
   tapLayer: { ...StyleSheet.absoluteFillObject },
   overlay: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.35)" },
   playCircle: {
-    width: 56, height: 56, borderRadius: 28, backgroundColor: "rgba(108,92,231,0.92)",
+    width: 56, height: 56, borderRadius: 28, backgroundColor: "rgba(188, 64, 38,0.92)",
     alignItems: "center", justifyContent: "center",
   },
   overlayText: { color: "#fff", fontWeight: "600", fontSize: 13, marginTop: 10 },

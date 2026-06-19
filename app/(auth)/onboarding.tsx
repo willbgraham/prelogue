@@ -100,7 +100,7 @@ const s = StyleSheet.create({
     flexDirection: "row", alignItems: "center", padding: 20,
     borderWidth: 2, borderColor: colors.cardBorder, borderRadius: radius.xl, backgroundColor: colors.card,
   },
-  optionActive: { borderColor: colors.primary, backgroundColor: "rgba(108,92,231,0.08)" },
+  optionActive: { borderColor: colors.primary, backgroundColor: "rgba(188, 64, 38,0.08)" },
   optionIcon: { width: 48, height: 48, borderRadius: radius.lg, backgroundColor: colors.elevated, alignItems: "center", justifyContent: "center", marginRight: 16 },
   optionIconActive: { backgroundColor: colors.primaryMuted },
   optionLabel: { fontSize: 17, fontWeight: "700", color: "#c4c4d4" },

@@ -777,7 +777,7 @@ const s = StyleSheet.create({
   rowActive: { backgroundColor: "rgba(0,206,201,0.12)", borderWidth: 1, borderColor: "rgba(0,206,201,0.3)" },
   rowPast: { opacity: 0.45 },
   tag: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.sm, minWidth: 64, alignItems: "center", marginTop: 1 },
-  tagChar: { backgroundColor: "rgba(108,92,231,0.18)" },
+  tagChar: { backgroundColor: "rgba(188, 64, 38,0.18)" },
   tagCharText: { color: colors.primary, fontSize: 10, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.4 },
   tagNarrator: { backgroundColor: colors.elevated, minWidth: 36 },
   lineContent: { flex: 1 },
@@ -804,7 +804,7 @@ const s = StyleSheet.create({
   castBtn: {
     position: "absolute", top: 10, right: 14, zIndex: 30,
     flexDirection: "row", alignItems: "center", gap: 6,
-    backgroundColor: "rgba(108,92,231,0.95)", paddingHorizontal: 14, paddingVertical: 8, borderRadius: radius.full,
+    backgroundColor: "rgba(188, 64, 38,0.95)", paddingHorizontal: 14, paddingVertical: 8, borderRadius: radius.full,
   },
   castBtnText: { color: "#fff", fontSize: 13, fontWeight: "700" },
   sheetOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end", zIndex: 50 },
