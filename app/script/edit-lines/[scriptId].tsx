@@ -202,7 +202,7 @@ export default function EditLinesScreen() {
   if (loading) {
     return (
       <View style={s.center}>
-        <Stack.Screen options={{ title: "Edit Lines", headerStyle: { backgroundColor: colors.bg }, headerTintColor: "#fff" }} />
+        <Stack.Screen options={{ title: "Edit Lines", headerStyle: { backgroundColor: colors.bg }, headerTintColor: colors.text }} />
         <ActivityIndicator size="large" color={colors.primary} />
       </View>
     );
@@ -210,7 +210,7 @@ export default function EditLinesScreen() {
   if (loadError) {
     return (
       <View style={[s.center, { justifyContent: "center" }]}>
-        <Stack.Screen options={{ title: "Edit Lines", headerStyle: { backgroundColor: colors.bg }, headerTintColor: "#fff" }} />
+        <Stack.Screen options={{ title: "Edit Lines", headerStyle: { backgroundColor: colors.bg }, headerTintColor: colors.text }} />
         <ErrorState onRetry={() => { setLoading(true); load(); }} />
       </View>
     );
@@ -261,7 +261,7 @@ export default function EditLinesScreen() {
         options={{
           title,
           headerStyle: { backgroundColor: colors.bg },
-          headerTintColor: "#fff",
+          headerTintColor: colors.text,
           headerRight: () =>
             saving ? (
               <ActivityIndicator color={colors.primary} style={{ marginRight: 8 }} />

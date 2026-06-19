@@ -517,7 +517,7 @@ export default function TableReadPlayScreen() {
   if (loading) {
     return (
       <View style={s.center}>
-        <Stack.Screen options={{ title: "Table Read", headerStyle: { backgroundColor: colors.bg }, headerTintColor: "#fff" }} />
+        <Stack.Screen options={{ title: "Table Read", headerStyle: { backgroundColor: colors.bg }, headerTintColor: colors.text }} />
         <ActivityIndicator size="large" color={colors.primary} />
       </View>
     );
@@ -525,7 +525,7 @@ export default function TableReadPlayScreen() {
   if (loadError) {
     return (
       <View style={[s.center, { justifyContent: "center" }]}>
-        <Stack.Screen options={{ title: "Table Read", headerStyle: { backgroundColor: colors.bg }, headerTintColor: "#fff" }} />
+        <Stack.Screen options={{ title: "Table Read", headerStyle: { backgroundColor: colors.bg }, headerTintColor: colors.text }} />
         <ErrorState onRetry={() => { setLoading(true); load(); }} />
       </View>
     );
@@ -533,7 +533,7 @@ export default function TableReadPlayScreen() {
   if (rows.length === 0) {
     return (
       <View style={s.center}>
-        <Stack.Screen options={{ title: "Table Read", headerStyle: { backgroundColor: colors.bg }, headerTintColor: "#fff" }} />
+        <Stack.Screen options={{ title: "Table Read", headerStyle: { backgroundColor: colors.bg }, headerTintColor: colors.text }} />
         <Feather name="file-text" size={40} color={colors.textMuted} />
         <Text style={s.emptyText}>This script hasn't been parsed yet.</Text>
       </View>
@@ -589,7 +589,7 @@ export default function TableReadPlayScreen() {
 
   return (
     <View style={s.container}>
-      <Stack.Screen options={{ title, headerStyle: { backgroundColor: colors.bg }, headerTintColor: "#fff" }} />
+      <Stack.Screen options={{ title, headerStyle: { backgroundColor: colors.bg }, headerTintColor: colors.text }} />
 
       {castRoles.length > 0 && (
         <TouchableOpacity style={s.castBtn} onPress={() => setCastSheetOpen(true)} activeOpacity={0.85}>

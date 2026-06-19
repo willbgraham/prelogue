@@ -599,7 +599,7 @@ export default function RecordingStudioScreen() {
   if (!permission?.granted) {
     return (
       <View style={s.center}>
-        <Stack.Screen options={{ title: "Permission", headerStyle: { backgroundColor: colors.bg }, headerTintColor: "#fff" }} />
+        <Stack.Screen options={{ title: "Permission", headerStyle: { backgroundColor: colors.bg }, headerTintColor: colors.text }} />
         <Feather name="camera" size={40} color={colors.textMuted} />
         <Text style={s.permTitle}>Camera Access Required</Text>
         <Text style={s.permSub}>We need camera and microphone access to record your read.</Text>
@@ -623,7 +623,7 @@ export default function RecordingStudioScreen() {
 
     return (
       <>
-        <Stack.Screen options={{ title: "Review Read", headerStyle: { backgroundColor: colors.bg }, headerTintColor: "#fff" }} />
+        <Stack.Screen options={{ title: "Review Read", headerStyle: { backgroundColor: colors.bg }, headerTintColor: colors.text }} />
         <View style={s.reviewContainer}>
           <ScrollView contentContainerStyle={{ paddingBottom: 24 }}>
             <Text style={s.reviewSummary}>
@@ -782,7 +782,7 @@ export default function RecordingStudioScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: character?.name ?? "Read", headerStyle: { backgroundColor: colors.bg }, headerTintColor: "#fff" }} />
+      <Stack.Screen options={{ title: character?.name ?? "Read", headerStyle: { backgroundColor: colors.bg }, headerTintColor: colors.text, headerTitleStyle: { fontFamily: "RobotoSlab_700Bold" } }} />
       <View style={s.cameraContainer}>
         <CameraView ref={cameraRef} style={{ flex: 1 }} facing={facing} mode="video">
           {/* Teleprompter overlay */}
@@ -1027,8 +1027,8 @@ const s = StyleSheet.create({
   teleprompterScroll: { paddingHorizontal: 12, paddingTop: 8 },
 
   sceneHeading: {
-    color: colors.textMuted, fontSize: 10, fontWeight: "700",
-    letterSpacing: 1, textTransform: "uppercase",
+    color: "rgba(255,255,255,0.5)", fontSize: 10, fontWeight: "700",
+    letterSpacing: 1, textTransform: "uppercase", fontFamily: "CourierPrime_400Regular",
     marginTop: 10, marginBottom: 4, paddingHorizontal: 10,
   },
 
@@ -1051,7 +1051,7 @@ const s = StyleSheet.create({
   charLabelTextOther: { color: colors.textSecondary },
 
   lineContent: { flex: 1 },
-  lineText: { color: "rgba(255,255,255,0.55)", fontSize: 14, lineHeight: 19 },
+  lineText: { color: "rgba(255,255,255,0.55)", fontSize: 14, lineHeight: 19, fontFamily: "CourierPrime_400Regular" },
   lineTextActor: { color: "rgba(255,255,255,0.85)", fontWeight: "500" },
   lineTextNarrator: { color: "rgba(255,255,255,0.5)", fontStyle: "italic" },
   lineTextActive: { color: "#fff", fontWeight: "500" },

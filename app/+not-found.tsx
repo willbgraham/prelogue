@@ -5,7 +5,7 @@ import { colors, radius, spacing } from "@/lib/theme";
 export default function NotFoundScreen() {
   return (
     <>
-      <Stack.Screen options={{ title: "Oops!", headerStyle: { backgroundColor: colors.bg }, headerTintColor: "#fff" }} />
+      <Stack.Screen options={{ title: "Oops!", headerStyle: { backgroundColor: colors.bg }, headerTintColor: colors.text }} />
       <View style={s.container}>
         <Text style={s.title}>
           This screen doesn't exist.

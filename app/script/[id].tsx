@@ -245,7 +245,7 @@ export default function ScriptDetailScreen() {
         options={{
           title: script.title,
           headerStyle: { backgroundColor: colors.bg },
-          headerTintColor: "#fff",
+          headerTintColor: colors.text,
         }}
       />
       <ScrollView style={s.container}>

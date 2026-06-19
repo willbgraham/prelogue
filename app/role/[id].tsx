@@ -67,7 +67,7 @@ export default function RoleDetailScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: character.name, headerStyle: { backgroundColor: colors.bg }, headerTintColor: "#fff" }} />
+      <Stack.Screen options={{ title: character.name, headerStyle: { backgroundColor: colors.bg }, headerTintColor: colors.text }} />
       <ScrollView style={s.container}>
         <View style={s.headerBlock}>
           <Text style={s.charName}>{character.name}</Text>
