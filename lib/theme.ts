@@ -66,12 +66,22 @@ export const radius = {
   full: 999,
 };
 
+// Typeface families (loaded in app/_layout.tsx via useFonts).
+// slab = Roboto Slab — the wordmark + headings (matches the icon's "P").
+// mono = Courier Prime — the on-screen screenplay / scene text.
+export const fontFamily = {
+  slab: "RobotoSlab_700Bold",
+  slabMedium: "RobotoSlab_500Medium",
+  mono: "CourierPrime_400Regular",
+  monoBold: "CourierPrime_700Bold",
+};
+
 export const fonts = {
   regular: { fontSize: 14, color: colors.text },
   small: { fontSize: 12, color: colors.textSecondary },
   caption: { fontSize: 11, color: colors.textMuted, fontWeight: "600" as const, textTransform: "uppercase" as const, letterSpacing: 1.2 },
   body: { fontSize: 15, color: colors.text, lineHeight: 22 },
-  title: { fontSize: 20, color: colors.text, fontWeight: "700" as const },
-  heading: { fontSize: 28, color: colors.text, fontWeight: "800" as const },
-  hero: { fontSize: 36, color: colors.text, fontWeight: "800" as const },
+  title: { fontSize: 20, color: colors.text, fontFamily: fontFamily.slab },
+  heading: { fontSize: 28, color: colors.text, fontFamily: fontFamily.slab },
+  hero: { fontSize: 36, color: colors.text, fontFamily: fontFamily.slab },
 };

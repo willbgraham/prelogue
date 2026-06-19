@@ -9,7 +9,7 @@ export default function CastingLayout() {
         headerShown: true,
         headerStyle: { backgroundColor: colors.bg },
         headerTintColor: colors.text,
-        headerTitleStyle: { fontWeight: "700" },
+        headerTitleStyle: { fontFamily: "RobotoSlab_700Bold" },
         headerLeft: ({ tintColor }) => <HeaderBackButton tintColor={tintColor} />,
       }}
     />

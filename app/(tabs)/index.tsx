@@ -42,7 +42,7 @@ const intro = StyleSheet.create({
     borderRadius: radius.xl, borderWidth: 1, borderColor: colors.cardBorder, padding: spacing.xl,
   },
   head: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
-  title: { color: colors.text, fontSize: 18, fontWeight: "800", lineHeight: 24 },
+  title: { color: colors.text, fontSize: 18, fontFamily: "RobotoSlab_700Bold", lineHeight: 24 },
   tagline: { color: colors.textSecondary, fontSize: 13, lineHeight: 19, marginTop: 6 },
   sectionLabel: {
     color: colors.textMuted, fontSize: 11, fontWeight: "700", letterSpacing: 1.5,
@@ -416,14 +416,14 @@ const s = StyleSheet.create({
     width: 44, height: 44, borderRadius: radius.md,
     backgroundColor: colors.primary, alignItems: "center", justifyContent: "center",
   },
-  logoText: { color: "#fff", fontSize: 22, fontWeight: "800" },
+  logoText: { color: "#fff", fontSize: 22, fontFamily: "RobotoSlab_700Bold" },
   bellBtn: { width: 40, height: 40, borderRadius: radius.md, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardBorder, alignItems: "center", justifyContent: "center" },
   signInBtn: {
     backgroundColor: colors.primaryMuted, paddingHorizontal: 16, paddingVertical: 8,
     borderRadius: radius.full,
   },
   signInText: { color: colors.primary, fontWeight: "700", fontSize: 14 },
-  heroTitle: { fontSize: 32, fontWeight: "800", color: colors.text, lineHeight: 40 },
+  heroTitle: { fontSize: 32, fontFamily: "RobotoSlab_700Bold", color: colors.text, lineHeight: 40 },
   heroSub: { fontSize: 15, color: colors.textSecondary, marginTop: 8, lineHeight: 22 },
 
   // Section headers

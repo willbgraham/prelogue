@@ -8,7 +8,6 @@ import {
   ActivityIndicator,
   Alert,
   Image,
-  Platform,
   StyleSheet,
 } from "react-native";
 import { useLocalSearchParams, useRouter, Stack, useFocusEffect } from "expo-router";
@@ -22,10 +21,10 @@ import { prepareVoiceCues, VoiceCueEntry } from "@/lib/voiceCues";
 import type { ParsedScript } from "@/lib/types";
 import { colors, radius, spacing } from "@/lib/theme";
 
-// Soft paper-white for the screenplay "page" — gentler than pure #fff against
-// the dark UI and the video clips. Monospace gives the typed-screenplay feel.
+// Soft paper-white for the screenplay "page" — gentler than pure #fff.
+// Courier Prime gives the authentic typed-screenplay feel.
 const PAGE_BG = "#F7F6F2";
-const MONO = Platform.select({ ios: "Courier", android: "monospace", default: "monospace" });
+const MONO = "CourierPrime_400Regular";
 
 interface Row {
   elementIndex: number;
@@ -781,7 +780,7 @@ const s = StyleSheet.create({
   tagCharText: { color: colors.primary, fontSize: 10, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.4 },
   tagNarrator: { backgroundColor: colors.elevated, minWidth: 36 },
   lineContent: { flex: 1 },
-  lineText: { color: colors.textSecondary, fontSize: 15, lineHeight: 21 },
+  lineText: { color: colors.textSecondary, fontSize: 15, lineHeight: 21, fontFamily: MONO },
   lineTextNarrator: { fontStyle: "italic", color: colors.textMuted },
   lineTextActive: { color: colors.text, fontWeight: "500" },
   lineTextPast: { color: colors.textMuted },

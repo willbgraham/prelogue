@@ -1,6 +1,8 @@
 import "../global.css";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useFonts } from "expo-font";
+import { RobotoSlab_500Medium, RobotoSlab_700Bold } from "@expo-google-fonts/roboto-slab";
+import { CourierPrime_400Regular, CourierPrime_700Bold } from "@expo-google-fonts/courier-prime";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
@@ -21,7 +23,7 @@ const appHeader = {
   headerShown: true,
   headerStyle: { backgroundColor: colors.bg },
   headerTintColor: colors.text,
-  headerTitleStyle: { fontWeight: "700" as const },
+  headerTitleStyle: { fontFamily: "RobotoSlab_700Bold" },
 };
 
 function RootLayoutNav() {
@@ -68,6 +70,10 @@ function RootLayoutNav() {
 export default function RootLayout() {
   const [loaded, error] = useFonts({
     SpaceMono: require("../assets/fonts/SpaceMono-Regular.ttf"),
+    RobotoSlab_500Medium,
+    RobotoSlab_700Bold,
+    CourierPrime_400Regular,
+    CourierPrime_700Bold,
     ...FontAwesome.font,
   });
 

@@ -116,8 +116,8 @@ const s = StyleSheet.create({
     width: 72, height: 72, borderRadius: radius.xxl,
     backgroundColor: colors.primary, alignItems: "center", justifyContent: "center", marginBottom: 20,
   },
-  logoLetter: { color: "#fff", fontSize: 32, fontWeight: "800" },
-  appName: { fontSize: 44, fontWeight: "800", color: colors.text, letterSpacing: -1 },
+  logoLetter: { color: "#fff", fontSize: 32, fontFamily: "RobotoSlab_700Bold" },
+  appName: { fontSize: 44, fontFamily: "RobotoSlab_700Bold", color: colors.text, letterSpacing: -1 },
   tagline: { fontSize: 16, color: colors.textSecondary, marginTop: 6 },
   label: {
     color: colors.textSecondary, fontSize: 11, fontWeight: "700",

@@ -92,8 +92,8 @@ const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg, justifyContent: "center", paddingHorizontal: 28 },
   header: { alignItems: "center", marginBottom: 40 },
   logoBox: { width: 56, height: 56, borderRadius: radius.xl, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center", marginBottom: 16 },
-  logoLetter: { color: "#fff", fontSize: 24, fontWeight: "800" },
-  title: { fontSize: 28, fontWeight: "800", color: colors.text },
+  logoLetter: { color: "#fff", fontSize: 24, fontFamily: "RobotoSlab_700Bold" },
+  title: { fontSize: 28, fontFamily: "RobotoSlab_700Bold", color: colors.text },
   subtitle: { fontSize: 16, color: colors.textSecondary, marginTop: 6 },
   options: { gap: 12, marginBottom: 32 },
   optionCard: {

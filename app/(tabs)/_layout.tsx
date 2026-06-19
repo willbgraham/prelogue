@@ -9,7 +9,7 @@ export default function TabLayout() {
       screenOptions={{
         headerStyle: { backgroundColor: colors.bg, elevation: 0, shadowOpacity: 0 },
         headerTintColor: colors.text,
-        headerTitleStyle: { fontWeight: "700", fontSize: 18 },
+        headerTitleStyle: { fontFamily: "RobotoSlab_700Bold", fontSize: 18 },
         tabBarStyle: {
           backgroundColor: colors.card,
           borderTopColor: colors.cardBorder,

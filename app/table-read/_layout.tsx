@@ -1,14 +1,15 @@
 import { Stack } from "expo-router";
 import { HeaderBackButton } from "@/components/HeaderBackButton";
+import { colors } from "@/lib/theme";
 
 export default function Table_readLayout() {
   return (
     <Stack
       screenOptions={{
         headerShown: true,
-        headerStyle: { backgroundColor: "#0a0a0f" },
-        headerTintColor: "#ffffff",
-        headerTitleStyle: { fontWeight: "700" },
+        headerStyle: { backgroundColor: colors.bg },
+        headerTintColor: colors.text,
+        headerTitleStyle: { fontFamily: "RobotoSlab_700Bold" },
         headerLeft: ({ tintColor }) => <HeaderBackButton tintColor={tintColor} />,
       }}
     />
