@@ -10,7 +10,7 @@ delete from public.characters where script_id = 'b0078900-0000-4000-8000-0000000
 delete from public.scripts    where id        = 'b0078900-0000-4000-8000-000000000009';
 
 insert into public.scripts
-  (id, writer_id, title, genre, logline, file_url, status, visibility, full_read_unlocked, unlocked_at, voice_config, parsed_json)
+  (id, writer_id, title, genre, logline, file_url, status, submission_deadline, visibility, full_read_unlocked, unlocked_at, voice_config, parsed_json)
 values (
   'b0078900-0000-4000-8000-000000000009',
   (select id from auth.users where lower(email) = 'willg1@gmail.com'),
@@ -19,6 +19,7 @@ values (
   'A man who signed the wrong contract has one night to get out of it.',
   'demo/booth-nine.pdf',
   'open',
+  '2099-12-31',
   'public',
   true,
   now(),
