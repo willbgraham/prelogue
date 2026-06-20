@@ -25,12 +25,12 @@ values (
   now(),
   $vc$ {
     "mode": "per_character",
-    "narrator_voice_id": "onwK4e9ZLuTAKqWW03F9",
+    "narrator_voice_id": "nPczCjzI2devNBz1zQrb",
     "single_voice_id": null,
     "characters": {
-      "DANNY": "pNInz6obpgDQGcFmaJgB",
-      "VERA": "21m00Tcm4TlvDq8ikWAM",
-      "MARISOL": "EXAVITQu4vr4xnSDxMaL"
+      "DANNY": "guZ5txGiatiDmC3jrjOO",
+      "VERA": "yAzQgxpUXjWpNLJtO3yf",
+      "MARISOL": "Xjf4ERpibIUB0qlQbAA7"
     }
   } $vc$::jsonb,
   $pj$ {
