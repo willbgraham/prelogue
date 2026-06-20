@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   View,
+  Text,
   ActivityIndicator,
   StyleSheet,
 } from "react-native";
@@ -50,9 +51,13 @@ export default function ReadScriptScreen() {
         }}
       />
       <View style={s.container}>
-        {loading || !pdfUrl ? (
+        {loading ? (
           <View style={s.loadingWrap}>
             <ActivityIndicator size="large" color={colors.primary} />
+          </View>
+        ) : !pdfUrl ? (
+          <View style={s.loadingWrap}>
+            <Text style={s.emptyText}>The script PDF isn't available for this title.</Text>
           </View>
         ) : (
           <WebView
@@ -94,4 +99,5 @@ const s = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "#ffffff",
   },
+  emptyText: { color: "#2A2420", fontSize: 15, textAlign: "center", paddingHorizontal: 32 },
 });
