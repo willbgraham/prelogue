@@ -19,6 +19,8 @@ import { ScriptCardSkeleton } from "@/components/Skeleton";
 import { ErrorState } from "@/components/ErrorState";
 import { getBlockedIds } from "@/lib/moderation";
 
+const DEMO_SCRIPT_ID = "b0078900-0000-4000-8000-000000000009";
+
 const HOW_STEPS = [
   { h: "Upload", t: "A writer adds a screenplay — it's parsed into scenes, characters, and lines." },
   { h: "Hear it", t: "Press play and AI voices perform the whole script, with the narration typed on screen." },
@@ -163,6 +165,22 @@ export default function HomeScreen() {
                 : "Hear screenplays performed — by AI voices and real actors"}
             </Text>
           </View>
+
+          {/* Strong CTA — hear the demo immediately */}
+          <TouchableOpacity
+            style={s.demoCta}
+            onPress={() => router.push(`/table-read/play/${DEMO_SCRIPT_ID}` as any)}
+            activeOpacity={0.85}
+          >
+            <View style={s.demoCtaIcon}>
+              <Feather name="play" size={18} color="#fff" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={s.demoCtaTitle}>Try the demo scene</Text>
+              <Text style={s.demoCtaSub}>Hear AI voices perform an original scene — tap to play</Text>
+            </View>
+            <Feather name="chevron-right" size={20} color="rgba(255,255,255,0.9)" />
+          </TouchableOpacity>
 
           {/* What is Prelogue — explainer (collapsible) */}
           <View style={intro.card}>
@@ -425,6 +443,17 @@ const s = StyleSheet.create({
   signInText: { color: colors.primary, fontWeight: "700", fontSize: 14 },
   heroTitle: { fontSize: 32, fontFamily: "RobotoSlab_700Bold", color: colors.text, lineHeight: 40 },
   heroSub: { fontSize: 15, color: colors.textSecondary, marginTop: 8, lineHeight: 22 },
+  demoCta: {
+    flexDirection: "row", alignItems: "center", gap: 12,
+    backgroundColor: colors.primary, marginHorizontal: spacing.xl, marginTop: spacing.lg,
+    borderRadius: radius.xl, paddingVertical: spacing.lg, paddingHorizontal: spacing.lg,
+  },
+  demoCtaIcon: {
+    width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.2)",
+    alignItems: "center", justifyContent: "center",
+  },
+  demoCtaTitle: { color: "#fff", fontSize: 16, fontFamily: "RobotoSlab_700Bold" },
+  demoCtaSub: { color: "rgba(255,255,255,0.9)", fontSize: 12.5, marginTop: 2, lineHeight: 17 },
 
   // Section headers
   sectionHeader: {
