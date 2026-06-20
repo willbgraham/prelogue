@@ -1,7 +1,7 @@
 import * as WebBrowser from "expo-web-browser";
 import { supabase } from "./supabase";
 
-export const UNLOCK_PRICE_LABEL = "$29.99";
+export const UNLOCK_PRICE_LABEL = "$19";
 
 /**
  * Starts the one-time checkout to UNLOCK ONE SCRIPT's full AI table read +

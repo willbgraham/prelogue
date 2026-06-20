@@ -19,7 +19,7 @@ function json(body: unknown, status = 200) {
 }
 
 // Per-script unlock price, in cents. Override with STRIPE_UNLOCK_PRICE_CENTS.
-const UNLOCK_PRICE_CENTS = Number(Deno.env.get("STRIPE_UNLOCK_PRICE_CENTS") ?? "2999");
+const UNLOCK_PRICE_CENTS = Number(Deno.env.get("STRIPE_UNLOCK_PRICE_CENTS") ?? "1900");
 
 /**
  * Creates a Stripe Checkout session to UNLOCK ONE SCRIPT (one-time payment).
