@@ -1,0 +1,63 @@
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
+import type { Script, Character } from "@prelogue/shared";
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const supabase = await createClient();
+  const { data } = await supabase.from("scripts").select("title, logline").eq("id", id).single();
+  if (!data) return { title: "Prelogue" };
+  return { title: `${data.title} — Prelogue`, description: data.logline };
+}
+
+export default async function ScriptPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const supabase = await createClient();
+
+  // RLS: a private script the viewer can't see returns no row → 404.
+  const { data: script } = await supabase
+    .from("scripts")
+    .select("id, title, logline, genre, full_read_unlocked")
+    .eq("id", id)
+    .single();
+  if (!script) notFound();
+
+  const { data: characters } = await supabase
+    .from("characters")
+    .select("id, name, line_count")
+    .eq("script_id", id)
+    .order("line_count", { ascending: false });
+
+  return (
+    <main className="mx-auto w-full max-w-3xl px-6 py-10">
+      <Link href="/" className="text-sm text-taupe hover:text-ink">
+        ← Prelogue
+      </Link>
+
+      <div className="mt-6">
+        <span className="text-xs font-medium text-brick">{(script as Script).genre}</span>
+        <h1 className="mt-1 font-slab text-4xl leading-tight">{(script as Script).title}</h1>
+        <p className="mt-3 text-taupe">{(script as Script).logline}</p>
+      </div>
+
+      <div className="mt-8 rounded-xl border border-tan bg-ivory p-5">
+        <p className="font-mono text-sm text-muted">
+          ▶ Table-read player coming next — this is the script detail shell.
+        </p>
+      </div>
+
+      <section className="mt-8">
+        <h2 className="font-slab text-lg">Characters</h2>
+        <div className="mt-3 divide-y divide-tan">
+          {((characters as Pick<Character, "id" | "name" | "line_count">[] | null) ?? []).map((c) => (
+            <div key={c.id} className="flex items-center justify-between py-3">
+              <span className="font-medium">{c.name}</span>
+              <span className="text-sm text-muted">{c.line_count} lines</span>
+            </div>
+          ))}
+        </div>
+      </section>
+    </main>
+  );
+}

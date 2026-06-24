@@ -1,0 +1,23 @@
+@import "tailwindcss";
+
+/* Prelogue "paper / typewriter" theme — mirrors the mobile lib/theme.ts. */
+@theme {
+  --color-parchment: #e9dfc9;
+  --color-ivory: #f4eedf;
+  --color-elevated: #fbf7ec;
+  --color-tan: #d9ccb0;
+  --color-ink: #2a2420;
+  --color-taupe: #5e5141;
+  --color-muted: #736249;
+  --color-brick: #bc4026;
+  --color-forest: #3c7a4e;
+
+  --font-slab: var(--font-roboto-slab);
+  --font-mono: var(--font-courier-prime);
+}
+
+body {
+  background: var(--color-parchment);
+  color: var(--color-ink);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
