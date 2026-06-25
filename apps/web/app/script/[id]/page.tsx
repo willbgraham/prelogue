@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { TableReadPlayer } from "@/components/TableReadPlayer";
+import { OwnerUnlock } from "@/components/OwnerUnlock";
 import type { Script, Character } from "@prelogue/shared";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
@@ -19,10 +20,14 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
   // RLS: a private script the viewer can't see returns no row → 404.
   const { data: script } = await supabase
     .from("scripts")
-    .select("id, title, logline, genre, full_read_unlocked, parsed_json, voice_config")
+    .select("id, title, logline, genre, full_read_unlocked, parsed_json, voice_config, writer_id")
     .eq("id", id)
     .single();
   if (!script) notFound();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   const { data: characters } = await supabase
     .from("characters")
@@ -61,6 +66,10 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
           ))}
         </div>
       </section>
+
+      {user?.id === (script as Script).writer_id && (
+        <OwnerUnlock scriptId={id} unlocked={!!(script as Script).full_read_unlocked} />
+      )}
     </main>
   );
 }

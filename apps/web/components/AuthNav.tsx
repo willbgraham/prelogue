@@ -22,6 +22,9 @@ export async function AuthNav() {
   const name = (user.user_metadata?.display_name as string) || user.email;
   return (
     <div className="flex items-center gap-3">
+      <Link href="/studio" className="text-sm font-medium hover:text-brick">
+        Studio
+      </Link>
       <span className="hidden text-sm text-taupe sm:inline">{name}</span>
       <form action={signOut}>
         <button className="rounded-lg border border-tan px-3 py-2 text-sm hover:bg-ivory">
