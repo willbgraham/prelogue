@@ -123,7 +123,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { script_id } = await req.json();
+    const { script_id, voice_config: voiceConfigOverride } = await req.json();
     if (!script_id) {
       return new Response(JSON.stringify({ error: "script_id required" }), {
         status: 400,
@@ -177,8 +177,11 @@ Deno.serve(async (req) => {
     const fullAccess = (script as any).full_read_unlocked === true;
     const locked = !fullAccess;
 
-    // Resolve voice configuration (with sane defaults when unset).
-    const cfg = (script.voice_config as any) || {};
+    // Resolve voice configuration. An optional per-request override (visitor
+    // voice-picking on the web) wins over the script's saved config; the
+    // content-addressed manifest hash already keys on this, so an override
+    // yields its own manifest and reuses any cached per-voice audio.
+    const cfg = ((voiceConfigOverride ?? script.voice_config) as any) || {};
     const mode: "single" | "per_character" =
       cfg.mode === "single" ? "single" : "per_character";
     const narratorVoiceId: string = cfg.narrator_voice_id || DEFAULT_NARRATOR;

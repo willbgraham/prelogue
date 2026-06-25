@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildRows, prepareVoiceCues } from "@prelogue/shared";
-import type { ParsedScript, VoiceCueEntry } from "@prelogue/shared";
+import type { ParsedScript, VoiceCueEntry, VoiceConfig } from "@prelogue/shared";
 import { getBrowserClient } from "@/lib/supabase/client";
+import { VoicePicker } from "@/components/VoicePicker";
 
 /**
  * Manifest-driven table-read player. Walks the voiced rows (buildRows), plays
@@ -17,17 +18,35 @@ import { getBrowserClient } from "@/lib/supabase/client";
 export function TableReadPlayer({
   scriptId,
   parsed,
+  voiceConfig,
 }: {
   scriptId: string;
   parsed: ParsedScript | null;
+  voiceConfig?: VoiceConfig | null;
 }) {
   const rows = useMemo(() => buildRows(parsed), [parsed]);
+  const characters = useMemo(() => {
+    const seen = new Set<string>();
+    const names: string[] = [];
+    for (const r of rows) {
+      if ((r.kind === "line" || r.kind === "actor" || r.kind === "cue") && r.character) {
+        const up = r.character.toUpperCase();
+        if (!seen.has(up)) {
+          seen.add(up);
+          names.push(r.character);
+        }
+      }
+    }
+    return names;
+  }, [rows]);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const manifestRef = useRef<Map<number, VoiceCueEntry>>(new Map());
   const activeRef = useRef(0);
   const playingRef = useRef(false);
   const activeLineRef = useRef<HTMLDivElement | null>(null);
+  const overrideRef = useRef<VoiceConfig | null>(null);
+  const preparedKeyRef = useRef<string | null>(null);
 
   const [ready, setReady] = useState(false);
   const [preparing, setPreparing] = useState(false);
@@ -37,6 +56,7 @@ export function TableReadPlayer({
   const [reveal, setReveal] = useState(0);
   const [needsTap, setNeedsTap] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showPicker, setShowPicker] = useState(false);
 
   useEffect(() => {
     activeRef.current = active;
@@ -112,13 +132,19 @@ export function TableReadPlayer({
   }, [rows, playRow]);
 
   const ensureReady = useCallback(async () => {
-    if (ready) return true;
+    // Re-generate whenever the chosen voices change (keyed on the override).
+    const key = overrideRef.current ? JSON.stringify(overrideRef.current) : "default";
+    if (preparedKeyRef.current === key) return true;
     setPreparing(true);
     setError(null);
     try {
       const client = getBrowserClient();
-      const m = await prepareVoiceCues(client, scriptId, { onProgress: setProgress });
+      const m = await prepareVoiceCues(client, scriptId, {
+        onProgress: setProgress,
+        voiceConfig: overrideRef.current ?? undefined,
+      });
       manifestRef.current = m;
+      preparedKeyRef.current = key;
       setReady(true);
       setPreparing(false);
       return true;
@@ -127,7 +153,25 @@ export function TableReadPlayer({
       setError(e instanceof Error ? e.message : "Couldn't prepare the audio.");
       return false;
     }
-  }, [ready, scriptId]);
+  }, [scriptId]);
+
+  const applyVoices = useCallback(
+    async (cfg: VoiceConfig) => {
+      setShowPicker(false);
+      overrideRef.current = cfg;
+      stop();
+      activeRef.current = 0;
+      setActive(0);
+      setReveal(0);
+      setNeedsTap(false);
+      setReady(false);
+      await ensureReady(); // regenerates with the new voices (keyed on override)
+      playingRef.current = true;
+      setPlaying(true);
+      playRow(0);
+    },
+    [ensureReady, playRow, stop]
+  );
 
   const handlePlay = useCallback(async () => {
     if (playing) {
@@ -201,6 +245,12 @@ export function TableReadPlayer({
         >
           ↺ Restart
         </button>
+        <button
+          onClick={() => setShowPicker(true)}
+          className="rounded-lg border border-tan px-3 py-2 text-sm text-taupe hover:bg-elevated"
+        >
+          🎙 Voices
+        </button>
         <span className="ml-auto font-mono text-xs text-muted">
           {Math.min(active + 1, rows.length)} / {rows.length}
         </span>
@@ -264,6 +314,15 @@ export function TableReadPlayer({
         >
           ▶ Tap to play the audio
         </button>
+      )}
+
+      {showPicker && (
+        <VoicePicker
+          characters={characters}
+          startConfig={overrideRef.current ?? voiceConfig ?? { mode: "per_character" }}
+          onApply={applyVoices}
+          onClose={() => setShowPicker(false)}
+        />
       )}
     </div>
   );

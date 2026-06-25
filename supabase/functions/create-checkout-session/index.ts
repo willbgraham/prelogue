@@ -35,7 +35,7 @@ Deno.serve(async (req) => {
       return json({ error: "Stripe not configured (STRIPE_SECRET_KEY)" }, 500);
     }
 
-    const { script_id } = await req.json().catch(() => ({}));
+    const { script_id, success_url, cancel_url } = await req.json().catch(() => ({}));
     if (!script_id) return json({ error: "Missing script_id" }, 400);
 
     // Identify the caller from their Supabase auth token.
@@ -83,8 +83,12 @@ Deno.serve(async (req) => {
       await admin.from("users").update({ stripe_customer_id: customerId }).eq("id", user.id);
     }
 
-    const successUrl = Deno.env.get("STRIPE_SUCCESS_URL") ?? `${Deno.env.get("SUPABASE_URL")}`;
-    const cancelUrl = Deno.env.get("STRIPE_CANCEL_URL") ?? `${Deno.env.get("SUPABASE_URL")}`;
+    // Caller-supplied URLs (the web app passes its own) win over env defaults,
+    // so web checkout returns to prelogue.studio without affecting mobile.
+    const successUrl =
+      success_url ?? Deno.env.get("STRIPE_SUCCESS_URL") ?? `${Deno.env.get("SUPABASE_URL")}`;
+    const cancelUrl =
+      cancel_url ?? Deno.env.get("STRIPE_CANCEL_URL") ?? `${Deno.env.get("SUPABASE_URL")}`;
 
     // One-time payment. Price is set inline so there's no Stripe dashboard
     // product to maintain. Promo codes stay on for launch discounts.

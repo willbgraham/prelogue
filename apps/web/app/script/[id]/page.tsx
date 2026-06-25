@@ -19,7 +19,7 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
   // RLS: a private script the viewer can't see returns no row → 404.
   const { data: script } = await supabase
     .from("scripts")
-    .select("id, title, logline, genre, full_read_unlocked, parsed_json")
+    .select("id, title, logline, genre, full_read_unlocked, parsed_json, voice_config")
     .eq("id", id)
     .single();
   if (!script) notFound();
@@ -43,7 +43,11 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
       </div>
 
       <div className="mt-8">
-        <TableReadPlayer scriptId={id} parsed={(script as Script).parsed_json} />
+        <TableReadPlayer
+          scriptId={id}
+          parsed={(script as Script).parsed_json}
+          voiceConfig={(script as Script).voice_config}
+        />
       </div>
 
       <section className="mt-8">
