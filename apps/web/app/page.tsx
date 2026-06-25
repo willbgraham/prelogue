@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { AuthNav } from "@/components/AuthNav";
 import type { Script } from "@prelogue/shared";
 
 const DEMO_SCRIPT_ID = "b0078900-0000-4000-8000-000000000009";
@@ -24,6 +25,9 @@ export default async function Home() {
           P
         </div>
         <span className="font-slab text-xl">Prelogue</span>
+        <div className="ml-auto">
+          <AuthNav />
+        </div>
       </header>
 
       <section className="mt-12">
