@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { TableReadPlayer } from "@/components/TableReadPlayer";
 import type { Script, Character } from "@prelogue/shared";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
@@ -18,7 +19,7 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
   // RLS: a private script the viewer can't see returns no row → 404.
   const { data: script } = await supabase
     .from("scripts")
-    .select("id, title, logline, genre, full_read_unlocked")
+    .select("id, title, logline, genre, full_read_unlocked, parsed_json")
     .eq("id", id)
     .single();
   if (!script) notFound();
@@ -41,10 +42,8 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
         <p className="mt-3 text-taupe">{(script as Script).logline}</p>
       </div>
 
-      <div className="mt-8 rounded-xl border border-tan bg-ivory p-5">
-        <p className="font-mono text-sm text-muted">
-          ▶ Table-read player coming next — this is the script detail shell.
-        </p>
+      <div className="mt-8">
+        <TableReadPlayer scriptId={id} parsed={(script as Script).parsed_json} />
       </div>
 
       <section className="mt-8">
