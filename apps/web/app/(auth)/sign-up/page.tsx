@@ -1,9 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { getBrowserClient } from "@/lib/supabase/client";
+
+// Only allow same-origin relative redirects (no open-redirect to other sites).
+function safeNext(raw: string | null): string {
+  return raw && raw.startsWith("/") && !raw.startsWith("//") ? raw : "/";
+}
 
 const input =
   "w-full rounded-lg border border-tan bg-elevated px-4 py-3 outline-none focus:border-brick";
@@ -17,6 +22,11 @@ export default function SignUpPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
+  const [next, setNext] = useState("/");
+
+  useEffect(() => {
+    setNext(safeNext(new URLSearchParams(window.location.search).get("next")));
+  }, []);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -36,7 +46,7 @@ export default function SignUpPage() {
       return;
     }
     if (data.session) {
-      router.push("/");
+      router.push(next);
       router.refresh();
     } else {
       setSent(true); // email confirmation required
@@ -58,6 +68,9 @@ export default function SignUpPage() {
   return (
     <>
       <h1 className="font-slab text-2xl">Create your account</h1>
+      {next.startsWith("/record") && (
+        <p className="mt-2 text-sm text-taupe">Create a free account to record your read.</p>
+      )}
       <form onSubmit={onSubmit} className="mt-6 flex flex-col gap-4">
         {error && (
           <p className="rounded-lg bg-brick/10 px-3 py-2 text-sm text-brick">{error}</p>
@@ -103,7 +116,7 @@ export default function SignUpPage() {
       </form>
       <p className="mt-4 text-sm text-taupe">
         Already have an account?{" "}
-        <Link href="/sign-in" className="text-ink hover:underline">
+        <Link href={`/sign-in?next=${encodeURIComponent(next)}`} className="text-ink hover:underline">
           Sign in
         </Link>
       </p>
