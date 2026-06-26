@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { TableReadPlayer } from "@/components/TableReadPlayer";
 import { OwnerUnlock } from "@/components/OwnerUnlock";
@@ -34,6 +34,13 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
     .eq(scriptCol(id), id)
     .single();
   if (!script) notFound();
+
+  // Canonicalize the URL to the name-based slug (a uuid or stale handle → slug),
+  // so visitors always see the name, not the numbers.
+  const slug = (script as Script).slug;
+  if (slug && id !== slug) {
+    redirect(`/script/${slug}`);
+  }
 
   const {
     data: { user },
