@@ -1,13 +1,14 @@
 import type { NextConfig } from "next";
-import path from "node:path";
 
 const nextConfig: NextConfig = {
   // Transpile the shared monorepo package (TS source, no build step).
   transpilePackages: ["@prelogue/shared"],
-  // Pin the workspace root to the monorepo root (one above apps/) so Turbopack
-  // resolves the symlinked packages/shared and doesn't infer a stray lockfile.
+  // Pin Turbopack's root to THIS app dir (the build cwd). It must NOT be set
+  // above Vercel's Root Directory (apps/web) — a higher root makes the build
+  // root itself a level up from where Vercel serves, producing a 404 on every
+  // route despite a "Ready" build.
   turbopack: {
-    root: path.resolve(process.cwd(), "..", ".."),
+    root: process.cwd(),
   },
 };
 
