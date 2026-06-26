@@ -32,7 +32,12 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const path = request.nextUrl.pathname;
-  if (!user && (path.startsWith("/studio") || path.startsWith("/record"))) {
+  if (
+    !user &&
+    (path.startsWith("/studio") ||
+      path.startsWith("/record") ||
+      path.startsWith("/settings"))
+  ) {
     const url = request.nextUrl.clone();
     url.pathname = "/sign-in";
     url.searchParams.set("next", path);

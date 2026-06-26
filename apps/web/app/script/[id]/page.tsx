@@ -46,6 +46,12 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
     data: { user },
   } = await supabase.auth.getUser();
 
+  const { data: writer } = await supabase
+    .from("users")
+    .select("display_name, username")
+    .eq("id", (script as Script).writer_id)
+    .single();
+
   const { data: characters } = await supabase
     .from("characters")
     .select("id, name, line_count")
@@ -68,6 +74,14 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
         <span className="text-xs font-medium text-brick">{(script as Script).genre}</span>
         <h1 className="mt-1 font-slab text-4xl leading-tight">{(script as Script).title}</h1>
         <p className="mt-3 text-taupe">{(script as Script).logline}</p>
+        {writer?.username && (
+          <Link
+            href={`/u/${writer.username}`}
+            className="mt-2 inline-block text-sm text-muted hover:text-brick"
+          >
+            by {writer.display_name || writer.username}
+          </Link>
+        )}
       </div>
 
       <div className="mt-6">

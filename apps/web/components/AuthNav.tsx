@@ -19,13 +19,28 @@ export async function AuthNav() {
     );
   }
 
-  const name = (user.user_metadata?.display_name as string) || user.email;
+  const { data: profile } = await supabase
+    .from("users")
+    .select("username, display_name")
+    .eq("id", user.id)
+    .single();
+  const name =
+    profile?.display_name || (user.user_metadata?.display_name as string) || user.email;
   return (
     <div className="flex items-center gap-3">
       <Link href="/studio" className="text-sm font-medium hover:text-brick">
         Studio
       </Link>
-      <span className="hidden text-sm text-taupe sm:inline">{name}</span>
+      {profile?.username ? (
+        <Link
+          href={`/u/${profile.username}`}
+          className="hidden text-sm text-taupe hover:text-brick sm:inline"
+        >
+          {name}
+        </Link>
+      ) : (
+        <span className="hidden text-sm text-taupe sm:inline">{name}</span>
+      )}
       <form action={signOut}>
         <button className="rounded-lg border border-tan px-3 py-2 text-sm hover:bg-ivory">
           Sign out
