@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { TableReadPlayer } from "@/components/TableReadPlayer";
 import { OwnerUnlock } from "@/components/OwnerUnlock";
 import { ShareButton } from "@/components/ShareButton";
+import { ReadForRole } from "@/components/ReadForRole";
 import type { Script, Character } from "@/lib/shared";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
@@ -54,43 +55,19 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
         <p className="mt-3 text-taupe">{(script as Script).logline}</p>
       </div>
 
-      <div className="mt-8">
+      <div className="mt-6">
+        <ReadForRole
+          characters={((characters as Pick<Character, "id" | "name" | "line_count">[] | null) ?? [])}
+        />
+      </div>
+
+      <div className="mt-6">
         <TableReadPlayer
           scriptId={id}
           parsed={(script as Script).parsed_json}
           voiceConfig={(script as Script).voice_config}
         />
       </div>
-
-      <section className="mt-10">
-        <h2 className="font-slab text-lg">Read a role</h2>
-        <p className="mt-1 text-sm text-taupe">
-          Pick a character and record your performance by webcam — your take
-          splices into the table read.
-        </p>
-        <div className="mt-4 space-y-3">
-          {((characters as Pick<Character, "id" | "name" | "line_count">[] | null) ?? []).map((c) => (
-            <div
-              key={c.id}
-              className="flex items-center justify-between gap-3 rounded-xl border border-tan bg-ivory px-4 py-3"
-            >
-              <div>
-                <div className="font-medium">{c.name}</div>
-                <div className="text-sm text-muted">{c.line_count} lines</div>
-              </div>
-              <Link
-                href={`/record/${c.id}`}
-                className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-brick px-4 py-2 text-sm font-medium text-white"
-              >
-                🎥 Read this role
-              </Link>
-            </div>
-          ))}
-          {(characters?.length ?? 0) === 0 && (
-            <p className="text-sm text-muted">No roles to read yet.</p>
-          )}
-        </div>
-      </section>
 
       {user?.id === (script as Script).writer_id && (
         <OwnerUnlock scriptId={id} unlocked={!!(script as Script).full_read_unlocked} />
