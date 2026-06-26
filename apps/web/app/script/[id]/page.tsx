@@ -81,6 +81,10 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
           scriptId={(script as Script).id}
           parsed={(script as Script).parsed_json}
           voiceConfig={(script as Script).voice_config}
+          canChangeVoices={
+            (script as Script).slug === "booth-nine" ||
+            user?.id === (script as Script).writer_id
+          }
         />
       </div>
 

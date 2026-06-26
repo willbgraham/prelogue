@@ -177,11 +177,29 @@ Deno.serve(async (req) => {
     const fullAccess = (script as any).full_read_unlocked === true;
     const locked = !fullAccess;
 
-    // Resolve voice configuration. An optional per-request override (visitor
-    // voice-picking on the web) wins over the script's saved config; the
-    // content-addressed manifest hash already keys on this, so an override
-    // yields its own manifest and reuses any cached per-voice audio.
-    const cfg = ((voiceConfigOverride ?? script.voice_config) as any) || {};
+    // Only the writer (or the public demo) may override the saved voices; for
+    // everyone else the override is ignored and the writer's configured voices
+    // play. Stops non-writers burning TTS credits re-casting a paid script.
+    const DEMO_SCRIPT_ID = "b0078900-0000-4000-8000-000000000009";
+    let callerId: string | null = null;
+    const authHeader = req.headers.get("Authorization");
+    if (authHeader) {
+      const {
+        data: { user: caller },
+      } = await createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_ANON_KEY")!,
+        { global: { headers: { Authorization: authHeader } } }
+      ).auth.getUser();
+      callerId = caller?.id ?? null;
+    }
+    const allowOverride =
+      script_id === DEMO_SCRIPT_ID || (!!callerId && callerId === script.writer_id);
+
+    // The override (visitor voice-picking) wins only when allowed; the
+    // content-addressed manifest hash keys on the resolved config, so an
+    // override yields its own manifest and reuses any cached per-voice audio.
+    const cfg = (((allowOverride ? voiceConfigOverride : null) ?? script.voice_config) as any) || {};
     const mode: "single" | "per_character" =
       cfg.mode === "single" ? "single" : "per_character";
     const narratorVoiceId: string = cfg.narrator_voice_id || DEFAULT_NARRATOR;

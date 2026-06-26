@@ -48,10 +48,13 @@ export function TableReadPlayer({
   scriptId,
   parsed,
   voiceConfig,
+  canChangeVoices = false,
 }: {
   scriptId: string;
   parsed: ParsedScript | null;
   voiceConfig?: VoiceConfig | null;
+  // Only the writer (or the public demo) may re-cast the AI voices.
+  canChangeVoices?: boolean;
 }) {
   const rows = useMemo(() => buildRows(parsed), [parsed]);
   const characters = useMemo(() => {
@@ -289,12 +292,14 @@ export function TableReadPlayer({
         >
           ↺ Restart
         </button>
-        <button
-          onClick={() => setShowPicker(true)}
-          className="rounded-lg border border-tan px-3 py-2 text-sm text-taupe hover:bg-elevated"
-        >
-          🎙 Voices
-        </button>
+        {canChangeVoices && (
+          <button
+            onClick={() => setShowPicker(true)}
+            className="rounded-lg border border-tan px-3 py-2 text-sm text-taupe hover:bg-elevated"
+          >
+            🎙 Voices
+          </button>
+        )}
         <span className="ml-auto font-mono text-xs text-muted">
           {Math.min(active + 1, rows.length)} / {rows.length}
         </span>
