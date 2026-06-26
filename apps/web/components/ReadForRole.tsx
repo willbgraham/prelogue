@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { VideoIcon } from "@/components/icons";
 
 type Role = { id: string; name: string; line_count: number };
 
@@ -21,7 +22,10 @@ export function ReadForRole({ characters }: { characters: Role[] }) {
         aria-expanded={open}
         className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left hover:bg-ivory"
       >
-        <span className="font-slab text-lg">🎥 Actors — Read for a Role</span>
+        <span className="flex items-center gap-2 font-slab text-lg">
+          <VideoIcon className="h-5 w-5 text-brick" />
+          Actors — Read for a Role
+        </span>
         <span className="text-sm text-taupe">
           {open ? "Hide ▲" : `${characters.length} role${characters.length === 1 ? "" : "s"} ▾`}
         </span>
@@ -46,7 +50,8 @@ export function ReadForRole({ characters }: { characters: Role[] }) {
                 href={`/record/${c.id}`}
                 className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-brick px-4 py-2 text-sm font-medium text-white"
               >
-                🎥 Read this role
+                <VideoIcon className="h-4 w-4" />
+                Read for this role
               </Link>
             </div>
           ))}

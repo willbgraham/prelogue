@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { SiteHeader } from "@/components/SiteHeader";
+import { VideoIcon } from "@/components/icons";
 
 export const metadata: Metadata = {
   title: "How it works — Prelogue",
@@ -102,9 +103,10 @@ export default function HowItWorks() {
           <Steps steps={ACTOR_STEPS} />
           <Link
             href={`/script/${DEMO_SCRIPT_ID}`}
-            className="mt-7 inline-flex rounded-xl border border-tan px-5 py-3 font-medium text-taupe hover:bg-elevated"
+            className="mt-7 inline-flex items-center gap-2 rounded-xl border border-tan px-5 py-3 font-medium text-taupe hover:bg-elevated"
           >
-            🎥 Read a role in the demo
+            <VideoIcon className="h-4 w-4" />
+            Read a role in the demo
           </Link>
         </div>
       </section>
