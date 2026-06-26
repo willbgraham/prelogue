@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { AuthNav } from "@/components/AuthNav";
+import { SiteHeader } from "@/components/SiteHeader";
 import type { Script } from "@/lib/shared";
 
 const DEMO_SCRIPT_ID = "b0078900-0000-4000-8000-000000000009";
@@ -20,15 +20,7 @@ export default async function Home() {
 
   return (
     <main className="mx-auto w-full max-w-5xl px-6 py-10">
-      <header className="flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brick font-slab text-xl text-white">
-          P
-        </div>
-        <span className="font-slab text-xl">Prelogue</span>
-        <div className="ml-auto">
-          <AuthNav />
-        </div>
-      </header>
+      <SiteHeader />
 
       <section className="mt-12">
         <h1 className="max-w-2xl font-slab text-4xl leading-tight sm:text-5xl">

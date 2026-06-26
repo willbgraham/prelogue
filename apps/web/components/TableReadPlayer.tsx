@@ -285,10 +285,15 @@ export function TableReadPlayer({
                 </div>
               )}
               {r.kind === "narrator" ? (
-                <p className="font-mono text-[15px] leading-relaxed text-taupe">
-                  {shown}
-                  {Cursor}
-                </p>
+                <div>
+                  <div className="mb-1 font-mono text-sm font-bold uppercase tracking-wide text-muted">
+                    Narrator
+                  </div>
+                  <p className="font-mono text-[15px] leading-relaxed text-taupe">
+                    {shown}
+                    {Cursor}
+                  </p>
+                </div>
               ) : (
                 <div className="text-center">
                   {r.character && (
