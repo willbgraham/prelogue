@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { TableReadPlayer } from "@/components/TableReadPlayer";
 import { OwnerUnlock } from "@/components/OwnerUnlock";
+import { OwnerPanel } from "@/components/OwnerPanel";
 import { ShareButton } from "@/components/ShareButton";
 import { ReadForRole } from "@/components/ReadForRole";
 import type { Script, Character } from "@/lib/shared";
@@ -30,7 +31,7 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
   // RLS: a private script the viewer can't see returns no row → 404.
   const { data: script } = await supabase
     .from("scripts")
-    .select("id, slug, title, logline, genre, full_read_unlocked, parsed_json, voice_config, writer_id")
+    .select("id, slug, title, logline, genre, visibility, full_read_unlocked, parsed_json, voice_config, writer_id")
     .eq(scriptCol(id), id)
     .single();
   if (!script) notFound();
@@ -103,7 +104,19 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
       </div>
 
       {user?.id === (script as Script).writer_id && (
-        <OwnerUnlock scriptId={(script as Script).id} unlocked={!!(script as Script).full_read_unlocked} />
+        <>
+          <OwnerUnlock
+            scriptId={(script as Script).id}
+            unlocked={!!(script as Script).full_read_unlocked}
+          />
+          <OwnerPanel
+            scriptId={(script as Script).id}
+            initialVisibility={
+              ((script as Script).visibility ?? "public") as "public" | "hidden" | "private"
+            }
+            unlocked={!!(script as Script).full_read_unlocked}
+          />
+        </>
       )}
     </main>
   );
