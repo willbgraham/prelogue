@@ -1,16 +1,8 @@
 import type { NextConfig } from "next";
-import path from "node:path";
 
-// Monorepo root (one level above apps/). Turbopack needs this to resolve the
-// symlinked packages/shared; outputFileTracingRoot needs it so Vercel traces +
-// bundles the right files for the serverless functions (without it the build is
-// "Ready" but routes 404).
-const root = path.resolve(process.cwd(), "..", "..");
-
-const nextConfig: NextConfig = {
-  transpilePackages: ["@prelogue/shared"],
-  outputFileTracingRoot: root,
-  turbopack: { root },
-};
+// Self-contained app: all code lives under apps/web (shared utils vendored into
+// lib/shared), so no monorepo transpile / workspace-root config is needed. This
+// keeps the project root aligned with Vercel's Root Directory (apps/web).
+const nextConfig: NextConfig = {};
 
 export default nextConfig;

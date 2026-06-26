@@ -1,7 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { WebcamRecorder } from "@/components/WebcamRecorder";
-import type { ParsedScript } from "@prelogue/shared";
+import type { ParsedScript } from "@/lib/shared";
 
 export default async function RecordPage({
   params,

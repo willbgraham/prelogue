@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { VoiceCatalogItem, VoiceConfig } from "@prelogue/shared";
+import type { VoiceCatalogItem, VoiceConfig } from "@/lib/shared";
 import { getBrowserClient } from "@/lib/supabase/client";
 
 const NARRATOR = "__narrator__";

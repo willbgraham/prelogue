@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { buildRows, prepareVoiceCues, clipPath } from "@prelogue/shared";
-import type { ParsedScript, VoiceCueEntry } from "@prelogue/shared";
+import { buildRows, prepareVoiceCues, clipPath } from "@/lib/shared";
+import type { ParsedScript, VoiceCueEntry } from "@/lib/shared";
 import { getBrowserClient } from "@/lib/supabase/client";
 import { uploadClipResumable } from "@/lib/upload";
 

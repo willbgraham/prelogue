@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { buildRows, prepareVoiceCues } from "@prelogue/shared";
-import type { ParsedScript, VoiceCueEntry, VoiceConfig } from "@prelogue/shared";
+import { buildRows, prepareVoiceCues } from "@/lib/shared";
+import type { ParsedScript, VoiceCueEntry, VoiceConfig } from "@/lib/shared";
 import { getBrowserClient } from "@/lib/supabase/client";
 import { VoicePicker } from "@/components/VoicePicker";
 

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { AuthNav } from "@/components/AuthNav";
-import type { Script } from "@prelogue/shared";
+import type { Script } from "@/lib/shared";
 
 const DEMO_SCRIPT_ID = "b0078900-0000-4000-8000-000000000009";
 

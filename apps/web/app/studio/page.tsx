@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import type { Script } from "@prelogue/shared";
+import type { Script } from "@/lib/shared";
 
 export default async function StudioPage() {
   const supabase = await createClient();

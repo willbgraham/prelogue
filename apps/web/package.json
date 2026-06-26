@@ -9,7 +9,6 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@prelogue/shared": "file:../../packages/shared",
     "@supabase/ssr": "^0.5.2",
     "@supabase/supabase-js": "^2.102.1",
     "tus-js-client": "^4.3.1",
