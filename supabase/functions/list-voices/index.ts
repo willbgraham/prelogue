@@ -61,22 +61,37 @@ async function fetchAccountVoices(): Promise<Voice[]> {
   return out;
 }
 
-// Shared Voice Library (/v1/shared-voices) — must be added before TTS.
-async function fetchLibraryVoices(gender: string, pageSize: number): Promise<Voice[]> {
-  const url = new URL(`${V1}/shared-voices`);
-  url.searchParams.set("page_size", String(pageSize));
-  if (gender) url.searchParams.set("gender", gender);
-  const res = await fetch(url.toString(), { headers: { "xi-api-key": ELEVENLABS_API_KEY! } });
-  if (!res.ok) return [];
-  const json = await res.json();
-  return (json.voices ?? []).map((v: any) => ({
-    voice_id: v.voice_id,
-    name: v.name,
-    category: v.category ?? "library",
-    labels: pickLabels(v),
-    preview_url: v.preview_url ?? null,
-    public_owner_id: v.public_owner_id ?? null,
-  }));
+// Shared Voice Library (/v1/shared-voices). These voices are usable directly in
+// TTS by voice_id (verified) — no add-voice / slot needed. Page through to build
+// a large, browsable set the picker can filter client-side.
+async function fetchLibraryVoices(
+  gender: string,
+  maxPages: number,
+  pageSize = 100
+): Promise<Voice[]> {
+  const out: Voice[] = [];
+  for (let page = 0; page < maxPages; page++) {
+    const url = new URL(`${V1}/shared-voices`);
+    url.searchParams.set("page_size", String(pageSize));
+    url.searchParams.set("page", String(page));
+    if (gender) url.searchParams.set("gender", gender);
+    const res = await fetch(url.toString(), { headers: { "xi-api-key": ELEVENLABS_API_KEY! } });
+    if (!res.ok) break;
+    const json = await res.json();
+    const voices = json.voices ?? [];
+    for (const v of voices) {
+      out.push({
+        voice_id: v.voice_id,
+        name: v.name,
+        category: v.category ?? "library",
+        labels: pickLabels(v),
+        preview_url: v.preview_url ?? null,
+        public_owner_id: v.public_owner_id ?? null,
+      });
+    }
+    if (!json.has_more || voices.length === 0) break;
+  }
+  return out;
 }
 
 Deno.serve(async (req) => {
@@ -98,10 +113,12 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Page through the shared library for a large, diverse, browsable set
+    // (the picker filters client-side by gender/accent/language/age/search).
     const [account, female, male] = await Promise.all([
       fetchAccountVoices(),
-      fetchLibraryVoices("female", 100),
-      fetchLibraryVoices("male", 80),
+      fetchLibraryVoices("female", 5), // up to ~500
+      fetchLibraryVoices("male", 4), // up to ~400
     ]);
 
     // Drop library voices already in the account (by name) to avoid duplicates.

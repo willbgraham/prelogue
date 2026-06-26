@@ -6,6 +6,35 @@ import type { ParsedScript, VoiceCueEntry, VoiceConfig } from "@/lib/shared";
 import { getBrowserClient } from "@/lib/supabase/client";
 import { VoicePicker } from "@/components/VoicePicker";
 
+// Cap how many times a visitor can re-cast voices per day (cost guard). Voices
+// already generated replay free; only a *new* voice config counts.
+const MAX_VOICE_CHANGES_PER_DAY = 15;
+
+function voiceChangesToday(): number {
+  if (typeof window === "undefined") return 0;
+  try {
+    const raw = window.localStorage.getItem("prelogue:voiceChanges");
+    if (!raw) return 0;
+    const o = JSON.parse(raw) as { date?: string; count?: number };
+    return o.date === new Date().toISOString().slice(0, 10) ? o.count ?? 0 : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function bumpVoiceChanges(): number {
+  const next = voiceChangesToday() + 1;
+  try {
+    window.localStorage.setItem(
+      "prelogue:voiceChanges",
+      JSON.stringify({ date: new Date().toISOString().slice(0, 10), count: next })
+    );
+  } catch {
+    /* ignore */
+  }
+  return next;
+}
+
 /**
  * Manifest-driven table-read player. Walks the voiced rows (buildRows), plays
  * each line's generated audio through one persistent <audio>, and types the
@@ -57,7 +86,11 @@ export function TableReadPlayer({
   const [needsTap, setNeedsTap] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showPicker, setShowPicker] = useState(false);
+  const [changesUsed, setChangesUsed] = useState(0);
 
+  useEffect(() => {
+    setChangesUsed(voiceChangesToday());
+  }, []);
   useEffect(() => {
     activeRef.current = active;
     activeLineRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
@@ -158,6 +191,16 @@ export function TableReadPlayer({
   const applyVoices = useCallback(
     async (cfg: VoiceConfig) => {
       setShowPicker(false);
+      // Only a genuinely new voice config regenerates (and costs); re-applying
+      // the same voices replays from cache and doesn't count against the cap.
+      const newKey = JSON.stringify(cfg);
+      const willRegenerate = preparedKeyRef.current !== newKey;
+      if (willRegenerate && voiceChangesToday() >= MAX_VOICE_CHANGES_PER_DAY) {
+        setError(
+          "You've reached today's voice-change limit. Voices you've already tried still replay free — come back tomorrow to try more."
+        );
+        return;
+      }
       overrideRef.current = cfg;
       stop();
       activeRef.current = 0;
@@ -165,6 +208,7 @@ export function TableReadPlayer({
       setReveal(0);
       setNeedsTap(false);
       setReady(false);
+      if (willRegenerate) setChangesUsed(bumpVoiceChanges());
       await ensureReady(); // regenerates with the new voices (keyed on override)
       playingRef.current = true;
       setPlaying(true);
@@ -327,6 +371,7 @@ export function TableReadPlayer({
           startConfig={overrideRef.current ?? voiceConfig ?? { mode: "per_character" }}
           onApply={applyVoices}
           onClose={() => setShowPicker(false)}
+          changesLeft={Math.max(0, MAX_VOICE_CHANGES_PER_DAY - changesUsed)}
         />
       )}
     </div>
