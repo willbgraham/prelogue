@@ -5,33 +5,62 @@ import { SiteHeader } from "@/components/SiteHeader";
 export const metadata: Metadata = {
   title: "How it works — Prelogue",
   description:
-    "Upload a screenplay, cast AI voices, and hear it performed as a table read — then bring in real actors by webcam.",
+    "For writers: upload a screenplay, cast AI voices, and hear it performed. For actors: read a role by webcam and get cast.",
 };
 
 const DEMO_SCRIPT_ID = "b0078900-0000-4000-8000-000000000009";
 
-const STEPS = [
+const WRITER_STEPS = [
   {
-    n: "1",
-    title: "Bring your script",
-    body: "Upload a PDF. Prelogue parses it into an ordered screenplay — scenes, dialogue, and action — ready to perform.",
+    title: "Upload your screenplay",
+    body: "Drop in a PDF. Prelogue parses it into an ordered screenplay — scenes, dialogue, and action.",
   },
   {
-    n: "2",
     title: "Cast the voices",
-    body: "Give each character an AI voice, and a narrator for the action lines, chosen from a large voice library. Preview any voice instantly.",
+    body: "Give each character an AI voice and a narrator for the action lines. Preview any voice instantly.",
   },
   {
-    n: "3",
-    title: "Press play",
-    body: "Hear a full table read performed aloud while the screenplay types out on screen, line by line — your pages coming to life.",
+    title: "Hear the table read",
+    body: "Your script performs aloud while the screenplay types out on screen, line by line.",
   },
   {
-    n: "4",
-    title: "Bring in real actors",
-    body: "Share a role and actors record their lines by webcam. Their takes splice into the read in place of the AI voice, so you hear real performances.",
+    title: "Unlock the full read",
+    body: "$19 one-time unlocks the complete narration plus private, invite-only sharing. Replays are free forever.",
   },
 ];
+
+const ACTOR_STEPS = [
+  {
+    title: "Find a role",
+    body: "Browse scripts and open a character that speaks to you — every role is open to read.",
+  },
+  {
+    title: "Record by webcam",
+    body: "Read your lines from the on-screen teleprompter; Prelogue captures each one as you go.",
+  },
+  {
+    title: "Get cast",
+    body: "Your take splices into the table read in place of the AI voice — and viewers can cast you in the role.",
+  },
+];
+
+function Steps({ steps }: { steps: { title: string; body: string }[] }) {
+  return (
+    <ol className="mt-6 space-y-5">
+      {steps.map((s, i) => (
+        <li key={s.title} className="flex gap-4">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brick font-slab text-sm text-white">
+            {i + 1}
+          </div>
+          <div>
+            <h3 className="font-slab text-lg leading-tight">{s.title}</h3>
+            <p className="mt-1 text-sm leading-relaxed text-taupe">{s.body}</p>
+          </div>
+        </li>
+      ))}
+    </ol>
+  );
+}
 
 export default function HowItWorks() {
   return (
@@ -43,21 +72,41 @@ export default function HowItWorks() {
           How Prelogue works
         </h1>
         <p className="mt-4 text-taupe">
-          From a static PDF to a performed table read in minutes — with the
-          screenplay on screen the whole way.
+          A screenplay, performed — by AI voices and real actors, with the pages
+          on screen the whole way. Two ways in:
         </p>
       </section>
 
-      <section className="mt-12 grid gap-5 sm:grid-cols-2">
-        {STEPS.map((s) => (
-          <div key={s.n} className="rounded-xl border border-tan bg-ivory p-6">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-brick font-slab text-lg text-white">
-              {s.n}
-            </div>
-            <h2 className="mt-4 font-slab text-xl">{s.title}</h2>
-            <p className="mt-2 text-sm leading-relaxed text-taupe">{s.body}</p>
+      <section className="mt-12 grid gap-5 lg:grid-cols-2">
+        {/* For Writers */}
+        <div className="rounded-2xl border border-tan bg-ivory p-8">
+          <div className="font-mono text-xs uppercase tracking-wider text-brick">
+            For writers
           </div>
-        ))}
+          <h2 className="mt-2 font-slab text-2xl">Bring your script to life</h2>
+          <Steps steps={WRITER_STEPS} />
+          <Link
+            href="/studio/upload"
+            className="mt-7 inline-flex rounded-xl bg-brick px-5 py-3 font-medium text-white"
+          >
+            Upload a script
+          </Link>
+        </div>
+
+        {/* For Actors */}
+        <div className="rounded-2xl border border-tan bg-ivory p-8">
+          <div className="font-mono text-xs uppercase tracking-wider text-forest">
+            For actors
+          </div>
+          <h2 className="mt-2 font-slab text-2xl">Read a role, get cast</h2>
+          <Steps steps={ACTOR_STEPS} />
+          <Link
+            href={`/script/${DEMO_SCRIPT_ID}`}
+            className="mt-7 inline-flex rounded-xl border border-tan px-5 py-3 font-medium text-taupe hover:bg-elevated"
+          >
+            🎥 Read a role in the demo
+          </Link>
+        </div>
       </section>
 
       <section className="mt-12 rounded-2xl border border-tan bg-elevated p-8 text-center">

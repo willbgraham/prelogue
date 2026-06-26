@@ -62,23 +62,33 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
         />
       </div>
 
-      <section className="mt-8">
-        <h2 className="font-slab text-lg">Characters</h2>
-        <div className="mt-3 divide-y divide-tan">
+      <section className="mt-10">
+        <h2 className="font-slab text-lg">Read a role</h2>
+        <p className="mt-1 text-sm text-taupe">
+          Pick a character and record your performance by webcam — your take
+          splices into the table read.
+        </p>
+        <div className="mt-4 space-y-3">
           {((characters as Pick<Character, "id" | "name" | "line_count">[] | null) ?? []).map((c) => (
-            <div key={c.id} className="flex items-center justify-between py-3">
-              <span className="font-medium">{c.name}</span>
-              <div className="flex items-center gap-4">
-                <span className="text-sm text-muted">{c.line_count} lines</span>
-                <Link
-                  href={`/record/${c.id}`}
-                  className="text-sm font-medium text-brick hover:underline"
-                >
-                  Read ›
-                </Link>
+            <div
+              key={c.id}
+              className="flex items-center justify-between gap-3 rounded-xl border border-tan bg-ivory px-4 py-3"
+            >
+              <div>
+                <div className="font-medium">{c.name}</div>
+                <div className="text-sm text-muted">{c.line_count} lines</div>
               </div>
+              <Link
+                href={`/record/${c.id}`}
+                className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-brick px-4 py-2 text-sm font-medium text-white"
+              >
+                🎥 Read this role
+              </Link>
             </div>
           ))}
+          {(characters?.length ?? 0) === 0 && (
+            <p className="text-sm text-muted">No roles to read yet.</p>
+          )}
         </div>
       </section>
 
