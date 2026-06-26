@@ -1,5 +1,23 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
 import type { VoiceConfig } from "./types";
+
+/**
+ * Minimal structural type for the Supabase client methods this helper uses.
+ * Keeps this shared package dependency-free (no @supabase/supabase-js import),
+ * which matters when it's consumed from another app's build (e.g. the web app,
+ * where packages/shared's own node_modules isn't installed). A real
+ * SupabaseClient (browser or server) is structurally assignable.
+ */
+export interface SupabaseClientLike {
+  functions: {
+    invoke(fn: string, opts: { body: Record<string, unknown> }): Promise<any>;
+  };
+  storage: {
+    from(bucket: string): {
+      createSignedUrl(path: string, expiresIn: number): Promise<any>;
+      createSignedUrls(paths: string[], expiresIn: number): Promise<any>;
+    };
+  };
+}
 
 export interface VoiceCueEntry {
   element_index: number;
@@ -32,7 +50,7 @@ export interface PrepareVoiceCuesOptions {
  * (browser or server); pass `shouldCancel` to bail when the view unmounts.
  */
 export async function prepareVoiceCues(
-  client: SupabaseClient,
+  client: SupabaseClientLike,
   scriptId: string,
   opts: PrepareVoiceCuesOptions = {}
 ): Promise<Map<number, VoiceCueEntry>> {
