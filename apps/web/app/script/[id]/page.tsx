@@ -61,7 +61,15 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
           {((characters as Pick<Character, "id" | "name" | "line_count">[] | null) ?? []).map((c) => (
             <div key={c.id} className="flex items-center justify-between py-3">
               <span className="font-medium">{c.name}</span>
-              <span className="text-sm text-muted">{c.line_count} lines</span>
+              <div className="flex items-center gap-4">
+                <span className="text-sm text-muted">{c.line_count} lines</span>
+                <Link
+                  href={`/record/${c.id}`}
+                  className="text-sm font-medium text-brick hover:underline"
+                >
+                  Read ›
+                </Link>
+              </div>
             </div>
           ))}
         </div>
