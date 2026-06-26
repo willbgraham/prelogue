@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { TableReadPlayer } from "@/components/TableReadPlayer";
 import { OwnerUnlock } from "@/components/OwnerUnlock";
+import { ShareButton } from "@/components/ShareButton";
 import type { Script, Character } from "@/lib/shared";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
@@ -37,9 +38,15 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
 
   return (
     <main className="mx-auto w-full max-w-3xl px-6 py-10">
-      <Link href="/" className="text-sm text-taupe hover:text-ink">
-        ← Prelogue
-      </Link>
+      <div className="flex items-center justify-between gap-3">
+        <Link href="/" className="text-sm text-taupe hover:text-ink">
+          ← Prelogue
+        </Link>
+        <ShareButton
+          title={`${(script as Script).title} — Prelogue`}
+          url={`https://prelogue.studio/script/${id}`}
+        />
+      </div>
 
       <div className="mt-6">
         <span className="text-xs font-medium text-brick">{(script as Script).genre}</span>

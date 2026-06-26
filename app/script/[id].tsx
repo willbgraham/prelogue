@@ -10,6 +10,7 @@ import {
   Alert,
   TextInput,
   StyleSheet,
+  Share,
 } from "react-native";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
@@ -78,6 +79,18 @@ export default function ScriptDetailScreen() {
 
   function openScript() {
     router.push(`/script/read?id=${script.id}` as any);
+  }
+
+  async function shareScript() {
+    const url = `https://prelogue.studio/script/${script.id}`;
+    try {
+      await Share.share({
+        message: `${script.title} — hear it performed on Prelogue\n${url}`,
+        url, // iOS attaches this as the shared link
+      });
+    } catch {
+      /* user dismissed the share sheet */
+    }
   }
 
   async function viewCopyrightDoc() {
@@ -246,6 +259,11 @@ export default function ScriptDetailScreen() {
           title: "",
           headerStyle: { backgroundColor: colors.bg },
           headerTintColor: colors.text,
+          headerRight: () => (
+            <TouchableOpacity onPress={shareScript} hitSlop={10} style={{ paddingHorizontal: 4 }}>
+              <Feather name="share" size={20} color={colors.text} />
+            </TouchableOpacity>
+          ),
         }}
       />
       <ScrollView style={s.container}>
