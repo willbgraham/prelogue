@@ -7,10 +7,18 @@ import { ShareButton } from "@/components/ShareButton";
 import { ReadForRole } from "@/components/ReadForRole";
 import type { Script, Character } from "@/lib/shared";
 
+// A script URL handle is either a name slug (new) or a uuid (legacy links).
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const scriptCol = (handle: string) => (UUID_RE.test(handle) ? "id" : "slug");
+
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const supabase = await createClient();
-  const { data } = await supabase.from("scripts").select("title, logline").eq("id", id).single();
+  const { data } = await supabase
+    .from("scripts")
+    .select("title, logline")
+    .eq(scriptCol(id), id)
+    .single();
   if (!data) return { title: "Prelogue" };
   return { title: `${data.title} — Prelogue`, description: data.logline };
 }
@@ -22,8 +30,8 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
   // RLS: a private script the viewer can't see returns no row → 404.
   const { data: script } = await supabase
     .from("scripts")
-    .select("id, title, logline, genre, full_read_unlocked, parsed_json, voice_config, writer_id")
-    .eq("id", id)
+    .select("id, slug, title, logline, genre, full_read_unlocked, parsed_json, voice_config, writer_id")
+    .eq(scriptCol(id), id)
     .single();
   if (!script) notFound();
 
@@ -34,7 +42,7 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
   const { data: characters } = await supabase
     .from("characters")
     .select("id, name, line_count")
-    .eq("script_id", id)
+    .eq("script_id", (script as Script).id)
     .order("line_count", { ascending: false });
 
   return (
@@ -45,7 +53,7 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
         </Link>
         <ShareButton
           title={`${(script as Script).title} — Prelogue`}
-          url={`https://prelogue.studio/script/${id}`}
+          url={`https://prelogue.studio/script/${(script as Script).slug ?? (script as Script).id}`}
         />
       </div>
 
@@ -63,14 +71,14 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
 
       <div className="mt-6">
         <TableReadPlayer
-          scriptId={id}
+          scriptId={(script as Script).id}
           parsed={(script as Script).parsed_json}
           voiceConfig={(script as Script).voice_config}
         />
       </div>
 
       {user?.id === (script as Script).writer_id && (
-        <OwnerUnlock scriptId={id} unlocked={!!(script as Script).full_read_unlocked} />
+        <OwnerUnlock scriptId={(script as Script).id} unlocked={!!(script as Script).full_read_unlocked} />
       )}
     </main>
   );

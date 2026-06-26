@@ -9,7 +9,7 @@ export const metadata: Metadata = {
     "For writers: upload a screenplay, cast AI voices, and hear it performed. For actors: read a role by webcam and get cast.",
 };
 
-const DEMO_SCRIPT_ID = "b0078900-0000-4000-8000-000000000009";
+const DEMO_SCRIPT_SLUG = "booth-nine";
 
 const WRITER_STEPS = [
   {
@@ -102,7 +102,7 @@ export default function HowItWorks() {
           <h2 className="mt-2 font-slab text-2xl">Read a role, get cast</h2>
           <Steps steps={ACTOR_STEPS} />
           <Link
-            href={`/script/${DEMO_SCRIPT_ID}`}
+            href={`/script/${DEMO_SCRIPT_SLUG}`}
             className="mt-7 inline-flex items-center gap-2 rounded-xl border border-tan px-5 py-3 font-medium text-taupe hover:bg-elevated"
           >
             <VideoIcon className="h-4 w-4" />
@@ -119,7 +119,7 @@ export default function HowItWorks() {
         </p>
         <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
           <Link
-            href={`/script/${DEMO_SCRIPT_ID}`}
+            href={`/script/${DEMO_SCRIPT_SLUG}`}
             className="rounded-xl bg-brick px-5 py-3 font-medium text-white"
           >
             ▶ Try the demo scene

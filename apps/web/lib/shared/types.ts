@@ -21,6 +21,7 @@ export interface User {
 
 export interface Script {
   id: string;
+  slug?: string | null;
   writer_id: string;
   title: string;
   genre: string;

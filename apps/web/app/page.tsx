@@ -3,13 +3,13 @@ import { createClient } from "@/lib/supabase/server";
 import { SiteHeader } from "@/components/SiteHeader";
 import type { Script } from "@/lib/shared";
 
-const DEMO_SCRIPT_ID = "b0078900-0000-4000-8000-000000000009";
+const DEMO_SCRIPT_SLUG = "booth-nine";
 
 export default async function Home() {
   const supabase = await createClient();
   const { data } = await supabase
     .from("scripts")
-    .select("id, title, logline, genre, visibility")
+    .select("id, slug, title, logline, genre, visibility")
     .eq("status", "open")
     .order("created_at", { ascending: false })
     .limit(12);
@@ -31,7 +31,7 @@ export default async function Home() {
           screenplay typed on screen.
         </p>
         <Link
-          href={`/script/${DEMO_SCRIPT_ID}`}
+          href={`/script/${DEMO_SCRIPT_SLUG}`}
           className="mt-6 inline-flex items-center gap-2 rounded-xl bg-brick px-5 py-3 font-medium text-white"
         >
           ▶ Try the demo scene
@@ -44,7 +44,7 @@ export default async function Home() {
           {scripts.map((s) => (
             <Link
               key={s.id}
-              href={`/script/${s.id}`}
+              href={`/script/${s.slug ?? s.id}`}
               className="rounded-xl border border-tan bg-ivory p-4 transition-colors hover:bg-elevated"
             >
               <div className="text-xs font-medium text-brick">{s.genre}</div>

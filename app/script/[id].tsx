@@ -82,7 +82,7 @@ export default function ScriptDetailScreen() {
   }
 
   async function shareScript() {
-    const url = `https://prelogue.studio/script/${script.id}`;
+    const url = `https://prelogue.studio/script/${script.slug ?? script.id}`;
     try {
       await Share.share({
         message: `${script.title} — hear it performed on Prelogue\n${url}`,

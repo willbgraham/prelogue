@@ -8,7 +8,7 @@ export const metadata: Metadata = {
     "Free to browse and listen. Unlock a full AI table read of your script for $19 one-time — no subscription.",
 };
 
-const DEMO_SCRIPT_ID = "b0078900-0000-4000-8000-000000000009";
+const DEMO_SCRIPT_SLUG = "booth-nine";
 
 const FREE = [
   "Browse and listen to public table reads",
@@ -56,7 +56,7 @@ export default function Pricing() {
             ))}
           </ul>
           <Link
-            href={`/script/${DEMO_SCRIPT_ID}`}
+            href={`/script/${DEMO_SCRIPT_SLUG}`}
             className="mt-7 inline-flex rounded-xl border border-tan px-5 py-3 font-medium text-taupe hover:bg-elevated"
           >
             ▶ Try the demo scene
