@@ -74,7 +74,12 @@ export default async function DiscoverPage() {
 
         {/* Top actors */}
         <aside>
-          <h2 className="font-slab text-lg">Top actors</h2>
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="font-slab text-lg">Top actors</h2>
+            <Link href="/leaderboard" className="text-sm text-brick hover:underline">
+              All ›
+            </Link>
+          </div>
           {actors.length > 0 ? (
             <div className="mt-4 divide-y divide-tan rounded-xl border border-tan bg-ivory">
               {actors.map((a, i) => (
