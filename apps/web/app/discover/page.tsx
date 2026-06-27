@@ -20,7 +20,7 @@ type Actor = {
 
 export default async function DiscoverPage() {
   const supabase = await createClient();
-  const [{ data: scriptRows }, { data: actorRows }] = await Promise.all([
+  const [{ data: scriptRows }, { data: actorRows }, { data: readRows }] = await Promise.all([
     supabase
       .from("scripts")
       .select("id, slug, title, logline, genre, visibility")
@@ -32,7 +32,20 @@ export default async function DiscoverPage() {
       .select("id, username, display_name, avatar_url, writers_choice_count")
       .order("writers_choice_count", { ascending: false })
       .limit(10),
+    supabase
+      .from("assembled_reads")
+      .select("id, scripts(title, genre)")
+      .eq("status", "ready")
+      .order("created_at", { ascending: false })
+      .limit(12),
   ]);
+
+  const reads = ((readRows as { id: string; scripts: { title: string; genre: string } | { title: string; genre: string }[] | null }[] | null) ?? [])
+    .map((r) => {
+      const sc = Array.isArray(r.scripts) ? r.scripts[0] : r.scripts;
+      return { id: r.id, title: sc?.title, genre: sc?.genre };
+    })
+    .filter((r) => r.title);
 
   const scripts = ((scriptRows as Script[] | null) ?? []).filter(
     (s) => (s.visibility ?? "public") === "public"
@@ -49,6 +62,25 @@ export default async function DiscoverPage() {
         <h1 className="font-slab text-4xl leading-tight sm:text-5xl">Discover</h1>
         <p className="mt-3 text-taupe">Screenplays performed as table reads — pick one and press play.</p>
       </section>
+
+      {reads.length > 0 && (
+        <section className="mt-10">
+          <h2 className="font-slab text-lg">Table reads</h2>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {reads.map((r) => (
+              <Link
+                key={r.id}
+                href={`/read/${r.id}`}
+                className="rounded-xl border border-tan bg-ivory p-5 transition-colors hover:bg-elevated"
+              >
+                <div className="text-xs font-medium text-brick">{r.genre}</div>
+                <div className="mt-1 font-slab text-xl">{r.title}</div>
+                <div className="mt-1 text-sm text-taupe">▶ Watch the table read</div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
 
       <div className="mt-10 grid gap-10 lg:grid-cols-[1fr_280px]">
         {/* Scripts */}

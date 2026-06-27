@@ -26,6 +26,8 @@ export default function CastingPage() {
   const [voiceConfig, setVoiceConfig] = useState<VoiceConfig | null>(null);
   const [voiceNames, setVoiceNames] = useState<Record<string, string>>({});
   const [showPicker, setShowPicker] = useState(false);
+  const [readId, setReadId] = useState<string | null>(null);
+  const [publishing, setPublishing] = useState(false);
 
   const load = useCallback(async () => {
     const {
@@ -54,8 +56,25 @@ export default function CastingPage() {
       .eq("script_id", scriptId)
       .order("name");
     setCharacters((chars as unknown as Char[]) ?? []);
+    const { data: read } = await supabase
+      .from("assembled_reads")
+      .select("id")
+      .eq("script_id", scriptId)
+      .maybeSingle();
+    setReadId(read?.id ?? null);
     setLoading(false);
   }, [scriptId, router, supabase]);
+
+  async function publishRead() {
+    setPublishing(true);
+    const { data } = await supabase
+      .from("assembled_reads")
+      .upsert({ script_id: scriptId, status: "ready" }, { onConflict: "script_id" })
+      .select("id")
+      .single();
+    if (data?.id) setReadId(data.id);
+    setPublishing(false);
+  }
 
   useEffect(() => {
     load();
@@ -126,6 +145,34 @@ export default function CastingPage() {
               {n} — {nameOf(voiceConfig?.characters?.[n.toUpperCase()])}
             </div>
           ))}
+        </div>
+      </section>
+
+      {/* Publish */}
+      <section className="mt-8 rounded-xl border border-tan bg-ivory p-5">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="font-slab text-lg">Publish read</h2>
+            <p className="mt-1 text-sm text-taupe">
+              Make this table read public — it shows in Discover for audiences to watch and comment on.
+            </p>
+          </div>
+          {readId ? (
+            <Link
+              href={`/read/${readId}`}
+              className="shrink-0 rounded-lg border border-tan px-4 py-2 text-sm font-medium text-taupe hover:bg-elevated"
+            >
+              View read →
+            </Link>
+          ) : (
+            <button
+              onClick={publishRead}
+              disabled={publishing}
+              className="shrink-0 rounded-lg bg-brick px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+            >
+              {publishing ? "Publishing…" : "Publish"}
+            </button>
+          )}
         </div>
       </section>
 
