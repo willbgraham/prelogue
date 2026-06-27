@@ -45,7 +45,11 @@ export default function ScriptDetailScreen() {
 
   async function fetchScript() {
     const [scriptRes, charRes] = await Promise.all([
-      supabase.from("scripts").select("*").eq("id", id).single(),
+      supabase
+        .from("scripts")
+        .select("*, writer:users!scripts_writer_id_fkey(display_name, username)")
+        .eq("id", id)
+        .single(),
       supabase
         .from("characters")
         .select("*, submissions(count)")
@@ -323,6 +327,16 @@ export default function ScriptDetailScreen() {
 
           <Text style={s.title}>{script.title}</Text>
           <Text style={s.logline}>{script.logline}</Text>
+          {script.writer?.username ? (
+            <TouchableOpacity
+              onPress={() => router.push(`/u/${script.writer.username}` as any)}
+              activeOpacity={0.7}
+            >
+              <Text style={s.byline}>
+                by {script.writer.display_name || script.writer.username}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
 
           {(script.copyright_doc_url || script.copyright_reg_number) && (
             <TouchableOpacity
@@ -618,6 +632,7 @@ const s = StyleSheet.create({
   statusText: { fontSize: 12, fontWeight: "600" },
   title: { color: colors.text, fontSize: 28, fontFamily: "RobotoSlab_700Bold", lineHeight: 34 },
   logline: { color: colors.textSecondary, fontSize: 15, marginTop: spacing.md, lineHeight: 22 },
+  byline: { color: colors.primary, fontSize: 13, fontWeight: "600", marginTop: spacing.sm },
   copyrightBadge: {
     flexDirection: "row", alignItems: "center", alignSelf: "flex-start", gap: 6,
     backgroundColor: colors.greenMuted, paddingHorizontal: spacing.md, paddingVertical: 7,

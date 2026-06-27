@@ -21,6 +21,11 @@ export interface User {
   display_name: string;
   avatar_url: string | null;
   bio: string | null;
+  /** URL handle for the public profile (/u/{username}). */
+  username?: string | null;
+  website?: string | null;
+  /** Social links keyed by platform: { x, instagram, tiktok, youtube }. */
+  links?: Record<string, string> | null;
   genre_specialties: string[] | null;
   writers_choice_count: number;
   audience_favorite_count: number;

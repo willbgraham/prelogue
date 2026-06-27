@@ -26,6 +26,13 @@ export default function SettingsScreen() {
   const { profile, session, refreshProfile, signOut } = useAuth();
   const [displayName, setDisplayName] = useState(profile?.display_name ?? "");
   const [bio, setBio] = useState(profile?.bio ?? "");
+  const [username, setUsername] = useState(profile?.username ?? "");
+  const [website, setWebsite] = useState(profile?.website ?? "");
+  const links = (profile?.links as Record<string, string>) ?? {};
+  const [x, setX] = useState(links.x ?? "");
+  const [instagram, setInstagram] = useState(links.instagram ?? "");
+  const [tiktok, setTiktok] = useState(links.tiktok ?? "");
+  const [youtube, setYoutube] = useState(links.youtube ?? "");
   const [demoReelUrl, setDemoReelUrl] = useState((profile as any)?.demo_reel_url ?? "");
   const [genres, setGenres] = useState<string[]>(profile?.genre_specialties ?? []);
   const [roles, setRoles] = useState<UserRole[]>(
@@ -109,6 +116,21 @@ export default function SettingsScreen() {
         .update({
           display_name: displayName.trim(),
           bio: bio.trim() || null,
+          username:
+            username
+              .trim()
+              .toLowerCase()
+              .replace(/[^a-z0-9-]+/g, "-")
+              .replace(/^-+|-+$/g, "") ||
+            profile?.username ||
+            undefined,
+          website: website.trim() || null,
+          links: {
+            x: x.trim(),
+            instagram: instagram.trim(),
+            tiktok: tiktok.trim(),
+            youtube: youtube.trim(),
+          },
           avatar_url: avatarUrl,
           demo_reel_url: demoReelUrl.trim() || null,
           genre_specialties: genres,
@@ -215,6 +237,70 @@ export default function SettingsScreen() {
           numberOfLines={3}
           placeholderTextColor={colors.textMuted}
           placeholder="Tell people about yourself..."
+        />
+
+        {/* Username (profile URL) */}
+        <Text style={s.label}>USERNAME · prelogue.studio/u/…</Text>
+        <TextInput
+          style={s.input}
+          value={username}
+          onChangeText={setUsername}
+          autoCapitalize="none"
+          autoCorrect={false}
+          placeholderTextColor={colors.textMuted}
+          placeholder="your-name"
+        />
+
+        {/* Website */}
+        <Text style={s.label}>WEBSITE</Text>
+        <TextInput
+          style={s.input}
+          value={website}
+          onChangeText={setWebsite}
+          autoCapitalize="none"
+          autoCorrect={false}
+          keyboardType="url"
+          placeholderTextColor={colors.textMuted}
+          placeholder="https://"
+        />
+
+        {/* Social links */}
+        <Text style={s.label}>SOCIAL LINKS</Text>
+        <TextInput
+          style={s.input}
+          value={x}
+          onChangeText={setX}
+          autoCapitalize="none"
+          autoCorrect={false}
+          placeholderTextColor={colors.textMuted}
+          placeholder="X (Twitter) URL"
+        />
+        <TextInput
+          style={s.input}
+          value={instagram}
+          onChangeText={setInstagram}
+          autoCapitalize="none"
+          autoCorrect={false}
+          placeholderTextColor={colors.textMuted}
+          placeholder="Instagram URL"
+        />
+        <TextInput
+          style={s.input}
+          value={tiktok}
+          onChangeText={setTiktok}
+          autoCapitalize="none"
+          autoCorrect={false}
+          placeholderTextColor={colors.textMuted}
+          placeholder="TikTok URL"
+        />
+        <TextInput
+          style={s.input}
+          value={youtube}
+          onChangeText={setYoutube}
+          autoCapitalize="none"
+          autoCorrect={false}
+          placeholderTextColor={colors.textMuted}
+          placeholder="YouTube URL"
         />
 
         {/* Roles */}

@@ -147,6 +147,19 @@ export default function ProfileScreen() {
 
       {/* Menu */}
       <View style={s.menuContainer}>
+        {profile.username ? (
+          <TouchableOpacity
+            style={s.menuItem}
+            onPress={() => router.push(`/u/${profile.username}` as any)}
+            activeOpacity={0.7}
+          >
+            <View style={s.menuIconBox}>
+              <Feather name="user" size={18} color={colors.textSecondary} />
+            </View>
+            <Text style={s.menuText}>View public profile</Text>
+            <Feather name="chevron-right" size={18} color={colors.textMuted} />
+          </TouchableOpacity>
+        ) : null}
         <TouchableOpacity
           style={s.menuItem}
           onPress={() => router.push("/settings" as any)}
