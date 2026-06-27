@@ -558,7 +558,9 @@ export default function TableReadPlayScreen() {
         >
           {item.kind === "narrator" ? (
             <View style={[s.tag, s.tagNarrator]}>
-              <Feather name="film" size={11} color={colors.textSecondary} />
+              <Text style={[s.tagCharText, s.tagNarratorText]} numberOfLines={1}>
+                Narrator
+              </Text>
             </View>
           ) : (
             <View style={[s.tag, s.tagChar]}>
@@ -778,7 +780,8 @@ const s = StyleSheet.create({
   tag: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.sm, minWidth: 64, alignItems: "center", marginTop: 1 },
   tagChar: { backgroundColor: "rgba(188, 64, 38,0.18)" },
   tagCharText: { color: colors.primary, fontSize: 10, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.4 },
-  tagNarrator: { backgroundColor: colors.elevated, minWidth: 36 },
+  tagNarrator: { backgroundColor: colors.elevated },
+  tagNarratorText: { color: colors.textSecondary },
   lineContent: { flex: 1 },
   lineText: { color: colors.textSecondary, fontSize: 15, lineHeight: 21, fontFamily: MONO },
   lineTextNarrator: { fontStyle: "italic", color: colors.textMuted },
