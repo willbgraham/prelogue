@@ -21,9 +21,12 @@ export function SiteHeader() {
         <span className="font-slab text-xl">Prelogue</span>
       </Link>
       <nav className="ml-auto flex items-center gap-4 sm:gap-5">
+        <Link href="/discover" className="text-sm font-medium text-taupe hover:text-brick">
+          Discover
+        </Link>
         <Link
           href="/how-it-works"
-          className="text-sm font-medium text-taupe hover:text-brick"
+          className="hidden text-sm font-medium text-taupe hover:text-brick sm:inline"
         >
           How it works
         </Link>
