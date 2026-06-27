@@ -73,7 +73,10 @@ export function TableReadPlayer({
   }, [rows]);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const manifestRef = useRef<Map<number, VoiceCueEntry>>(new Map());
+  // element_index → signed video-clip URL (an actor's recorded take for that line).
+  const clipMapRef = useRef<Map<number, string>>(new Map());
   const activeRef = useRef(0);
   const playingRef = useRef(false);
   const activeLineRef = useRef<HTMLDivElement | null>(null);
@@ -90,10 +93,57 @@ export function TableReadPlayer({
   const [error, setError] = useState<string | null>(null);
   const [showPicker, setShowPicker] = useState(false);
   const [changesUsed, setChangesUsed] = useState(0);
+  const [showVideo, setShowVideo] = useState(false);
 
   useEffect(() => {
     setChangesUsed(voiceChangesToday());
   }, []);
+
+  // Load actor clips: pick the best take per character (Writer's Choice >
+  // preferred > latest), sign the per-line clips, and index by element_index.
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const client = getBrowserClient();
+      const { data: subs } = await client
+        .from("submissions")
+        .select("character_id, take_number, is_writers_choice, is_preferred_take, clips")
+        .eq("script_id", scriptId);
+      if (!subs?.length) return;
+      const best = new Map<string, { sub: (typeof subs)[number]; score: number }>();
+      for (const sub of subs) {
+        const score =
+          (sub.is_writers_choice ? 1e6 : 0) +
+          (sub.is_preferred_take ? 1e3 : 0) +
+          (sub.take_number ?? 0);
+        const cur = best.get(sub.character_id);
+        if (!cur || score > cur.score) best.set(sub.character_id, { sub, score });
+      }
+      const idxToPath = new Map<number, string>();
+      const paths = new Set<string>();
+      for (const { sub } of best.values()) {
+        for (const clip of (sub.clips ?? []) as { element_index: number; clip_url: string }[]) {
+          idxToPath.set(clip.element_index, clip.clip_url);
+          paths.add(clip.clip_url);
+        }
+      }
+      if (!paths.size) return;
+      const { data: signed } = await client.storage
+        .from("submissions")
+        .createSignedUrls([...paths], 86400);
+      const urlByPath = new Map<string, string>();
+      [...paths].forEach((p, i) => urlByPath.set(p, signed?.[i]?.signedUrl ?? ""));
+      const map = new Map<number, string>();
+      for (const [idx, path] of idxToPath) {
+        const u = urlByPath.get(path);
+        if (u) map.set(idx, u);
+      }
+      if (alive) clipMapRef.current = map;
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [scriptId]);
   useEffect(() => {
     activeRef.current = active;
     activeLineRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
@@ -106,6 +156,7 @@ export function TableReadPlayer({
     playingRef.current = false;
     setPlaying(false);
     audioRef.current?.pause();
+    videoRef.current?.pause();
   }, []);
 
   const playRow = useCallback(
@@ -121,6 +172,28 @@ export function TableReadPlayer({
 
       const row = rows[pos];
       const audio = audioRef.current;
+      const video = videoRef.current;
+      const clipUrl = clipMapRef.current.get(row.elementIndex);
+
+      // An actor recorded this line — play their video clip (it carries its
+      // own audio, replacing the AI voice for that line).
+      if (clipUrl && video) {
+        audio?.pause();
+        setShowVideo(true);
+        video.src = clipUrl;
+        video.currentTime = 0;
+        try {
+          await video.play();
+        } catch {
+          playingRef.current = false;
+          setPlaying(false);
+          setNeedsTap(true);
+        }
+        return;
+      }
+
+      setShowVideo(false);
+      video?.pause();
       const cue = manifestRef.current.get(row.elementIndex);
 
       // No audio for this line (e.g. preview limit reached): show it, move on.
@@ -144,14 +217,16 @@ export function TableReadPlayer({
     [rows, stop]
   );
 
-  // Audio element events: type the line, advance on end.
+  // Media events (AI audio AND the actor clip video): type the line ∝ playback,
+  // advance on end. Whichever element is playing fires these.
   useEffect(() => {
     const audio = audioRef.current;
-    if (!audio) return;
-    const onTime = () => {
+    const video = videoRef.current;
+    const onTime = (e: Event) => {
+      const m = e.currentTarget as HTMLMediaElement;
       const row = rows[activeRef.current];
-      if (row && audio.duration > 0) {
-        setReveal(Math.ceil(row.text.length * (audio.currentTime / audio.duration)));
+      if (row && m.duration > 0) {
+        setReveal(Math.ceil(row.text.length * (m.currentTime / m.duration)));
       }
     };
     const onEnded = () => {
@@ -159,11 +234,15 @@ export function TableReadPlayer({
       if (row) setReveal(row.text.length);
       if (playingRef.current) playRow(activeRef.current + 1);
     };
-    audio.addEventListener("timeupdate", onTime);
-    audio.addEventListener("ended", onEnded);
+    for (const m of [audio, video]) {
+      m?.addEventListener("timeupdate", onTime);
+      m?.addEventListener("ended", onEnded);
+    }
     return () => {
-      audio.removeEventListener("timeupdate", onTime);
-      audio.removeEventListener("ended", onEnded);
+      for (const m of [audio, video]) {
+        m?.removeEventListener("timeupdate", onTime);
+        m?.removeEventListener("ended", onEnded);
+      }
     };
   }, [rows, playRow]);
 
@@ -228,19 +307,6 @@ export function TableReadPlayer({
     await ensureReady();
     playingRef.current = true;
     setPlaying(true);
-
-    const audio = audioRef.current;
-    if (audio && audio.src && audio.paused && audio.currentTime > 0 && !audio.ended) {
-      try {
-        await audio.play();
-        return;
-      } catch {
-        playingRef.current = false;
-        setPlaying(false);
-        setNeedsTap(true);
-        return;
-      }
-    }
     playRow(activeRef.current);
   }, [playing, ensureReady, playRow, stop]);
 
@@ -254,6 +320,7 @@ export function TableReadPlayer({
   const handleRestart = useCallback(() => {
     stop();
     if (audioRef.current) audioRef.current.currentTime = 0;
+    setShowVideo(false);
     activeRef.current = 0;
     setActive(0);
     setReveal(0);
@@ -314,6 +381,14 @@ export function TableReadPlayer({
         </div>
       )}
       {error && <div className="px-4 py-2 text-sm text-brick">{error}</div>}
+
+      {/* Actor clip — shown only while a recorded line plays (its own audio). */}
+      <video
+        ref={videoRef}
+        playsInline
+        className={`w-full bg-black ${showVideo ? "block" : "hidden"}`}
+        style={{ maxHeight: "50vh" }}
+      />
 
       {/* The screenplay "page" */}
       <div className="max-h-[60vh] overflow-y-auto bg-[#faf7ef] px-6 py-6 sm:px-10">
