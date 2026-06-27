@@ -105,6 +105,12 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
 
       {user?.id === (script as Script).writer_id && (
         <>
+          <Link
+            href={`/studio/${(script as Script).id}`}
+            className="mt-8 inline-flex items-center gap-2 rounded-xl border border-tan px-5 py-3 font-medium text-taupe hover:bg-ivory"
+          >
+            Manage casting &amp; voices →
+          </Link>
           <OwnerUnlock
             scriptId={(script as Script).id}
             unlocked={!!(script as Script).full_read_unlocked}

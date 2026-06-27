@@ -34,15 +34,20 @@ export default async function StudioPage() {
       <h1 className="mt-8 font-slab text-3xl">Your scripts</h1>
       <div className="mt-4 divide-y divide-tan">
         {scripts.map((s) => (
-          <Link key={s.id} href={`/script/${s.id}`} className="flex items-center justify-between py-4">
-            <div>
+          <div key={s.id} className="flex items-center justify-between gap-3 py-4">
+            <Link href={`/script/${s.id}`} className="min-w-0 flex-1">
               <div className="font-slab text-lg">{s.title}</div>
-              <div className="text-sm text-taupe">{s.genre}</div>
-            </div>
-            <span className="text-sm text-muted">
-              {s.full_read_unlocked ? "Unlocked" : "Preview"} ›
-            </span>
-          </Link>
+              <div className="text-sm text-taupe">
+                {s.genre} · {s.full_read_unlocked ? "Unlocked" : "Preview"}
+              </div>
+            </Link>
+            <Link
+              href={`/studio/${s.id}`}
+              className="shrink-0 rounded-lg border border-tan px-3 py-1.5 text-sm font-medium text-taupe hover:bg-elevated"
+            >
+              Cast ›
+            </Link>
+          </div>
         ))}
         {scripts.length === 0 && (
           <p className="py-8 text-taupe">
