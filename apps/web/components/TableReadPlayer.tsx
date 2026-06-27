@@ -75,8 +75,11 @@ export function TableReadPlayer({
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const manifestRef = useRef<Map<number, VoiceCueEntry>>(new Map());
-  // element_index → signed video-clip URL (an actor's recorded take for that line).
+  // element_index → signed video-clip URL — built ONLY from the roles the user
+  // explicitly cast to an actor (never automatic).
   const clipMapRef = useRef<Map<number, string>>(new Map());
+  const clipsBySubRef = useRef<Map<string, Map<number, string>>>(new Map()); // submissionId → (element_index → url)
+  const castMapRef = useRef<Map<string, string>>(new Map()); // ROLE → submissionId
   const activeRef = useRef(0);
   const playingRef = useRef(false);
   const activeLineRef = useRef<HTMLDivElement | null>(null);
@@ -94,51 +97,69 @@ export function TableReadPlayer({
   const [showPicker, setShowPicker] = useState(false);
   const [changesUsed, setChangesUsed] = useState(0);
   const [showVideo, setShowVideo] = useState(false);
+  // Actor submissions per role (ROLE → takes) for the picker's "Actors" option.
+  const [subsByRole, setSubsByRole] = useState<
+    Record<string, { id: string; actor: string; take: number }[]>
+  >({});
 
   useEffect(() => {
     setChangesUsed(voiceChangesToday());
   }, []);
 
-  // Load actor clips: pick the best take per character (Writer's Choice >
-  // preferred > latest), sign the per-line clips, and index by element_index.
+  // Load actor submissions for the picker's "Actors" option. Sign every clip and
+  // index it by submission — but splice NOTHING until a role is explicitly cast
+  // to an actor in the picker (clipMapRef stays empty by default).
   useEffect(() => {
     let alive = true;
     (async () => {
       const client = getBrowserClient();
-      const { data: subs } = await client
+      const { data } = await client
         .from("submissions")
-        .select("character_id, take_number, is_writers_choice, is_preferred_take, clips")
+        .select(
+          "id, take_number, clips, character:characters(name), actor:users!submissions_actor_id_fkey(display_name)"
+        )
         .eq("script_id", scriptId);
-      if (!subs?.length) return;
-      const best = new Map<string, { sub: (typeof subs)[number]; score: number }>();
-      for (const sub of subs) {
-        const score =
-          (sub.is_writers_choice ? 1e6 : 0) +
-          (sub.is_preferred_take ? 1e3 : 0) +
-          (sub.take_number ?? 0);
-        const cur = best.get(sub.character_id);
-        if (!cur || score > cur.score) best.set(sub.character_id, { sub, score });
-      }
-      const idxToPath = new Map<number, string>();
+      const subs =
+        (data as unknown as {
+          id: string;
+          take_number: number | null;
+          clips: { element_index: number; clip_url: string }[] | null;
+          character: { name: string } | null;
+          actor: { display_name: string } | null;
+        }[]) ?? [];
+      if (!subs.length) return;
+
       const paths = new Set<string>();
-      for (const { sub } of best.values()) {
-        for (const clip of (sub.clips ?? []) as { element_index: number; clip_url: string }[]) {
-          idxToPath.set(clip.element_index, clip.clip_url);
-          paths.add(clip.clip_url);
+      for (const s of subs) for (const c of s.clips ?? []) paths.add(c.clip_url);
+      const signedByPath = new Map<string, string>();
+      if (paths.size) {
+        const { data: signed } = await client.storage
+          .from("submissions")
+          .createSignedUrls([...paths], 86400);
+        [...paths].forEach((p, i) => signedByPath.set(p, signed?.[i]?.signedUrl ?? ""));
+      }
+
+      const clipsBySub = new Map<string, Map<number, string>>();
+      const byRole: Record<string, { id: string; actor: string; take: number }[]> = {};
+      for (const s of subs) {
+        const m = new Map<number, string>();
+        for (const c of s.clips ?? []) {
+          const u = signedByPath.get(c.clip_url);
+          if (u) m.set(c.element_index, u);
+        }
+        clipsBySub.set(s.id, m);
+        const role = (s.character?.name ?? "").toUpperCase();
+        if (role) {
+          (byRole[role] ??= []).push({
+            id: s.id,
+            actor: s.actor?.display_name ?? "Actor",
+            take: s.take_number ?? 1,
+          });
         }
       }
-      if (!paths.size) return;
-      const { data: signed } = await client.storage
-        .from("submissions")
-        .createSignedUrls([...paths], 86400);
-      const urlByPath = new Map<string, string>();
-      [...paths].forEach((p, i) => urlByPath.set(p, signed?.[i]?.signedUrl ?? ""));
-      const map = new Map<number, string>();
-      for (const [idx, path] of idxToPath) {
-        const u = urlByPath.get(path);
-        if (u) map.set(idx, u);
-      }
-      if (alive) clipMapRef.current = map;
+      if (!alive) return;
+      clipsBySubRef.current = clipsBySub;
+      setSubsByRole(byRole);
     })();
     return () => {
       alive = false;
@@ -271,8 +292,17 @@ export function TableReadPlayer({
   }, [scriptId]);
 
   const applyVoices = useCallback(
-    async (cfg: VoiceConfig) => {
+    async (cfg: VoiceConfig, cast: Record<string, string> = {}) => {
       setShowPicker(false);
+      // Actor-clip map = only the roles explicitly cast to an actor in the picker.
+      const castMap = new Map(Object.entries(cast));
+      castMapRef.current = castMap;
+      const clipMap = new Map<number, string>();
+      for (const subId of castMap.values()) {
+        const clips = clipsBySubRef.current.get(subId);
+        if (clips) for (const [idx, url] of clips) clipMap.set(idx, url);
+      }
+      clipMapRef.current = clipMap;
       // Only a genuinely new voice config regenerates (and costs); re-applying
       // the same voices replays from cache and doesn't count against the cap.
       const newKey = JSON.stringify(cfg);
@@ -449,6 +479,8 @@ export function TableReadPlayer({
         <VoicePicker
           characters={characters}
           startConfig={overrideRef.current ?? voiceConfig ?? { mode: "per_character" }}
+          submissionsByRole={subsByRole}
+          startCast={Object.fromEntries(castMapRef.current)}
           onApply={applyVoices}
           onClose={() => setShowPicker(false)}
           changesLeft={Math.max(0, MAX_VOICE_CHANGES_PER_DAY - changesUsed)}
