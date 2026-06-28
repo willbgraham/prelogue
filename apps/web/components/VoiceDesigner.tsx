@@ -1,10 +1,15 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getBrowserClient } from "@/lib/supabase/client";
 
 const NARRATOR = "__narrator__";
 type Preview = { generated_voice_id: string; audio_base_64: string; media_type: string };
+
+// Client-side daily regeneration cap (bounds preview-credit spend). The hard
+// per-script saved-voice cap is enforced server-side in the design-voice fn.
+const DAILY_DESIGNS = 15;
+const todayKey = () => `voicedesign:${new Date().toISOString().slice(0, 10)}`;
 
 /**
  * ElevenLabs Voice Design — a writer describes a voice for a character in plain
@@ -13,10 +18,12 @@ type Preview = { generated_voice_id: string; audio_base_64: string; media_type: 
  */
 export function VoiceDesigner({
   characters,
+  scriptId,
   onAssign,
   onClose,
 }: {
   characters: string[];
+  scriptId: string;
   onAssign: (target: string, voiceId: string, voiceName: string) => void;
   onClose: () => void;
 }) {
@@ -32,13 +39,23 @@ export function VoiceDesigner({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [playingId, setPlayingId] = useState<string | null>(null);
+  const [usedToday, setUsedToday] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
+  useEffect(() => {
+    setUsedToday(parseInt(localStorage.getItem(todayKey()) || "0", 10));
+  }, []);
+
   const targetLabel = target === NARRATOR ? "Narrator" : target;
+  const designsLeft = Math.max(0, DAILY_DESIGNS - usedToday);
 
   async function generate() {
     if (desc.trim().length < 20) {
       setError("Describe the voice in a bit more detail (at least 20 characters).");
+      return;
+    }
+    if (designsLeft <= 0) {
+      setError(`You've reached today's design limit (${DAILY_DESIGNS}). Try again tomorrow.`);
       return;
     }
     setError(null);
@@ -53,6 +70,9 @@ export function VoiceDesigner({
       setError(data?.error ?? "Couldn't generate previews. Try again.");
       return;
     }
+    const n = usedToday + 1;
+    setUsedToday(n);
+    localStorage.setItem(todayKey(), String(n));
     setPreviews((data?.previews as Preview[]) ?? []);
     if (!name) setName(`${targetLabel} voice`);
   }
@@ -82,7 +102,14 @@ export function VoiceDesigner({
     setError(null);
     setSaving(true);
     const { data, error: err } = await supabase.functions.invoke("design-voice", {
-      body: { action: "create", name: name.trim(), description: desc.trim(), generated_voice_id: selected },
+      body: {
+        action: "create",
+        name: name.trim(),
+        description: desc.trim(),
+        generated_voice_id: selected,
+        script_id: scriptId,
+        character: target,
+      },
     });
     setSaving(false);
     if (err || data?.error || !data?.voice_id) {
@@ -141,11 +168,14 @@ export function VoiceDesigner({
 
           <button
             onClick={generate}
-            disabled={loading}
+            disabled={loading || designsLeft <= 0}
             className="w-full rounded-lg border border-brick px-4 py-2.5 text-sm font-medium text-brick hover:bg-brick/5 disabled:opacity-50"
           >
             {loading ? "Generating…" : previews.length ? "Regenerate" : "Generate previews"}
           </button>
+          <p className="text-center text-xs text-muted">
+            {designsLeft} of {DAILY_DESIGNS} designs left today
+          </p>
 
           {previews.length > 0 && (
             <div className="space-y-2">

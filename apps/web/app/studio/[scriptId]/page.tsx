@@ -274,6 +274,7 @@ export default function CastingPage() {
       {showDesigner && (
         <VoiceDesigner
           characters={characterNames}
+          scriptId={scriptId}
           onAssign={(target, voiceId) => void assignDesignedVoice(target, voiceId)}
           onClose={() => setShowDesigner(false)}
         />

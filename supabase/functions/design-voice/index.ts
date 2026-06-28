@@ -78,9 +78,28 @@ Deno.serve(async (req) => {
       const name = String(body.name ?? "").trim();
       const description = String(body.description ?? "").trim();
       const generated_voice_id = String(body.generated_voice_id ?? "");
-      if (!name || !generated_voice_id) {
-        return json({ error: "name and generated_voice_id required" }, 400);
+      const script_id = String(body.script_id ?? "");
+      const character = String(body.character ?? "");
+      if (!name || !generated_voice_id || !script_id) {
+        return json({ error: "name, generated_voice_id and script_id required" }, 400);
       }
+
+      // Per-script cap. Re-designing a role that already has a custom voice is a
+      // replace (it recycles that role's slot), so it never counts toward the cap.
+      const CAP = 6;
+      const { data: existingRows } = await admin
+        .from("designed_voices")
+        .select("id, voice_id, character")
+        .eq("script_id", script_id);
+      const rows = existingRows ?? [];
+      const prior = rows.find((e) => e.character === character);
+      if (!prior && rows.length >= CAP) {
+        return json(
+          { error: `This script already has ${CAP} custom voices — the limit. Delete one to add another.` },
+          400
+        );
+      }
+
       const r = await fetch(`${EL}/create-voice-from-preview`, {
         method: "POST",
         headers: elHeaders,
@@ -88,7 +107,25 @@ Deno.serve(async (req) => {
       });
       const j = await r.json();
       if (!r.ok) return json({ error: j?.detail?.message ?? j?.detail ?? "Couldn't save the voice" }, 400);
-      return json({ voice_id: j.voice_id, name: j.name ?? name });
+      const voice_id = j.voice_id;
+
+      // Recycle the account slot the role's previous designed voice held.
+      if (prior) {
+        await fetch(`https://api.elevenlabs.io/v1/voices/${prior.voice_id}`, {
+          method: "DELETE",
+          headers: { "xi-api-key": ELEVENLABS_API_KEY },
+        }).catch(() => {});
+        await admin.from("designed_voices").delete().eq("id", prior.id);
+      }
+      await admin.from("designed_voices").insert({
+        script_id,
+        character,
+        voice_id,
+        voice_name: j.name ?? name,
+        created_by: user.id,
+      });
+
+      return json({ voice_id, name: j.name ?? name });
     }
 
     return json({ error: "Unknown action" }, 400);
