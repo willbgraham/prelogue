@@ -14,7 +14,7 @@ const FILTER_KEYS: { key: string; label: string }[] = [
 ];
 const META_KEYS = ["gender", "accent", "language", "age", "descriptive", "use_case"];
 
-type RoleSub = { id: string; actor: string; take: number; avatar: string | null };
+type RoleSub = { id: string; actor: string; take: number; avatar: string | null; clips: string[] };
 
 /**
  * Per role, choose an AI voice OR an actor's recorded read. Default is AI;
@@ -52,6 +52,41 @@ export function VoicePicker({
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [previewing, setPreviewing] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  // Actor read preview (plays the actor's clips in sequence).
+  const [previewSub, setPreviewSub] = useState<string | null>(null);
+  const previewVideoRef = useRef<HTMLVideoElement | null>(null);
+  const previewClipsRef = useRef<string[]>([]);
+  const previewIdxRef = useRef(0);
+
+  const previewRead = (sub: RoleSub) => {
+    const video = previewVideoRef.current;
+    if (!video || !sub.clips.length) return;
+    if (previewSub === sub.id) {
+      video.pause();
+      setPreviewSub(null);
+      return;
+    }
+    audioRef.current?.pause();
+    setPreviewing(null);
+    previewClipsRef.current = sub.clips;
+    previewIdxRef.current = 0;
+    setPreviewSub(sub.id);
+    video.src = sub.clips[0];
+    video.play().catch(() => {});
+  };
+
+  const onPreviewEnded = () => {
+    const video = previewVideoRef.current;
+    const clips = previewClipsRef.current;
+    const next = previewIdxRef.current + 1;
+    if (video && next < clips.length) {
+      previewIdxRef.current = next;
+      video.src = clips[next];
+      video.play().catch(() => {});
+    } else {
+      setPreviewSub(null);
+    }
+  };
 
   useEffect(() => {
     let alive = true;
@@ -87,7 +122,8 @@ export function VoicePicker({
     setEditing(role);
     setSearch("");
     setFilters({});
-    setMode(cast[role] && actorsFor(role).length ? "actors" : "ai");
+    // Default to Actors whenever any have recorded a read for this role.
+    setMode(actorsFor(role).length ? "actors" : "ai");
   };
 
   const closeRole = () => {
@@ -96,6 +132,8 @@ export function VoicePicker({
     setFilters({});
     audioRef.current?.pause();
     setPreviewing(null);
+    previewVideoRef.current?.pause();
+    setPreviewSub(null);
   };
 
   const setRoleVoice = (role: string, vid: string) => {
@@ -243,22 +281,29 @@ export function VoicePicker({
 
             {mode === "actors" && editingActors.length > 0 ? (
               <div className="flex-1 overflow-y-auto px-5 py-3">
+                <video
+                  ref={previewVideoRef}
+                  playsInline
+                  onEnded={onPreviewEnded}
+                  className={`mb-3 w-full rounded-lg bg-black ${previewSub ? "block" : "hidden"}`}
+                  style={{ maxHeight: "40vh" }}
+                />
                 {editingActors.map((sub) => (
                   <div
                     key={sub.id}
                     className="flex items-center gap-3 border-b border-tan/60 py-2 last:border-0"
                   >
-                    <span className="h-9 w-9 shrink-0 overflow-hidden rounded-full border border-tan bg-elevated">
+                    <span className="h-12 w-12 shrink-0 overflow-hidden rounded-full border border-tan bg-elevated">
                       {sub.avatar ? (
                         <Image
                           src={sub.avatar}
                           alt={sub.actor}
-                          width={36}
-                          height={36}
+                          width={48}
+                          height={48}
                           className="h-full w-full object-cover"
                         />
                       ) : (
-                        <span className="flex h-full w-full items-center justify-center text-xs text-taupe">
+                        <span className="flex h-full w-full items-center justify-center text-sm text-taupe">
                           {sub.actor.charAt(0).toUpperCase()}
                         </span>
                       )}
@@ -268,10 +313,17 @@ export function VoicePicker({
                       <div className="text-xs text-muted">Take #{sub.take}</div>
                     </div>
                     <button
-                      onClick={() => setRoleActor(editing!, sub.id)}
-                      className="shrink-0 rounded-lg border border-tan px-3 py-1.5 text-xs font-medium hover:bg-elevated"
+                      onClick={() => previewRead(sub)}
+                      disabled={!sub.clips.length}
+                      className="shrink-0 rounded-lg border border-tan px-2.5 py-1.5 text-xs font-medium text-taupe hover:bg-elevated disabled:opacity-40"
                     >
-                      {cast[editing!] === sub.id ? "Cast" : "Use this read"}
+                      {previewSub === sub.id ? "❚❚ Stop" : "▶ Preview"}
+                    </button>
+                    <button
+                      onClick={() => setRoleActor(editing!, sub.id)}
+                      className="shrink-0 rounded-lg bg-brick px-3 py-1.5 text-xs font-medium text-white"
+                    >
+                      {cast[editing!] === sub.id ? "Cast ✓" : "Use"}
                     </button>
                   </div>
                 ))}

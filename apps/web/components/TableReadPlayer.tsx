@@ -99,7 +99,7 @@ export function TableReadPlayer({
   const [showVideo, setShowVideo] = useState(false);
   // Actor submissions per role (ROLE → takes) for the picker's "Actors" option.
   const [subsByRole, setSubsByRole] = useState<
-    Record<string, { id: string; actor: string; take: number; avatar: string | null }[]>
+    Record<string, { id: string; actor: string; take: number; avatar: string | null; clips: string[] }[]>
   >({});
 
   useEffect(() => {
@@ -142,7 +142,7 @@ export function TableReadPlayer({
       const clipsBySub = new Map<string, Map<number, string>>();
       const byRole: Record<
         string,
-        { id: string; actor: string; take: number; avatar: string | null }[]
+        { id: string; actor: string; take: number; avatar: string | null; clips: string[] }[]
       > = {};
       for (const s of subs) {
         const m = new Map<number, string>();
@@ -153,11 +153,13 @@ export function TableReadPlayer({
         clipsBySub.set(s.id, m);
         const role = (s.character?.name ?? "").toUpperCase();
         if (role) {
+          const ordered = [...m.entries()].sort((a, b) => a[0] - b[0]).map(([, url]) => url);
           (byRole[role] ??= []).push({
             id: s.id,
             actor: s.actor?.display_name ?? "Actor",
             take: s.take_number ?? 1,
             avatar: s.actor?.avatar_url ?? null,
+            clips: ordered,
           });
         }
       }
