@@ -119,6 +119,18 @@ export default function EditProfilePage() {
         .from("avatars")
         .upload(path, file, { upsert: true, contentType: file.type });
       if (upErr) throw upErr;
+      // Screen the photo before it can become your avatar.
+      const { data: mod } = await supabase.functions.invoke("moderate-avatar", {
+        body: { path },
+      });
+      if (mod?.status !== "approved") {
+        setError(
+          mod?.status === "rejected"
+            ? "That photo was flagged by our automated check. Please choose another."
+            : "Couldn't check that photo — please try another."
+        );
+        return;
+      }
       const { data } = supabase.storage.from("avatars").getPublicUrl(path);
       setForm((f) => ({ ...f, avatar_url: data.publicUrl }));
     } catch (e) {

@@ -105,8 +105,22 @@ export default function SettingsScreen() {
       // Upload new avatar if selected
       if (avatarUri) {
         const ext = avatarUri.split(".").pop() ?? "jpg";
-        const path = `${session.user.id}/avatar.${ext}`;
+        // Timestamped so a rejected upload never clobbers the existing avatar.
+        const path = `${session.user.id}/avatar-${Date.now()}.${ext}`;
         await uploadFile("avatars", path, avatarUri, `image/${ext}`);
+        // Screen the photo before it becomes the avatar.
+        const { data: mod } = await supabase.functions.invoke("moderate-avatar", {
+          body: { path },
+        });
+        if ((mod as any)?.status !== "approved") {
+          Alert.alert(
+            (mod as any)?.status === "rejected" ? "Photo flagged" : "Couldn't check photo",
+            (mod as any)?.status === "rejected"
+              ? "That photo was flagged by our automated check. Please choose another and save again."
+              : "We couldn't check that photo. Please try another."
+          );
+          return;
+        }
         const { data } = supabase.storage.from("avatars").getPublicUrl(path);
         avatarUrl = data.publicUrl;
       }
