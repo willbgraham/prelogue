@@ -1,14 +1,37 @@
 import Link from "next/link";
 import Image from "next/image";
-import { AuthNav } from "@/components/AuthNav";
+import { createClient } from "@/lib/supabase/server";
+import { HeaderNav } from "@/components/HeaderNav";
 
 /**
- * Shared site header — wordmark (home) + primary nav + auth controls.
- * Used on the landing, How it works, and Pricing pages.
+ * Shared site header — wordmark (home) + responsive nav + auth controls.
+ * Fetches the signed-in user here so the client nav can render auth state.
  */
-export function SiteHeader() {
+export async function SiteHeader() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  let navUser: { name: string; username: string | null } | null = null;
+  if (user) {
+    const { data: profile } = await supabase
+      .from("users")
+      .select("username, display_name")
+      .eq("id", user.id)
+      .single();
+    navUser = {
+      name:
+        profile?.display_name ||
+        (user.user_metadata?.display_name as string) ||
+        user.email ||
+        "Account",
+      username: profile?.username ?? null,
+    };
+  }
+
   return (
-    <header className="flex flex-wrap items-center gap-x-4 gap-y-2">
+    <header className="flex items-center gap-x-4">
       <Link href="/" className="flex items-center gap-3">
         <Image
           src="/app-icon.png"
@@ -20,24 +43,7 @@ export function SiteHeader() {
         />
         <span className="font-slab text-xl">Prelogue</span>
       </Link>
-      <nav className="ml-auto flex items-center gap-4 sm:gap-5">
-        <Link href="/discover" className="text-sm font-medium text-taupe hover:text-brick">
-          Discover
-        </Link>
-        <Link
-          href="/how-it-works"
-          className="hidden text-sm font-medium text-taupe hover:text-brick sm:inline"
-        >
-          How it works
-        </Link>
-        <Link
-          href="/pricing"
-          className="text-sm font-medium text-taupe hover:text-brick"
-        >
-          Pricing
-        </Link>
-        <AuthNav />
-      </nav>
+      <HeaderNav user={navUser} />
     </header>
   );
 }
