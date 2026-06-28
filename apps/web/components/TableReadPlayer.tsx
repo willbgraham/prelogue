@@ -383,9 +383,7 @@ export function TableReadPlayer({
             ? `Generating ${Math.round(progress * 100)}%`
             : playing
               ? "❚❚ Pause"
-              : ready
-                ? "▶ Play"
-                : "▶ Play with AI voices"}
+              : "▶ Play"}
         </button>
         <button
           onClick={handleRestart}
@@ -398,7 +396,7 @@ export function TableReadPlayer({
             onClick={() => setShowPicker(true)}
             className="rounded-lg border border-tan px-3 py-2 text-sm text-taupe hover:bg-elevated"
           >
-            🎙 Voices
+            🎙 Choose Cast
           </button>
         )}
         <span className="ml-auto font-mono text-xs text-muted">
