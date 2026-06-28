@@ -118,6 +118,11 @@ export default function PublicProfileScreen() {
                 </TouchableOpacity>
               ) : null
             )}
+            {links.imdb ? (
+              <TouchableOpacity onPress={() => Linking.openURL(links.imdb)} style={s.imdbBtn}>
+                <Text style={s.imdbText}>IMDb</Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
         </View>
 
@@ -188,6 +193,11 @@ const s = StyleSheet.create({
     width: 40, height: 40, borderRadius: radius.full, borderWidth: 1, borderColor: colors.cardBorder,
     alignItems: "center", justifyContent: "center", backgroundColor: colors.card,
   },
+  imdbBtn: {
+    height: 40, borderRadius: radius.full, paddingHorizontal: 12,
+    alignItems: "center", justifyContent: "center", backgroundColor: "#f5c518",
+  },
+  imdbText: { color: "#000", fontSize: 13, fontWeight: "800" },
   section: { paddingHorizontal: spacing.xl, marginTop: spacing.lg },
   sectionTitle: { color: colors.text, fontSize: 18, fontFamily: "RobotoSlab_700Bold", marginBottom: spacing.md },
   card: {

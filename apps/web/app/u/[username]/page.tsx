@@ -47,7 +47,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
 
   const { data: profile } = await supabase
     .from("users")
-    .select("id, username, display_name, avatar_url, bio, website, links")
+    .select("id, username, display_name, avatar_url, bio, website, links, roles")
     .eq("username", username)
     .single();
   if (!profile) notFound();
@@ -112,6 +112,19 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
         <div className="min-w-0">
           <h1 className="font-slab text-3xl leading-tight">{name}</h1>
           <div className="font-mono text-sm text-muted">@{profile.username}</div>
+          {Array.isArray((profile as { roles?: string[] }).roles) &&
+            (profile as { roles?: string[] }).roles!.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {(profile as { roles?: string[] }).roles!.map((r) => (
+                  <span
+                    key={r}
+                    className="rounded-full border border-tan px-2.5 py-0.5 text-xs font-medium capitalize text-taupe"
+                  >
+                    {r}
+                  </span>
+                ))}
+              </div>
+            )}
           {profile.bio && <p className="mt-2 max-w-xl text-taupe">{profile.bio}</p>}
 
           <div className="mt-3 flex flex-wrap items-center gap-3">

@@ -33,6 +33,7 @@ export default function SettingsScreen() {
   const [instagram, setInstagram] = useState(links.instagram ?? "");
   const [tiktok, setTiktok] = useState(links.tiktok ?? "");
   const [youtube, setYoutube] = useState(links.youtube ?? "");
+  const [imdb, setImdb] = useState(links.imdb ?? "");
   const [demoReelUrl, setDemoReelUrl] = useState((profile as any)?.demo_reel_url ?? "");
   const [genres, setGenres] = useState<string[]>(profile?.genre_specialties ?? []);
   const [roles, setRoles] = useState<UserRole[]>(
@@ -144,6 +145,7 @@ export default function SettingsScreen() {
             instagram: instagram.trim(),
             tiktok: tiktok.trim(),
             youtube: youtube.trim(),
+            imdb: imdb.trim(),
           },
           avatar_url: avatarUrl,
           demo_reel_url: demoReelUrl.trim() || null,
@@ -315,6 +317,15 @@ export default function SettingsScreen() {
           autoCorrect={false}
           placeholderTextColor={colors.textMuted}
           placeholder="YouTube URL"
+        />
+        <TextInput
+          style={s.input}
+          value={imdb}
+          onChangeText={setImdb}
+          autoCapitalize="none"
+          autoCorrect={false}
+          placeholderTextColor={colors.textMuted}
+          placeholder="IMDb URL"
         />
 
         {/* Roles */}

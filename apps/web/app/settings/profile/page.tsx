@@ -36,6 +36,12 @@ const EMPTY: Form = {
   imdb: "",
 };
 
+const ROLE_OPTIONS: { key: string; label: string }[] = [
+  { key: "writer", label: "Writer" },
+  { key: "actor", label: "Actor" },
+  { key: "audience", label: "Audience" },
+];
+
 export default function EditProfilePage() {
   const router = useRouter();
   const supabase = getBrowserClient();
@@ -49,6 +55,11 @@ export default function EditProfilePage() {
   const [reads, setReads] = useState<
     { id: string; character: string; script: string; take: number }[]
   >([]);
+  const [roles, setRoles] = useState<string[]>([]);
+  const [activeRole, setActiveRole] = useState<string | null>(null);
+
+  const toggleRole = (r: string) =>
+    setRoles((cur) => (cur.includes(r) ? cur.filter((x) => x !== r) : [...cur, r]));
 
   const set = (k: keyof Form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
@@ -65,7 +76,7 @@ export default function EditProfilePage() {
       setUserId(user.id);
       const { data } = await supabase
         .from("users")
-        .select("display_name, username, bio, website, avatar_url, links")
+        .select("display_name, username, bio, website, avatar_url, links, roles, role")
         .eq("id", user.id)
         .single();
       if (data) {
@@ -82,6 +93,8 @@ export default function EditProfilePage() {
           youtube: links.youtube ?? "",
           imdb: links.imdb ?? "",
         });
+        setRoles(((data.roles as string[]) ?? []).filter(Boolean));
+        setActiveRole((data.role as string) ?? null);
       }
       const { data: subs } = await supabase
         .from("submissions")
@@ -152,6 +165,10 @@ export default function EditProfilePage() {
       setError("Pick a username.");
       return;
     }
+    if (roles.length === 0) {
+      setError("Pick at least one role (Writer, Actor, or Audience).");
+      return;
+    }
     setSaving(true);
     setError(null);
     setSaved(false);
@@ -163,6 +180,8 @@ export default function EditProfilePage() {
         bio: form.bio.trim() || null,
         website: form.website.trim() || null,
         avatar_url: form.avatar_url || null,
+        roles,
+        role: activeRole && roles.includes(activeRole) ? activeRole : roles[0],
         links: {
           x: form.x.trim(),
           instagram: form.instagram.trim(),
@@ -245,6 +264,30 @@ export default function EditProfilePage() {
           <span className={label}>Bio</span>
           <textarea value={form.bio} onChange={set("bio")} rows={3} className={input} />
         </label>
+        <div className="flex flex-col gap-2">
+          <span className={label}>I&rsquo;m a…</span>
+          <div className="flex flex-wrap gap-2">
+            {ROLE_OPTIONS.map((r) => {
+              const on = roles.includes(r.key);
+              return (
+                <button
+                  key={r.key}
+                  type="button"
+                  onClick={() => toggleRole(r.key)}
+                  className={`rounded-full border px-4 py-2 text-sm font-medium transition ${
+                    on
+                      ? "border-brick bg-brick text-white"
+                      : "border-tan text-taupe hover:border-brick"
+                  }`}
+                >
+                  {r.label}
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-xs text-muted">Pick all that apply — writer, actor, or just here to watch.</p>
+        </div>
+
         <label className="flex flex-col gap-1">
           <span className={label}>Website</span>
           <input value={form.website} onChange={set("website")} placeholder="https://" className={input} />
