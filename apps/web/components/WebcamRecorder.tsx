@@ -205,6 +205,19 @@ export function WebcamRecorder({
         .eq("actor_id", userId)
         .eq("character_id", characterId);
       await supabase.from("submissions").update({ is_preferred_take: true }).eq("id", inserted.id);
+
+      // Automated video moderation — the read stays hidden until it passes.
+      setStatus("Reviewing your read…");
+      const { data: mod } = await supabase.functions.invoke("moderate-submission", {
+        body: { submission_id: inserted.id },
+      });
+      if (mod?.status === "rejected") {
+        setError(
+          "This read couldn't be published — our automated check flagged it. Please re-record."
+        );
+        setMode("review");
+        return;
+      }
       setMode("done");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload failed.");
@@ -365,7 +378,10 @@ export function WebcamRecorder({
       {mode === "done" && (
         <div className="mt-8 text-center">
           <p className="font-slab text-2xl">Your read is in 🎬</p>
-          <p className="mt-2 text-taupe">Audiences can now choose you for {characterName}.</p>
+          <p className="mt-2 text-taupe">
+            It&rsquo;ll show up for {characterName} as soon as it clears our automated
+            review (usually instant).
+          </p>
           <Link
             href={`/script/${scriptId}`}
             className="mt-5 inline-block rounded-lg bg-brick px-5 py-2.5 font-medium text-white"

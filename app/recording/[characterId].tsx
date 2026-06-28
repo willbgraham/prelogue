@@ -550,12 +550,30 @@ export default function RecordingStudioScreen() {
           .eq("id", inserted.id);
       }
 
+      // Automated video moderation — the read stays hidden until it passes.
+      let rejected = false;
+      if (inserted) {
+        setUploadLabel("Reviewing your read…");
+        const { data: mod } = await supabase.functions.invoke("moderate-submission", {
+          body: { submission_id: inserted.id },
+        });
+        rejected = (mod as any)?.status === "rejected";
+      }
+
       await fetchTakeCount();
-      Alert.alert(
-        "Submitted!",
-        `Your read (${takes.length} line${takes.length !== 1 ? "s" : ""}) has been uploaded.`,
-        [{ text: "OK", onPress: () => router.back() }]
-      );
+      if (rejected) {
+        Alert.alert(
+          "Couldn't publish this read",
+          "Our automated check flagged this recording, so it can't be published. Please re-record.",
+          [{ text: "OK" }]
+        );
+      } else {
+        Alert.alert(
+          "Submitted!",
+          `Your read (${takes.length} line${takes.length !== 1 ? "s" : ""}) will appear once it clears our automated review.`,
+          [{ text: "OK", onPress: () => router.back() }]
+        );
+      }
     } catch (error: any) {
       Alert.alert("Upload Failed", error?.message ?? String(error));
     } finally {
