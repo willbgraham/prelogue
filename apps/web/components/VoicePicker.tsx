@@ -13,6 +13,20 @@ const FILTER_KEYS: { key: string; label: string }[] = [
   { key: "age", label: "Age" },
 ];
 const META_KEYS = ["gender", "accent", "language", "age", "descriptive", "use_case"];
+const LANGUAGE_NAMES: Record<string, string> = {
+  en: "English", es: "Spanish", fr: "French", de: "German", it: "Italian",
+  pt: "Portuguese", pl: "Polish", hi: "Hindi", ja: "Japanese", ko: "Korean",
+  zh: "Chinese", nl: "Dutch", tr: "Turkish", sv: "Swedish", id: "Indonesian",
+  fil: "Filipino", uk: "Ukrainian", el: "Greek", cs: "Czech", fi: "Finnish",
+  ro: "Romanian", ru: "Russian", da: "Danish", bg: "Bulgarian", ms: "Malay",
+  sk: "Slovak", hr: "Croatian", ar: "Arabic", ta: "Tamil", vi: "Vietnamese",
+  no: "Norwegian", hu: "Hungarian",
+};
+// Language labels are 2-letter codes — show the full word. Others render as-is
+// (the UI capitalizes them via CSS).
+const displayValue = (key: string, val: string) =>
+  key === "language" ? LANGUAGE_NAMES[val.toLowerCase()] ?? val.toUpperCase() : val;
+const norm = (s: string) => s.trim().toLowerCase();
 
 type RoleSub = { id: string; actor: string; take: number; avatar: string | null; clips: string[] };
 
@@ -178,7 +192,7 @@ export function VoicePicker({
         const val = v.labels?.[key];
         if (val) set.add(String(val));
       }
-      opts[key] = [...set].sort();
+      opts[key] = [...set].sort((a, b) => displayValue(key, a).localeCompare(displayValue(key, b)));
     }
     return opts;
   }, [catalog]);
@@ -187,7 +201,8 @@ export function VoicePicker({
     const q = search.trim().toLowerCase();
     return catalog.filter((v) => {
       for (const { key } of FILTER_KEYS) {
-        if (filters[key] && String(v.labels?.[key] ?? "") !== filters[key]) return false;
+        const want = filters[key];
+        if (want && norm(String(v.labels?.[key] ?? "")) !== norm(want)) return false;
       }
       if (!q) return true;
       return (
@@ -349,7 +364,7 @@ export function VoicePicker({
                           <option value="">{label}</option>
                           {filterOptions[key].map((o) => (
                             <option key={o} value={o}>
-                              {o}
+                              {displayValue(key, o)}
                             </option>
                           ))}
                         </select>
@@ -389,7 +404,7 @@ export function VoicePicker({
                             <div className="truncate text-xs capitalize text-muted">
                               {Object.entries(v.labels || {})
                                 .filter(([k]) => META_KEYS.includes(k))
-                                .map(([, val]) => val)
+                                .map(([k, val]) => displayValue(k, val))
                                 .join(" · ")}
                             </div>
                           </div>

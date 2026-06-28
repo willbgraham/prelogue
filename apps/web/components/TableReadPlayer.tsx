@@ -5,6 +5,7 @@ import { buildRows, prepareVoiceCues } from "@/lib/shared";
 import type { ParsedScript, VoiceCueEntry, VoiceConfig } from "@/lib/shared";
 import { getBrowserClient } from "@/lib/supabase/client";
 import { VoicePicker } from "@/components/VoicePicker";
+import { CastIcon } from "@/components/icons";
 
 // Cap how many times a visitor can re-cast voices per day (cost guard). Voices
 // already generated replay free; only a *new* voice config counts.
@@ -396,9 +397,10 @@ export function TableReadPlayer({
         {canChangeVoices && (
           <button
             onClick={() => setShowPicker(true)}
-            className="rounded-lg border border-tan px-3 py-2 text-sm text-taupe hover:bg-elevated"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-tan px-3 py-2 text-sm text-taupe hover:bg-elevated"
           >
-            🎙 Choose Cast
+            <CastIcon className="h-4 w-4" />
+            Choose Cast
           </button>
         )}
         <span className="ml-auto font-mono text-xs text-muted">
