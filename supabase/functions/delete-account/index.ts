@@ -37,6 +37,26 @@ Deno.serve(async (req) => {
     );
     const uid = user.id;
 
+    // Recycle any ElevenLabs voice slots this user's designed voices held, before
+    // the rows cascade away with their scripts.
+    const EL_KEY = Deno.env.get("ELEVENLABS_API_KEY");
+    if (EL_KEY) {
+      try {
+        const { data: dv } = await admin
+          .from("designed_voices")
+          .select("voice_id")
+          .eq("created_by", uid);
+        for (const row of dv ?? []) {
+          await fetch(`https://api.elevenlabs.io/v1/voices/${row.voice_id}`, {
+            method: "DELETE",
+            headers: { "xi-api-key": EL_KEY },
+          }).catch(() => {});
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
     // Best-effort content cleanup (FK cascades handle most children); ignore
     // per-table errors so a missing table never blocks the actual deletion.
     for (const op of [

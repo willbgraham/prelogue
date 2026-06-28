@@ -234,6 +234,13 @@ export default function ScriptDetailScreen() {
 
   async function doDelete() {
     setBusy(true);
+    // Free any ElevenLabs voice slots this script's designed voices held, before
+    // the rows cascade away. Best-effort — never blocks the delete.
+    try {
+      await supabase.functions.invoke("design-voice", {
+        body: { action: "recycle", script_id: script.id },
+      });
+    } catch {}
     const { error } = await supabase.rpc("delete_script", { p_script_id: script.id });
     setBusy(false);
     if (error) {

@@ -43,16 +43,45 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
-    const { data: profile } = await admin.from("users").select("roles").eq("id", user.id).single();
-    const roles = (profile?.roles as string[] | null) ?? [];
-    if (!roles.includes("writer")) {
-      return json({ error: "Designing voices is a writer feature. Add the Writer role to your profile." }, 403);
-    }
 
     const elHeaders = {
       "xi-api-key": ELEVENLABS_API_KEY,
       "Content-Type": "application/json",
     };
+
+    // Recycle every ElevenLabs voice designed for a script — called right before
+    // the script is deleted so its account voice slots are freed. Owner-gated.
+    if (body.action === "recycle") {
+      const script_id = String(body.script_id ?? "");
+      if (!script_id) return json({ error: "script_id required" }, 400);
+      const { data: script } = await admin
+        .from("scripts")
+        .select("writer_id")
+        .eq("id", script_id)
+        .single();
+      if (!script || script.writer_id !== user.id) return json({ error: "Not authorized" }, 403);
+      const { data: rows } = await admin
+        .from("designed_voices")
+        .select("voice_id")
+        .eq("script_id", script_id);
+      let recycled = 0;
+      for (const row of rows ?? []) {
+        const ok = await fetch(`https://api.elevenlabs.io/v1/voices/${row.voice_id}`, {
+          method: "DELETE",
+          headers: { "xi-api-key": ELEVENLABS_API_KEY },
+        })
+          .then((res) => res.ok)
+          .catch(() => false);
+        if (ok) recycled++;
+      }
+      return json({ recycled });
+    }
+
+    // Designing (preview / create) is writer-gated.
+    const { data: profile } = await admin.from("users").select("roles").eq("id", user.id).single();
+    if (!((profile?.roles as string[] | null) ?? []).includes("writer")) {
+      return json({ error: "Designing voices is a writer feature. Add the Writer role to your profile." }, 403);
+    }
 
     if (body.action === "preview") {
       const description = String(body.description ?? "").trim();
