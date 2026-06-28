@@ -137,6 +137,14 @@ export default function TableReadPlayScreen() {
   const videoPlayer = useVideoPlayer("", (p) => {
     p.loop = false;
   });
+  // A second player drives the in-sheet "preview this read" (the actor's own
+  // clips played back-to-back so you can see + hear them before casting).
+  const previewPlayer = useVideoPlayer("", (p) => {
+    p.loop = false;
+  });
+  const [previewSubId, setPreviewSubId] = useState<string | null>(null);
+  const previewClipsRef = useRef<string[]>([]);
+  const previewIdxRef = useRef(0);
 
   useEffect(() => {
     load();
@@ -160,6 +168,53 @@ export default function TableReadPlayScreen() {
     return () => sub.remove();
   }, [videoPlayer]);
 
+  // Preview: play the actor's clips back-to-back, then stop.
+  useEffect(() => {
+    const sub = previewPlayer.addListener("playToEnd", () => {
+      const urls = previewClipsRef.current;
+      const next = previewIdxRef.current + 1;
+      if (next < urls.length) {
+        previewIdxRef.current = next;
+        previewPlayer.replace(urls[next]);
+        previewPlayer.play();
+      } else {
+        setPreviewSubId(null);
+      }
+    });
+    return () => sub.remove();
+  }, [previewPlayer]);
+
+  function stopPreview() {
+    try {
+      previewPlayer.pause();
+    } catch {}
+    setPreviewSubId(null);
+  }
+
+  function previewActor(opt: CastSub) {
+    if (previewSubId === opt.id) {
+      stopPreview();
+      return;
+    }
+    const urls = [...opt.clips]
+      .sort((a, b) => a.element_index - b.element_index)
+      .map((c) => urlByPathRef.current.get(c.clip_url))
+      .filter((u): u is string => !!u);
+    if (!urls.length) return;
+    // Don't double up with the main read.
+    playingRef.current = false;
+    setPlaying(false);
+    soundRef.current?.pauseAsync().catch(() => {});
+    try {
+      videoPlayer.pause();
+    } catch {}
+    previewClipsRef.current = urls;
+    previewIdxRef.current = 0;
+    setPreviewSubId(opt.id);
+    previewPlayer.replace(urls[0]);
+    previewPlayer.play();
+  }
+
   // Keep the latest typed text in view as a narrator/AI line types out.
   useEffect(() => {
     pageScrollRef.current?.scrollToEnd({ animated: false });
@@ -176,9 +231,10 @@ export default function TableReadPlayScreen() {
         soundRef.current?.pauseAsync().catch(() => {});
         try {
           videoPlayer.pause();
+          previewPlayer.pause();
         } catch {}
       };
-    }, [videoPlayer])
+    }, [videoPlayer, previewPlayer])
   );
 
   async function load() {
@@ -690,13 +746,18 @@ export default function TableReadPlayScreen() {
           <View style={s.sheet}>
             <View style={s.sheetHeader}>
               <Text style={s.sheetTitle}>Choose your cast</Text>
-              <TouchableOpacity onPress={() => setCastSheetOpen(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+              <TouchableOpacity onPress={() => { stopPreview(); setCastSheetOpen(false); }} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                 <Feather name="x" size={22} color={colors.text} />
               </TouchableOpacity>
             </View>
             <Text style={s.sheetSub}>
               Pick who reads each role — ranked by how often viewers pick them.
             </Text>
+            {previewSubId && (
+              <View style={s.previewWrap}>
+                <VideoView player={previewPlayer} style={s.previewVideo} contentFit="contain" nativeControls={false} />
+              </View>
+            )}
             <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 24 }}>
               {castRoles.map((role) => {
                 const activeId = activeByCharRef.current.get(role.characterId);
@@ -726,6 +787,20 @@ export default function TableReadPlayScreen() {
                               {opt.isWritersChoice ? " · Writer's Choice" : ""}
                             </Text>
                           </View>
+                          <TouchableOpacity
+                            onPress={() => previewActor(opt)}
+                            style={s.previewBtn}
+                            hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+                          >
+                            <Feather
+                              name={previewSubId === opt.id ? "pause" : "play"}
+                              size={12}
+                              color={colors.primary}
+                            />
+                            <Text style={s.previewBtnText}>
+                              {previewSubId === opt.id ? "Stop" : "Preview"}
+                            </Text>
+                          </TouchableOpacity>
                           <Feather
                             name={isSel ? "check-circle" : "circle"}
                             size={20}
@@ -826,8 +901,16 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: colors.cardBorder,
   },
   optRowActive: { borderColor: colors.green, backgroundColor: colors.greenMuted },
-  optAvatar: { width: 40, height: 40, borderRadius: radius.full },
-  optAvatarPh: { width: 40, height: 40, borderRadius: radius.full, backgroundColor: colors.primaryMuted, alignItems: "center", justifyContent: "center" },
+  optAvatar: { width: 52, height: 52, borderRadius: radius.full },
+  optAvatarPh: { width: 52, height: 52, borderRadius: radius.full, backgroundColor: colors.primaryMuted, alignItems: "center", justifyContent: "center" },
   optName: { color: colors.text, fontSize: 14, fontWeight: "600" },
   optMeta: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
+  previewWrap: { height: 200, backgroundColor: "#000", borderRadius: radius.lg, overflow: "hidden", marginBottom: spacing.md },
+  previewVideo: { flex: 1 },
+  previewBtn: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    paddingHorizontal: 10, paddingVertical: 6, borderRadius: radius.full,
+    borderWidth: 1, borderColor: colors.cardBorder, backgroundColor: colors.elevated,
+  },
+  previewBtnText: { color: colors.primary, fontSize: 11, fontWeight: "700" },
 });
