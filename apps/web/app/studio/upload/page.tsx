@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { getBrowserClient } from "@/lib/supabase/client";
 import { GENRES } from "@/lib/constants";
+import { useRoles } from "@/lib/useRoles";
 
 const input =
   "w-full rounded-lg border border-tan bg-elevated px-4 py-3 outline-none focus:border-brick";
@@ -12,6 +13,7 @@ const label = "text-xs font-medium uppercase tracking-wide text-muted";
 
 export default function UploadPage() {
   const router = useRouter();
+  const { userId, loading: rolesLoading, has, addRole } = useRoles();
   const [title, setTitle] = useState("");
   const [genre, setGenre] = useState<string>(GENRES[6]); // Drama
   const [logline, setLogline] = useState("");
@@ -70,6 +72,23 @@ export default function UploadPage() {
       setStatus("");
       setError(e instanceof Error ? e.message : "Upload failed.");
     }
+  }
+
+  if (userId && !rolesLoading && !has("writer")) {
+    return (
+      <main className="mx-auto w-full max-w-xl px-6 py-16 text-center">
+        <h1 className="font-slab text-3xl">Upload a screenplay</h1>
+        <p className="mt-3 text-taupe">
+          Publishing scripts is for writers — add the Writer role to your profile to upload a screenplay.
+        </p>
+        <button
+          onClick={() => addRole("writer")}
+          className="mt-5 rounded-lg bg-brick px-5 py-2.5 font-medium text-white"
+        >
+          Become a writer
+        </button>
+      </main>
+    );
   }
 
   return (
