@@ -656,11 +656,10 @@ export default function TableReadPlayScreen() {
         </TouchableOpacity>
       )}
 
-      {/* Stage — appears once playback starts. Shows the cast actor's clip, or a
-          tasteful placeholder for AI-voiced lines / narration. */}
-      {ready && (
-        <View style={s.stage}>
-          <VideoView player={videoPlayer} style={StyleSheet.absoluteFill} contentFit="contain" nativeControls={false} />
+      {/* Stage — always visible: the cast actor's clip, or the current line on a
+          "page" (full text when idle, typing out as it's read). */}
+      <View style={s.stage}>
+        <VideoView player={videoPlayer} style={StyleSheet.absoluteFill} contentFit="contain" nativeControls={false} />
           {medium !== "video" && (
             <View style={s.page}>
               {activeRow?.sceneHeading ? (
@@ -676,8 +675,10 @@ export default function TableReadPlayScreen() {
                   <Text style={s.pageChar}>{activeRow.character}</Text>
                 ) : null}
                 <Text style={activeRow?.kind === "narrator" ? s.pageAction : s.pageDialogue}>
-                  {(activeRow?.text ?? "").slice(0, reveal)}
-                  {reveal < (activeRow?.text?.length ?? 0) ? <Text style={s.cursor}>▌</Text> : null}
+                  {playing ? (activeRow?.text ?? "").slice(0, reveal) : (activeRow?.text ?? "")}
+                  {playing && reveal < (activeRow?.text?.length ?? 0) ? (
+                    <Text style={s.cursor}>▌</Text>
+                  ) : null}
                 </Text>
               </ScrollView>
             </View>
@@ -689,7 +690,6 @@ export default function TableReadPlayScreen() {
             </View>
           )}
         </View>
-      )}
 
       <FlatList
         ref={listRef}
