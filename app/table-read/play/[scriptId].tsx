@@ -652,7 +652,7 @@ export default function TableReadPlayScreen() {
       {castRoles.length > 0 && (
         <TouchableOpacity style={s.castBtn} onPress={() => setCastSheetOpen(true)} activeOpacity={0.85}>
           <Feather name="users" size={13} color="#fff" />
-          <Text style={s.castBtnText}>Cast</Text>
+          <Text style={s.castBtnText}>Choose Cast</Text>
         </TouchableOpacity>
       )}
 
