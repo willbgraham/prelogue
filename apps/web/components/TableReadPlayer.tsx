@@ -84,6 +84,7 @@ export function TableReadPlayer({
   const activeRef = useRef(0);
   const playingRef = useRef(false);
   const activeLineRef = useRef<HTMLDivElement | null>(null);
+  const scriptScrollRef = useRef<HTMLDivElement | null>(null);
   const overrideRef = useRef<VoiceConfig | null>(null);
   const preparedKeyRef = useRef<string | null>(null);
 
@@ -174,7 +175,15 @@ export function TableReadPlayer({
   }, [scriptId]);
   useEffect(() => {
     activeRef.current = active;
-    activeLineRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+    // Auto-scroll the script *within its own box* (don't move the page/stage).
+    const line = activeLineRef.current;
+    const box = scriptScrollRef.current;
+    if (line && box) {
+      box.scrollTo({
+        top: line.offsetTop - box.clientHeight / 2 + line.clientHeight / 2,
+        behavior: "smooth",
+      });
+    }
   }, [active]);
   useEffect(() => {
     playingRef.current = playing;
@@ -372,9 +381,40 @@ export function TableReadPlayer({
     );
   }
 
+  // Stage = the current line typing out (AI/narrator) or, for a cast role, video.
+  const activeRow = rows[active];
+  const stageText = playing && activeRow ? activeRow.text.slice(0, reveal) : activeRow?.text ?? "";
+  const stageCursor = !!(playing && activeRow && reveal < activeRow.text.length);
+
   return (
     <div className="overflow-hidden rounded-xl border border-tan bg-ivory">
       <audio ref={audioRef} preload="auto" />
+
+      {/* STAGE — actor video, or the current line typing out on a "page" */}
+      <div className="relative h-[260px] w-full bg-black sm:h-[300px]">
+        <video
+          ref={videoRef}
+          playsInline
+          className={`absolute inset-0 h-full w-full object-contain ${showVideo ? "block" : "hidden"}`}
+        />
+        {!showVideo && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center overflow-y-auto bg-[#faf7ef] px-6 py-8 text-center">
+            {activeRow ? (
+              <>
+                <div className="mb-2 font-mono text-xs font-bold uppercase tracking-wider text-muted">
+                  {activeRow.kind === "narrator" ? "Narrator" : activeRow.character}
+                </div>
+                <p className="max-w-xl font-mono text-lg leading-relaxed text-ink sm:text-xl">
+                  {stageText}
+                  {stageCursor && <span className="animate-pulse">▌</span>}
+                </p>
+              </>
+            ) : (
+              <p className="font-mono text-sm text-muted">Press play to begin the read.</p>
+            )}
+          </div>
+        )}
+      </div>
 
       <div className="flex items-center gap-3 border-b border-tan px-4 py-3">
         <button
@@ -418,41 +458,36 @@ export function TableReadPlayer({
       )}
       {error && <div className="px-4 py-2 text-sm text-brick">{error}</div>}
 
-      {/* Actor clip — shown only while a recorded line plays (its own audio). */}
-      <video
-        ref={videoRef}
-        playsInline
-        className={`w-full bg-black ${showVideo ? "block" : "hidden"}`}
-        style={{ maxHeight: "50vh" }}
-      />
-
-      {/* The screenplay "page" */}
-      <div className="max-h-[60vh] overflow-y-auto bg-[#faf7ef] px-6 py-6 sm:px-10">
+      {/* SCRIPT — full text; the active line is highlighted and auto-scrolls. */}
+      <div
+        ref={scriptScrollRef}
+        className="relative max-h-[50vh] overflow-y-auto bg-[#faf7ef] px-4 py-6 sm:px-8"
+      >
         {rows.map((r, i) => {
           const isActive = i === active;
-          const typing = isActive && playing && reveal < r.text.length;
-          const shown = isActive && playing ? r.text.slice(0, reveal) : r.text;
-          const Cursor = typing ? <span className="animate-pulse">▌</span> : null;
           return (
             <div
               key={r.elementIndex}
               ref={isActive ? activeLineRef : undefined}
-              className={`mb-4 ${i < active ? "opacity-90" : isActive ? "" : "opacity-40"}`}
+              className={`mb-2 rounded-lg px-3 py-2 transition-colors ${
+                isActive
+                  ? "bg-brick/10 ring-1 ring-brick/25"
+                  : i < active
+                    ? "opacity-70"
+                    : "opacity-45"
+              }`}
             >
               {r.sceneHeading && (
-                <div className="mb-3 font-mono text-xs font-bold uppercase tracking-wider text-ink">
+                <div className="mb-2 font-mono text-xs font-bold uppercase tracking-wider text-ink">
                   {r.sceneHeading}
                 </div>
               )}
               {r.kind === "narrator" ? (
                 <div>
-                  <div className="mb-1 font-mono text-sm font-bold uppercase tracking-wide text-muted">
+                  <div className="mb-1 font-mono text-xs font-bold uppercase tracking-wide text-muted">
                     Narrator
                   </div>
-                  <p className="font-mono text-[15px] leading-relaxed text-taupe">
-                    {shown}
-                    {Cursor}
-                  </p>
+                  <p className="font-mono text-[15px] leading-relaxed text-taupe">{r.text}</p>
                 </div>
               ) : (
                 <div className="text-center">
@@ -462,8 +497,7 @@ export function TableReadPlayer({
                     </div>
                   )}
                   <p className="mx-auto mt-1 max-w-md font-mono text-[15px] leading-relaxed text-ink">
-                    {shown}
-                    {Cursor}
+                    {r.text}
                   </p>
                 </div>
               )}
