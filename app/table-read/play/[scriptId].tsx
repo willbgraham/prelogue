@@ -827,7 +827,8 @@ const s = StyleSheet.create({
 
   // Stage
   stage: {
-    height: 270, backgroundColor: "#000", alignItems: "center", justifyContent: "center",
+    width: "100%", aspectRatio: 16 / 9, backgroundColor: "#000",
+    alignItems: "center", justifyContent: "center",
     borderBottomWidth: 1, borderBottomColor: colors.cardBorder,
   },
   // Screenplay "page" shown while the AI reads (typed out in sync with speech).
