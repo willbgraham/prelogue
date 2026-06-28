@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Image from "next/image";
 import type { VoiceCatalogItem, VoiceConfig } from "@/lib/shared";
 import { getBrowserClient } from "@/lib/supabase/client";
 
@@ -13,7 +14,7 @@ const FILTER_KEYS: { key: string; label: string }[] = [
 ];
 const META_KEYS = ["gender", "accent", "language", "age", "descriptive", "use_case"];
 
-type RoleSub = { id: string; actor: string; take: number };
+type RoleSub = { id: string; actor: string; take: number; avatar: string | null };
 
 /**
  * Per role, choose an AI voice OR an actor's recorded read. Default is AI;
@@ -247,6 +248,21 @@ export function VoicePicker({
                     key={sub.id}
                     className="flex items-center gap-3 border-b border-tan/60 py-2 last:border-0"
                   >
+                    <span className="h-9 w-9 shrink-0 overflow-hidden rounded-full border border-tan bg-elevated">
+                      {sub.avatar ? (
+                        <Image
+                          src={sub.avatar}
+                          alt={sub.actor}
+                          width={36}
+                          height={36}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <span className="flex h-full w-full items-center justify-center text-xs text-taupe">
+                          {sub.actor.charAt(0).toUpperCase()}
+                        </span>
+                      )}
+                    </span>
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm font-medium">{sub.actor}</div>
                       <div className="text-xs text-muted">Take #{sub.take}</div>

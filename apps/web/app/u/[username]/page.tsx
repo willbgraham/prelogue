@@ -16,6 +16,7 @@ type Links = {
   instagram?: string;
   tiktok?: string;
   youtube?: string;
+  imdb?: string;
 };
 
 const SOCIALS: { key: keyof Links; Icon: typeof XIcon; label: string }[] = [
@@ -138,6 +139,16 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
                   <Icon className="h-5 w-5" />
                 </a>
               ) : null
+            )}
+            {links.imdb && (
+              <a
+                href={links.imdb}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded bg-[#f5c518] px-1.5 py-0.5 text-xs font-bold text-black hover:opacity-90"
+              >
+                IMDb
+              </a>
             )}
             {isMe && (
               <Link

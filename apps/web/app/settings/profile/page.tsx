@@ -20,6 +20,7 @@ type Form = {
   instagram: string;
   tiktok: string;
   youtube: string;
+  imdb: string;
 };
 
 const EMPTY: Form = {
@@ -32,6 +33,7 @@ const EMPTY: Form = {
   instagram: "",
   tiktok: "",
   youtube: "",
+  imdb: "",
 };
 
 export default function EditProfilePage() {
@@ -44,6 +46,9 @@ export default function EditProfilePage() {
   const [saved, setSaved] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const [form, setForm] = useState<Form>(EMPTY);
+  const [reads, setReads] = useState<
+    { id: string; character: string; script: string; take: number }[]
+  >([]);
 
   const set = (k: keyof Form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
@@ -75,8 +80,29 @@ export default function EditProfilePage() {
           instagram: links.instagram ?? "",
           tiktok: links.tiktok ?? "",
           youtube: links.youtube ?? "",
+          imdb: links.imdb ?? "",
         });
       }
+      const { data: subs } = await supabase
+        .from("submissions")
+        .select("id, take_number, character:characters(name), script:scripts(title)")
+        .eq("actor_id", user.id)
+        .order("created_at", { ascending: false });
+      setReads(
+        (
+          (subs as unknown as {
+            id: string;
+            take_number: number | null;
+            character: { name: string } | null;
+            script: { title: string } | null;
+          }[]) ?? []
+        ).map((s) => ({
+          id: s.id,
+          character: s.character?.name ?? "Role",
+          script: s.script?.title ?? "Script",
+          take: s.take_number ?? 1,
+        }))
+      );
       setLoading(false);
     })();
   }, [router, supabase]);
@@ -130,6 +156,7 @@ export default function EditProfilePage() {
           instagram: form.instagram.trim(),
           tiktok: form.tiktok.trim(),
           youtube: form.youtube.trim(),
+          imdb: form.imdb.trim(),
         },
       })
       .eq("id", userId);
@@ -145,6 +172,12 @@ export default function EditProfilePage() {
     setSaved(true);
     setForm((f) => ({ ...f, username }));
     router.refresh();
+  }
+
+  async function deleteRead(id: string) {
+    if (!window.confirm("Delete this read? This can't be undone.")) return;
+    setReads((r) => r.filter((x) => x.id !== id));
+    await supabase.from("submissions").delete().eq("id", id);
   }
 
   if (loading) {
@@ -222,6 +255,10 @@ export default function EditProfilePage() {
             <span className={label}>YouTube URL</span>
             <input value={form.youtube} onChange={set("youtube")} placeholder="https://youtube.com/@…" className={input} />
           </label>
+          <label className="flex flex-col gap-1">
+            <span className={label}>IMDb URL</span>
+            <input value={form.imdb} onChange={set("imdb")} placeholder="https://imdb.com/name/…" className={input} />
+          </label>
         </div>
 
         <button
@@ -231,6 +268,36 @@ export default function EditProfilePage() {
           {saving ? "Saving…" : "Save profile"}
         </button>
       </form>
+
+      {reads.length > 0 && (
+        <section className="mt-12">
+          <h2 className="font-slab text-lg">Your reads</h2>
+          <p className="mt-1 text-sm text-taupe">
+            Recordings you&rsquo;ve submitted. Deleting removes them everywhere.
+          </p>
+          <div className="mt-4 space-y-2">
+            {reads.map((r) => (
+              <div
+                key={r.id}
+                className="flex items-center justify-between gap-3 rounded-lg border border-tan bg-ivory px-4 py-3"
+              >
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium">
+                    {r.character} <span className="text-muted">· {r.script}</span>
+                  </div>
+                  <div className="text-xs text-muted">Take #{r.take}</div>
+                </div>
+                <button
+                  onClick={() => deleteRead(r.id)}
+                  className="shrink-0 rounded-lg border border-brick/40 px-3 py-1.5 text-xs font-medium text-brick hover:bg-brick/5"
+                >
+                  Delete
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
     </main>
   );
 }

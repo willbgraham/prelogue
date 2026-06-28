@@ -99,7 +99,7 @@ export function TableReadPlayer({
   const [showVideo, setShowVideo] = useState(false);
   // Actor submissions per role (ROLE → takes) for the picker's "Actors" option.
   const [subsByRole, setSubsByRole] = useState<
-    Record<string, { id: string; actor: string; take: number }[]>
+    Record<string, { id: string; actor: string; take: number; avatar: string | null }[]>
   >({});
 
   useEffect(() => {
@@ -116,7 +116,7 @@ export function TableReadPlayer({
       const { data } = await client
         .from("submissions")
         .select(
-          "id, take_number, clips, character:characters(name), actor:users!submissions_actor_id_fkey(display_name)"
+          "id, take_number, clips, character:characters(name), actor:users!submissions_actor_id_fkey(display_name, avatar_url)"
         )
         .eq("script_id", scriptId);
       const subs =
@@ -125,7 +125,7 @@ export function TableReadPlayer({
           take_number: number | null;
           clips: { element_index: number; clip_url: string }[] | null;
           character: { name: string } | null;
-          actor: { display_name: string } | null;
+          actor: { display_name: string; avatar_url: string | null } | null;
         }[]) ?? [];
       if (!subs.length) return;
 
@@ -140,7 +140,10 @@ export function TableReadPlayer({
       }
 
       const clipsBySub = new Map<string, Map<number, string>>();
-      const byRole: Record<string, { id: string; actor: string; take: number }[]> = {};
+      const byRole: Record<
+        string,
+        { id: string; actor: string; take: number; avatar: string | null }[]
+      > = {};
       for (const s of subs) {
         const m = new Map<number, string>();
         for (const c of s.clips ?? []) {
@@ -154,6 +157,7 @@ export function TableReadPlayer({
             id: s.id,
             actor: s.actor?.display_name ?? "Actor",
             take: s.take_number ?? 1,
+            avatar: s.actor?.avatar_url ?? null,
           });
         }
       }
