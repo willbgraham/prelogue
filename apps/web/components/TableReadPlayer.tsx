@@ -363,6 +363,20 @@ export function TableReadPlayer({
     playRow(activeRef.current);
   }, [playRow]);
 
+  // Click a line in the script to jump there (forward or back).
+  const jumpTo = useCallback(
+    (i: number) => {
+      activeRef.current = i;
+      setActive(i);
+      setReveal(0);
+      if (!ready) return; // not generated yet — just move the cursor; Play starts here
+      playingRef.current = true;
+      setPlaying(true);
+      playRow(i);
+    },
+    [ready, playRow]
+  );
+
   const handleRestart = useCallback(() => {
     stop();
     if (audioRef.current) audioRef.current.currentTime = 0;
@@ -391,7 +405,7 @@ export function TableReadPlayer({
       <audio ref={audioRef} preload="auto" />
 
       {/* STAGE — actor video, or the current line typing out on a "page" */}
-      <div className="relative h-[260px] w-full bg-black sm:h-[300px]">
+      <div className="relative aspect-video w-full bg-black">
         <video
           ref={videoRef}
           playsInline
@@ -469,12 +483,15 @@ export function TableReadPlayer({
             <div
               key={r.elementIndex}
               ref={isActive ? activeLineRef : undefined}
-              className={`mb-2 rounded-lg px-3 py-2 transition-colors ${
+              onClick={() => jumpTo(i)}
+              role="button"
+              title="Jump to this line"
+              className={`mb-2 cursor-pointer rounded-lg px-3 py-2 transition-colors hover:bg-tan/20 ${
                 isActive
                   ? "bg-brick/10 ring-1 ring-brick/25"
                   : i < active
-                    ? "opacity-70"
-                    : "opacity-45"
+                    ? "opacity-70 hover:opacity-100"
+                    : "opacity-45 hover:opacity-100"
               }`}
             >
               {r.sceneHeading && (

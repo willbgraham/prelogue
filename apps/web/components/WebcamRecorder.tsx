@@ -63,7 +63,13 @@ export function WebcamRecorder({
     setError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user" },
+        // Capture 16:9 so recorded clips fit the player stage without letterboxing.
+        video: {
+          facingMode: "user",
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          aspectRatio: { ideal: 16 / 9 },
+        },
         audio: true,
       });
       streamRef.current = stream;
