@@ -6,6 +6,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { getBrowserClient } from "@/lib/supabase/client";
 import { VoicePicker } from "@/components/VoicePicker";
+import { VoiceDesigner } from "@/components/VoiceDesigner";
 import type { VoiceConfig } from "@/lib/shared";
 
 type Sub = {
@@ -26,6 +27,7 @@ export default function CastingPage() {
   const [voiceConfig, setVoiceConfig] = useState<VoiceConfig | null>(null);
   const [voiceNames, setVoiceNames] = useState<Record<string, string>>({});
   const [showPicker, setShowPicker] = useState(false);
+  const [showDesigner, setShowDesigner] = useState(false);
   const [readId, setReadId] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
 
@@ -98,6 +100,17 @@ export default function CastingPage() {
     await supabase.from("scripts").update({ voice_config: cfg }).eq("id", scriptId);
   }
 
+  async function assignDesignedVoice(target: string, voiceId: string) {
+    const base: VoiceConfig =
+      voiceConfig ?? { mode: "per_character", single_voice_id: null, narrator_voice_id: null, characters: {} };
+    const cfg: VoiceConfig =
+      target === "__narrator__"
+        ? { ...base, narrator_voice_id: voiceId }
+        : { ...base, characters: { ...(base.characters ?? {}), [target]: voiceId } };
+    setVoiceConfig(cfg);
+    await supabase.from("scripts").update({ voice_config: cfg }).eq("id", scriptId);
+  }
+
   async function setWritersChoice(submissionId: string, characterId: string) {
     await supabase
       .from("submissions")
@@ -128,12 +141,20 @@ export default function CastingPage() {
       <section className="mt-8 rounded-xl border border-tan bg-ivory p-5">
         <div className="flex items-center justify-between gap-3">
           <h2 className="font-slab text-lg">AI Voices</h2>
-          <button
-            onClick={() => setShowPicker(true)}
-            className="rounded-lg bg-brick px-4 py-2 text-sm font-medium text-white"
-          >
-            Edit voices
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setShowDesigner(true)}
+              className="rounded-lg border border-brick px-4 py-2 text-sm font-medium text-brick hover:bg-brick/5"
+            >
+              ✨ Design a voice
+            </button>
+            <button
+              onClick={() => setShowPicker(true)}
+              className="rounded-lg bg-brick px-4 py-2 text-sm font-medium text-white"
+            >
+              Edit voices
+            </button>
+          </div>
         </div>
         <p className="mt-1 text-sm text-taupe">
           Pick a voice per character and the narrator — these play in the table read.
@@ -248,6 +269,13 @@ export default function CastingPage() {
           startConfig={voiceConfig}
           onApply={applyVoices}
           onClose={() => setShowPicker(false)}
+        />
+      )}
+      {showDesigner && (
+        <VoiceDesigner
+          characters={characterNames}
+          onAssign={(target, voiceId) => void assignDesignedVoice(target, voiceId)}
+          onClose={() => setShowDesigner(false)}
         />
       )}
     </main>
