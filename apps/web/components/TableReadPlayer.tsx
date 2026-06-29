@@ -11,6 +11,9 @@ import { CastIcon } from "@/components/icons";
 // already generated replay free; only a *new* voice config counts.
 const MAX_VOICE_CHANGES_PER_DAY = 15;
 
+// A cast actor's clip + the non-destructive edits applied at playback.
+type ClipInfo = { url: string; trimStart: number; trimEnd: number | null; volume: number };
+
 function voiceChangesToday(): number {
   if (typeof window === "undefined") return 0;
   try {
@@ -76,11 +79,12 @@ export function TableReadPlayer({
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const manifestRef = useRef<Map<number, VoiceCueEntry>>(new Map());
-  // element_index → signed video-clip URL — built ONLY from the roles the user
-  // explicitly cast to an actor (never automatic).
-  const clipMapRef = useRef<Map<number, string>>(new Map());
-  const clipsBySubRef = useRef<Map<string, Map<number, string>>>(new Map()); // submissionId → (element_index → url)
+  // element_index → cast clip (signed URL + non-destructive trim/volume) — built
+  // ONLY from the roles the user explicitly cast to an actor (never automatic).
+  const clipMapRef = useRef<Map<number, ClipInfo>>(new Map());
+  const clipsBySubRef = useRef<Map<string, Map<number, ClipInfo>>>(new Map()); // submissionId → (element_index → clip)
   const castMapRef = useRef<Map<string, string>>(new Map()); // ROLE → submissionId
+  const clipEndRef = useRef<number | null>(null); // active clip's trim-end (seconds), or null
   const activeRef = useRef(0);
   const playingRef = useRef(false);
   const activeLineRef = useRef<HTMLDivElement | null>(null);
@@ -125,7 +129,9 @@ export function TableReadPlayer({
         (data as unknown as {
           id: string;
           take_number: number | null;
-          clips: { element_index: number; clip_url: string }[] | null;
+          clips:
+            | { element_index: number; clip_url: string; trim_start?: number; trim_end?: number; volume?: number }[]
+            | null;
           character: { name: string } | null;
           actor: { display_name: string; avatar_url: string | null } | null;
         }[]) ?? [];
@@ -141,21 +147,27 @@ export function TableReadPlayer({
         [...paths].forEach((p, i) => signedByPath.set(p, signed?.[i]?.signedUrl ?? ""));
       }
 
-      const clipsBySub = new Map<string, Map<number, string>>();
+      const clipsBySub = new Map<string, Map<number, ClipInfo>>();
       const byRole: Record<
         string,
         { id: string; actor: string; take: number; avatar: string | null; clips: string[] }[]
       > = {};
       for (const s of subs) {
-        const m = new Map<number, string>();
+        const m = new Map<number, ClipInfo>();
         for (const c of s.clips ?? []) {
           const u = signedByPath.get(c.clip_url);
-          if (u) m.set(c.element_index, u);
+          if (u)
+            m.set(c.element_index, {
+              url: u,
+              trimStart: c.trim_start ?? 0,
+              trimEnd: c.trim_end ?? null,
+              volume: c.volume ?? 1,
+            });
         }
         clipsBySub.set(s.id, m);
         const role = (s.character?.name ?? "").toUpperCase();
         if (role) {
-          const ordered = [...m.entries()].sort((a, b) => a[0] - b[0]).map(([, url]) => url);
+          const ordered = [...m.entries()].sort((a, b) => a[0] - b[0]).map(([, info]) => info.url);
           (byRole[role] ??= []).push({
             id: s.id,
             actor: s.actor?.display_name ?? "Actor",
@@ -210,15 +222,17 @@ export function TableReadPlayer({
       const row = rows[pos];
       const audio = audioRef.current;
       const video = videoRef.current;
-      const clipUrl = clipMapRef.current.get(row.elementIndex);
+      const clip = clipMapRef.current.get(row.elementIndex);
 
-      // An actor recorded this line — play their video clip (it carries its
-      // own audio, replacing the AI voice for that line).
-      if (clipUrl && video) {
+      // An actor recorded this line — play their video clip (it carries its own
+      // audio, replacing the AI voice). Honor the clip's trim + volume.
+      if (clip && video) {
         audio?.pause();
         setShowVideo(true);
-        video.src = clipUrl;
-        video.currentTime = 0;
+        video.src = clip.url;
+        video.volume = clip.volume;
+        clipEndRef.current = clip.trimEnd;
+        video.currentTime = clip.trimStart;
         try {
           await video.play();
         } catch {
@@ -229,6 +243,7 @@ export function TableReadPlayer({
         return;
       }
 
+      clipEndRef.current = null;
       setShowVideo(false);
       video?.pause();
       const cue = manifestRef.current.get(row.elementIndex);
@@ -261,6 +276,13 @@ export function TableReadPlayer({
     const video = videoRef.current;
     const onTime = (e: Event) => {
       const m = e.currentTarget as HTMLMediaElement;
+      // Honor a cast clip's trim-end: stop early and advance to the next line.
+      if (clipEndRef.current != null && m.currentTime >= clipEndRef.current) {
+        clipEndRef.current = null;
+        m.pause();
+        if (playingRef.current) playRow(activeRef.current + 1);
+        return;
+      }
       const row = rows[activeRef.current];
       if (row && m.duration > 0) {
         setReveal(Math.ceil(row.text.length * (m.currentTime / m.duration)));
@@ -313,10 +335,10 @@ export function TableReadPlayer({
       // Actor-clip map = only the roles explicitly cast to an actor in the picker.
       const castMap = new Map(Object.entries(cast));
       castMapRef.current = castMap;
-      const clipMap = new Map<number, string>();
+      const clipMap = new Map<number, ClipInfo>();
       for (const subId of castMap.values()) {
         const clips = clipsBySubRef.current.get(subId);
-        if (clips) for (const [idx, url] of clips) clipMap.set(idx, url);
+        if (clips) for (const [idx, info] of clips) clipMap.set(idx, info);
       }
       clipMapRef.current = clipMap;
       // Only a genuinely new voice config regenerates (and costs); re-applying

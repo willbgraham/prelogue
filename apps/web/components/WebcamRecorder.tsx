@@ -6,6 +6,7 @@ import { buildRows, prepareVoiceCues, clipPath } from "@/lib/shared";
 import type { ParsedScript, VoiceCueEntry } from "@/lib/shared";
 import { getBrowserClient } from "@/lib/supabase/client";
 import { uploadClipResumable } from "@/lib/upload";
+import { ClipEditor, type ClipEdit } from "@/components/ClipEditor";
 
 type Mode = "setup" | "recording" | "review" | "uploading" | "done";
 interface Clip {
@@ -58,6 +59,14 @@ export function WebcamRecorder({
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState("");
   const [progress, setProgress] = useState(0);
+  const [edits, setEdits] = useState<Record<number, ClipEdit>>({});
+  const editFor = (idx: number): ClipEdit =>
+    edits[idx] ?? { trimStart: 0, trimEnd: 0, volume: 1, duration: 0 };
+  const patchEdit = (idx: number, patch: Partial<ClipEdit>) =>
+    setEdits((e) => ({
+      ...e,
+      [idx]: { ...(e[idx] ?? { trimStart: 0, trimEnd: 0, volume: 1, duration: 0 }), ...patch },
+    }));
 
   const startCamera = useCallback(async () => {
     setError(null);
@@ -158,6 +167,7 @@ export function WebcamRecorder({
     }
     clipsRef.current = new Map();
     setClipCount(0);
+    setEdits({});
     setMode("recording");
     goTo(0);
   }, [aiOn, scriptId, goTo]);
@@ -181,14 +191,23 @@ export function WebcamRecorder({
       const takeNumber = (count ?? 0) + 1;
 
       const takes = [...clipsRef.current.values()].sort((a, b) => a.elementIndex - b.elementIndex);
-      const clips: { element_index: number; clip_url: string }[] = [];
+      const clips: Record<string, unknown>[] = [];
       for (let i = 0; i < takes.length; i++) {
         const t = takes[i];
         setStatus(`Uploading clip ${i + 1} of ${takes.length}…`);
         setProgress(0);
         const path = clipPath(userId, scriptId, characterId, takeNumber, t.elementIndex, EXT);
         await uploadClipResumable(t.blob, path, token, MIME, setProgress);
-        clips.push({ element_index: t.elementIndex, clip_url: path });
+        const e = edits[t.elementIndex];
+        const clip: Record<string, unknown> = { element_index: t.elementIndex, clip_url: path };
+        // Non-destructive trim/volume metadata (applied at playback).
+        if (e) {
+          if (e.trimStart > 0.05) clip.trim_start = Number(e.trimStart.toFixed(2));
+          if (e.duration && e.trimEnd > 0 && e.trimEnd < e.duration - 0.05)
+            clip.trim_end = Number(e.trimEnd.toFixed(2));
+          if (e.volume !== 1) clip.volume = Number(e.volume.toFixed(2));
+        }
+        clips.push(clip);
       }
 
       setStatus("Saving your read…");
@@ -347,9 +366,20 @@ export function WebcamRecorder({
             {actorRows.map((r) => {
               const clip = clipsRef.current.get(r.elementIndex);
               return (
-                <div key={r.elementIndex} className="flex items-center gap-3 py-3">
-                  <span className={clip ? "text-forest" : "text-muted"}>{clip ? "✓" : "○"}</span>
-                  <p className="min-w-0 flex-1 truncate font-mono text-sm">{r.text}</p>
+                <div key={r.elementIndex} className="py-3">
+                  <div className="flex items-center gap-3">
+                    <span className={clip ? "text-forest" : "text-muted"}>{clip ? "✓" : "○"}</span>
+                    <p className="min-w-0 flex-1 truncate font-mono text-sm">{r.text}</p>
+                  </div>
+                  {clip && (
+                    <div className="mt-3 sm:pl-7">
+                      <ClipEditor
+                        blob={clip.blob}
+                        edit={editFor(r.elementIndex)}
+                        onChange={(patch) => patchEdit(r.elementIndex, patch)}
+                      />
+                    </div>
+                  )}
                 </div>
               );
             })}
