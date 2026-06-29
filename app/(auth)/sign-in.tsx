@@ -10,31 +10,65 @@ import {
   Alert,
   StyleSheet,
 } from "react-native";
-import { Link, useRouter } from "expo-router";
-import { useAuth } from "@/lib/auth";
+import { useRouter } from "expo-router";
+import { supabase } from "@/lib/supabase";
 import { colors, radius, spacing } from "@/lib/theme";
 
 export default function SignInScreen() {
-  const { signIn } = useAuth();
   const router = useRouter();
+  const [step, setStep] = useState<"email" | "code">("email");
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
 
-  async function handleSignIn() {
-    if (!email || !password) {
-      Alert.alert("Error", "Please fill in all fields");
+  async function sendCode() {
+    const e = email.trim();
+    if (!e) {
+      Alert.alert("Enter your email", "We'll send a 6-digit code to sign you in.");
       return;
     }
     setLoading(true);
-    try {
-      await signIn(email.trim(), password);
-      router.replace("/(tabs)" as any);
-    } catch (error: any) {
-      Alert.alert("Sign In Failed", error.message);
-    } finally {
-      setLoading(false);
+    const { error } = await supabase.auth.signInWithOtp({
+      email: e,
+      options: { shouldCreateUser: true },
+    });
+    setLoading(false);
+    if (error) {
+      Alert.alert("Couldn't send code", error.message);
+      return;
     }
+    setStep("code");
+  }
+
+  async function verify() {
+    if (code.length < 6) return;
+    setLoading(true);
+    const { error } = await supabase.auth.verifyOtp({
+      email: email.trim(),
+      token: code.trim(),
+      type: "email",
+    });
+    if (error) {
+      setLoading(false);
+      Alert.alert("Invalid or expired code", error.message);
+      return;
+    }
+    // New users (no role yet) → onboarding; returning users → the app.
+    let hasRole = false;
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (user) {
+      const { data: prof } = await supabase
+        .from("users")
+        .select("role, roles")
+        .eq("id", user.id)
+        .single();
+      const p = prof as { role?: string | null; roles?: string[] | null } | null;
+      hasRole = !!(p?.role || (Array.isArray(p?.roles) && p.roles.length));
+    }
+    setLoading(false);
+    router.replace((hasRole ? "/(tabs)" : "/(auth)/onboarding") as any);
   }
 
   return (
@@ -43,7 +77,6 @@ export default function SignInScreen() {
       style={s.container}
     >
       <View style={s.inner}>
-        {/* Logo */}
         <View style={s.logoSection}>
           <View style={s.logoBox}>
             <Text style={s.logoLetter}>P</Text>
@@ -52,57 +85,70 @@ export default function SignInScreen() {
           <Text style={s.tagline}>Table reads, reimagined</Text>
         </View>
 
-        {/* Form */}
-        <Text style={s.label}>EMAIL</Text>
-        <TextInput
-          style={s.input}
-          placeholder="you@example.com"
-          placeholderTextColor={colors.textMuted}
-          value={email}
-          onChangeText={setEmail}
-          autoCapitalize="none"
-          keyboardType="email-address"
-          autoComplete="email"
-        />
-
-        <Text style={[s.label, { marginTop: spacing.lg }]}>PASSWORD</Text>
-        <TextInput
-          style={s.input}
-          placeholder="Your password"
-          placeholderTextColor={colors.textMuted}
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry
-          autoComplete="password"
-        />
-
-        <Link href="/(auth)/forgot-password" asChild>
-          <TouchableOpacity style={s.forgotRow} activeOpacity={0.7}>
-            <Text style={s.forgotText}>Forgot password?</Text>
-          </TouchableOpacity>
-        </Link>
-
-        <TouchableOpacity
-          style={[s.button, loading && { opacity: 0.7 }]}
-          onPress={handleSignIn}
-          disabled={loading}
-          activeOpacity={0.85}
-        >
-          {loading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={s.buttonText}>Sign In</Text>
-          )}
-        </TouchableOpacity>
-
-        <View style={s.footer}>
-          <Text style={s.footerText}>Don't have an account? </Text>
-          <Link href="/(auth)/sign-up" asChild>
-            <TouchableOpacity>
-              <Text style={s.footerLink}>Sign Up</Text>
+        {step === "email" ? (
+          <>
+            <Text style={s.label}>EMAIL</Text>
+            <TextInput
+              style={s.input}
+              placeholder="you@example.com"
+              placeholderTextColor={colors.textMuted}
+              value={email}
+              onChangeText={setEmail}
+              autoCapitalize="none"
+              keyboardType="email-address"
+              autoComplete="email"
+              editable={!loading}
+            />
+            <TouchableOpacity
+              style={[s.button, loading && { opacity: 0.7 }]}
+              onPress={sendCode}
+              disabled={loading}
+              activeOpacity={0.85}
+            >
+              {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.buttonText}>Email me a code</Text>}
             </TouchableOpacity>
-          </Link>
-        </View>
+            <Text style={s.hint}>We&rsquo;ll email you a 6-digit code — no password needed.</Text>
+          </>
+        ) : (
+          <>
+            <Text style={s.label}>6-DIGIT CODE</Text>
+            <TextInput
+              style={[s.input, s.codeInput]}
+              placeholder="••••••"
+              placeholderTextColor={colors.textMuted}
+              value={code}
+              onChangeText={(t) => setCode(t.replace(/\D/g, "").slice(0, 6))}
+              keyboardType="number-pad"
+              autoComplete="one-time-code"
+              textContentType="oneTimeCode"
+              maxLength={6}
+              autoFocus
+              editable={!loading}
+            />
+            <Text style={s.sentTo}>Sent to {email}</Text>
+            <TouchableOpacity
+              style={[s.button, (loading || code.length < 6) && { opacity: 0.7 }]}
+              onPress={verify}
+              disabled={loading || code.length < 6}
+              activeOpacity={0.85}
+            >
+              {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.buttonText}>Verify &amp; continue</Text>}
+            </TouchableOpacity>
+            <View style={s.codeFooter}>
+              <TouchableOpacity
+                onPress={() => {
+                  setStep("email");
+                  setCode("");
+                }}
+              >
+                <Text style={s.footerLink}>← Different email</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={sendCode} disabled={loading}>
+                <Text style={s.footerLink}>Resend code</Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
       </View>
     </KeyboardAvoidingView>
   );
@@ -128,14 +174,14 @@ const s = StyleSheet.create({
     borderRadius: radius.xl, paddingHorizontal: 20, paddingVertical: 16,
     color: colors.text, fontSize: 16,
   },
-  forgotRow: { alignSelf: "flex-end", marginTop: 14, paddingVertical: 2 },
-  forgotText: { color: colors.primary, fontSize: 14, fontWeight: "600" },
+  codeInput: { textAlign: "center", fontSize: 30, letterSpacing: 10, fontWeight: "700" },
   button: {
     backgroundColor: colors.primary, borderRadius: radius.xl,
     paddingVertical: 16, alignItems: "center", marginTop: 20,
   },
   buttonText: { color: "#fff", fontWeight: "700", fontSize: 16, letterSpacing: 0.3 },
-  footer: { flexDirection: "row", justifyContent: "center", marginTop: 24 },
-  footerText: { color: colors.textSecondary, fontSize: 15 },
-  footerLink: { color: colors.primary, fontWeight: "700", fontSize: 15 },
+  hint: { color: colors.textMuted, fontSize: 13, textAlign: "center", marginTop: 16 },
+  sentTo: { color: colors.textSecondary, fontSize: 14, textAlign: "center", marginTop: 12 },
+  codeFooter: { flexDirection: "row", justifyContent: "space-between", marginTop: 22 },
+  footerLink: { color: colors.primary, fontWeight: "700", fontSize: 14 },
 });
