@@ -6,6 +6,7 @@ import { OwnerUnlock } from "@/components/OwnerUnlock";
 import { OwnerPanel } from "@/components/OwnerPanel";
 import { ShareButton } from "@/components/ShareButton";
 import { ReadForRole } from "@/components/ReadForRole";
+import { SiteHeader } from "@/components/SiteHeader";
 import type { Script, Character } from "@/lib/shared";
 
 // A script URL handle is either a name slug (new) or a uuid (legacy links).
@@ -61,9 +62,10 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
 
   return (
     <main className="mx-auto w-full max-w-3xl px-6 py-10">
-      <div className="flex items-center justify-between gap-3">
-        <Link href="/" className="text-sm text-taupe hover:text-ink">
-          ← Prelogue
+      <SiteHeader />
+      <div className="mt-8 flex items-center justify-between gap-3">
+        <Link href="/discover" className="text-sm text-taupe hover:text-ink">
+          ← Discover
         </Link>
         <ShareButton
           title={`${(script as Script).title} — Prelogue`}
