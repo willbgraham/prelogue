@@ -38,6 +38,9 @@ interface Row {
 interface ClipMedia {
   uri: string;
   actor: string;
+  trimStart: number;
+  trimEnd: number | null;
+  volume: number;
 }
 
 /** A clip submission that can read a role (one actor's per-line video). */
@@ -49,7 +52,7 @@ interface CastSub {
   avatar: string | null;
   isWritersChoice: boolean;
   chosenCount: number;
-  clips: { element_index: number; clip_url: string }[];
+  clips: { element_index: number; clip_url: string; trim_start?: number; trim_end?: number; volume?: number }[];
 }
 interface CastRole {
   characterId: string;
@@ -119,6 +122,7 @@ export default function TableReadPlayScreen() {
 
   const manifestRef = useRef<Map<number, VoiceCueEntry>>(new Map());
   const clipsRef = useRef<Map<number, ClipMedia>>(new Map());
+  const clipEndRef = useRef<number | null>(null); // active clip's trim-end (seconds), or null
   const soundRef = useRef<Audio.Sound | null>(null);
   const playingRef = useRef(false);
   const activeRef = useRef(0);
@@ -136,6 +140,7 @@ export default function TableReadPlayScreen() {
   // One persistent video player drives the "stage" for cast actors' clips.
   const videoPlayer = useVideoPlayer("", (p) => {
     p.loop = false;
+    p.timeUpdateEventInterval = 0.3;
   });
   // A second player drives the in-sheet "preview this read" (the actor's own
   // clips played back-to-back so you can see + hear them before casting).
@@ -162,6 +167,22 @@ export default function TableReadPlayScreen() {
   useEffect(() => {
     const sub = videoPlayer.addListener("playToEnd", () => {
       if (playingRef.current && mediumRef.current === "video") {
+        advance(activeRef.current);
+      }
+    });
+    return () => sub.remove();
+  }, [videoPlayer]);
+
+  // Honor a clip's trim-end: advance early when the trimmed range finishes.
+  useEffect(() => {
+    const sub = videoPlayer.addListener("timeUpdate", ({ currentTime }) => {
+      if (
+        clipEndRef.current != null &&
+        currentTime >= clipEndRef.current &&
+        playingRef.current &&
+        mediumRef.current === "video"
+      ) {
+        clipEndRef.current = null;
         advance(activeRef.current);
       }
     });
@@ -401,7 +422,14 @@ export default function TableReadPlayScreen() {
       nameMap.set(sub.characterName, { actor: sub.actor, hasClip: sub.clips.length > 0 });
       for (const c of sub.clips) {
         const uri = urlByPathRef.current.get(c.clip_url);
-        if (uri) clipMap.set(c.element_index, { uri, actor: sub.actor });
+        if (uri)
+          clipMap.set(c.element_index, {
+            uri,
+            actor: sub.actor,
+            trimStart: c.trim_start ?? 0,
+            trimEnd: c.trim_end ?? null,
+            volume: c.volume ?? 1,
+          });
       }
     }
     clipsRef.current = clipMap;
@@ -462,14 +490,18 @@ export default function TableReadPlayScreen() {
       setMediumState("video");
       await unloadAudio();
       try {
+        clipEndRef.current = clip.trimEnd;
         videoPlayer.replace(clip.uri);
+        videoPlayer.volume = clip.volume;
+        videoPlayer.currentTime = clip.trimStart;
         videoPlayer.play();
       } catch (err) {
         console.warn("Clip playback error:", err);
         if (playingRef.current) setTimeout(() => advance(rowPos), 200);
       }
-      return; // the playToEnd listener advances
+      return; // the playToEnd / trim-end listener advances
     }
+    clipEndRef.current = null;
 
     // ---- AI voice — type the line onto a screenplay page as it's read ----
     setMediumState("audio");

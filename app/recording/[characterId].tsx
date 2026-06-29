@@ -18,6 +18,7 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
 import { uploadVideoResumable } from "@/lib/storage";
 import { ClipReelPlayer } from "@/components/ClipReelPlayer";
+import { ClipEditor, type ClipEdit } from "@/components/ClipEditor";
 import { ErrorState } from "@/components/ErrorState";
 import { prepareVoiceCues, VoiceCueEntry } from "@/lib/voiceCues";
 import type { Character, ParsedScript } from "@/lib/types";
@@ -131,6 +132,15 @@ export default function RecordingStudioScreen() {
   const [activeLine, setActiveLine] = useState(0);
   const [clipRecording, setClipRecording] = useState(false);
   const [clipCount, setClipCount] = useState(0);
+  const [edits, setEdits] = useState<Record<number, ClipEdit>>({});
+  const [editingIdx, setEditingIdx] = useState<number | null>(null);
+  const editFor = (idx: number): ClipEdit =>
+    edits[idx] ?? { trimStart: 0, trimEnd: 0, volume: 1, duration: 0 };
+  const patchEdit = (idx: number, patch: Partial<ClipEdit>) =>
+    setEdits((e) => ({
+      ...e,
+      [idx]: { ...(e[idx] ?? { trimStart: 0, trimEnd: 0, volume: 1, duration: 0 }), ...patch },
+    }));
 
   const modeRef = useRef<Mode>("idle");
   const posRef = useRef(0);
@@ -451,6 +461,8 @@ export default function RecordingStudioScreen() {
       if (!res.granted) return;
     }
     clearClips();
+    setEdits({});
+    setEditingIdx(null);
     singleRef.current = null;
     setModeR("recording");
     goToRow(0);
@@ -512,7 +524,7 @@ export default function RecordingStudioScreen() {
       const token = (await supabase.auth.getSession()).data.session?.access_token;
       if (!token) throw new Error("Not authenticated");
 
-      const clips: { element_index: number; clip_url: string }[] = [];
+      const clips: Record<string, unknown>[] = [];
       for (let i = 0; i < takes.length; i++) {
         const t = takes[i];
         setUploadLabel(`Uploading line ${i + 1} of ${takes.length}…`);
@@ -520,7 +532,16 @@ export default function RecordingStudioScreen() {
         const idxStr = String(t.elementIndex).padStart(5, "0");
         const path = `${session.user.id}/${character.script_id}/${characterId}/t${takeNumber}/e${idxStr}.mp4`;
         await uploadClipAsync(path, t.uri, token, (p) => setUploadProgress(p));
-        clips.push({ element_index: t.elementIndex, clip_url: path });
+        const e = edits[t.elementIndex];
+        const clip: Record<string, unknown> = { element_index: t.elementIndex, clip_url: path };
+        // Non-destructive trim/volume metadata (applied at playback).
+        if (e) {
+          if (e.trimStart > 0.05) clip.trim_start = Number(e.trimStart.toFixed(2));
+          if (e.duration && e.trimEnd > 0 && e.trimEnd < e.duration - 0.05)
+            clip.trim_end = Number(e.trimEnd.toFixed(2));
+          if (e.volume !== 1) clip.volume = Number(e.volume.toFixed(2));
+        }
+        clips.push(clip);
       }
 
       setUploadLabel("Saving…");
@@ -661,19 +682,39 @@ export default function RecordingStudioScreen() {
 
             <Text style={s.reviewListTitle}>Your lines</Text>
             {actorRows.map((row) => {
-              const has = clipsRef.current.has(row.elementIndex);
+              const clip = clipsRef.current.get(row.elementIndex);
+              const has = !!clip;
+              const open = editingIdx === row.elementIndex;
               return (
-                <View key={row.elementIndex} style={s.reviewLineRow}>
-                  <View style={[s.reviewLineDot, has ? s.reviewLineDotDone : s.reviewLineDotMissing]}>
-                    <Feather name={has ? "check" : "circle"} size={12} color={has ? colors.green : colors.textMuted} />
+                <View key={row.elementIndex}>
+                  <View style={s.reviewLineRow}>
+                    <View style={[s.reviewLineDot, has ? s.reviewLineDotDone : s.reviewLineDotMissing]}>
+                      <Feather name={has ? "check" : "circle"} size={12} color={has ? colors.green : colors.textMuted} />
+                    </View>
+                    <Text style={s.reviewLineText} numberOfLines={2}>
+                      {row.text}
+                    </Text>
+                    {has && (
+                      <TouchableOpacity
+                        style={s.reRecBtn}
+                        onPress={() => setEditingIdx(open ? null : row.elementIndex)}
+                      >
+                        <Feather name="scissors" size={13} color={colors.primary} />
+                        <Text style={s.reRecText}>{open ? "Close" : "Edit"}</Text>
+                      </TouchableOpacity>
+                    )}
+                    <TouchableOpacity style={s.reRecBtn} onPress={() => reRecordLine(rows.indexOf(row))}>
+                      <Feather name="rotate-ccw" size={13} color={colors.primary} />
+                      <Text style={s.reRecText}>{has ? "Redo" : "Record"}</Text>
+                    </TouchableOpacity>
                   </View>
-                  <Text style={s.reviewLineText} numberOfLines={2}>
-                    {row.text}
-                  </Text>
-                  <TouchableOpacity style={s.reRecBtn} onPress={() => reRecordLine(rows.indexOf(row))}>
-                    <Feather name="rotate-ccw" size={13} color={colors.primary} />
-                    <Text style={s.reRecText}>{has ? "Redo" : "Record"}</Text>
-                  </TouchableOpacity>
+                  {open && clip && (
+                    <ClipEditor
+                      uri={clip.uri}
+                      edit={editFor(row.elementIndex)}
+                      onChange={(patch) => patchEdit(row.elementIndex, patch)}
+                    />
+                  )}
                 </View>
               );
             })}
