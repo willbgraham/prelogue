@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { Roboto_Slab, Courier_Prime } from "next/font/google";
+import { Analytics } from "@vercel/analytics/next";
+import { SiteFooter } from "@/components/SiteFooter";
 import "./globals.css";
 
 const robotoSlab = Roboto_Slab({
@@ -28,7 +30,11 @@ export default function RootLayout({
       lang="en"
       className={`${robotoSlab.variable} ${courierPrime.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-parchment text-ink">{children}</body>
+      <body className="min-h-full flex flex-col bg-parchment text-ink">
+        {children}
+        <SiteFooter />
+        <Analytics />
+      </body>
     </html>
   );
 }
