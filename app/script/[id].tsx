@@ -21,7 +21,7 @@ import { useRequireAuth } from "@/lib/useRequireAuth";
 import { uploadFile } from "@/lib/storage";
 import { SCRIPT_STATUS_LABELS } from "@/lib/constants";
 import { reportContent, blockUser } from "@/lib/moderation";
-import { startScriptUnlock, UNLOCK_PRICE_LABEL } from "@/lib/billing";
+import { UNLOCK_PRICE_LABEL } from "@/lib/billing";
 import { colors, radius, spacing, genreColors } from "@/lib/theme";
 
 export default function ScriptDetailScreen() {
@@ -34,7 +34,6 @@ export default function ScriptDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [posterUploading, setPosterUploading] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [unlocking, setUnlocking] = useState(false);
   const [invites, setInvites] = useState<any[]>([]);
   const [inviteEmail, setInviteEmail] = useState("");
   const [addingInvite, setAddingInvite] = useState(false);
@@ -148,11 +147,8 @@ export default function ScriptDetailScreen() {
     if (next === "private" && !script.full_read_unlocked) {
       Alert.alert(
         "Unlock to go invite-only",
-        `Private, invite-only sharing is included when you unlock this script's full read (${UNLOCK_PRICE_LABEL}).`,
-        [
-          { text: "Not now", style: "cancel" },
-          { text: `Unlock ${UNLOCK_PRICE_LABEL}`, onPress: unlock },
-        ]
+        `Invite-only sharing is included once you unlock this script's full read (${UNLOCK_PRICE_LABEL}, one-time) from your account at prelogue.studio.`,
+        [{ text: "OK" }]
       );
       return;
     }
@@ -164,37 +160,6 @@ export default function ScriptDetailScreen() {
       return;
     }
     setScript({ ...script, visibility: next });
-  }
-
-  async function unlock() {
-    setUnlocking(true);
-    const res = await startScriptUnlock(script.id);
-    if (!res.ok) {
-      setUnlocking(false);
-      Alert.alert("Couldn't start checkout", res.error ?? "Please try again.");
-      return;
-    }
-    // The browser has closed. The webhook flips the flag server-side, which can
-    // lag a beat — poll the script a few times to pick it up.
-    for (let i = 0; i < 5; i++) {
-      const { data } = await supabase
-        .from("scripts")
-        .select("full_read_unlocked, unlocked_at")
-        .eq("id", script.id)
-        .single();
-      if (data?.full_read_unlocked) {
-        setScript((s: any) => ({ ...s, ...data }));
-        setUnlocking(false);
-        Alert.alert("Unlocked!", "Your full AI read and invite-only sharing are ready.");
-        return;
-      }
-      await new Promise((r) => setTimeout(r, 2000));
-    }
-    setUnlocking(false);
-    Alert.alert(
-      "Finishing up",
-      "If you completed payment, your unlock will appear in a moment — pull down to refresh."
-    );
   }
 
   async function addInvite() {
@@ -424,29 +389,14 @@ export default function ScriptDetailScreen() {
             {!script.full_read_unlocked ? (
               <View style={s.unlockCard}>
                 <View style={s.unlockHead}>
-                  <Feather name="unlock" size={16} color={colors.primary} />
-                  <Text style={s.unlockTitle}>Unlock the full read</Text>
+                  <Feather name="lock" size={16} color={colors.primary} />
+                  <Text style={s.unlockTitle}>Full read locked</Text>
                 </View>
                 <Text style={s.unlockBody}>
-                  Listeners currently hear a short free preview. Unlock to voice the
-                  entire script with full narration, and to share it privately,
-                  invite-only. One-time — yours forever.
+                  Listeners currently hear a short free preview. Unlock the full AI
+                  read with narration — plus invite-only sharing — for this script
+                  ({UNLOCK_PRICE_LABEL}, one-time) from your account at prelogue.studio.
                 </Text>
-                <TouchableOpacity
-                  style={[s.unlockBtn, unlocking && { opacity: 0.7 }]}
-                  onPress={unlock}
-                  disabled={unlocking}
-                  activeOpacity={0.85}
-                >
-                  {unlocking ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <>
-                      <Feather name="zap" size={15} color="#fff" />
-                      <Text style={s.unlockBtnText}>Unlock full read · {UNLOCK_PRICE_LABEL}</Text>
-                    </>
-                  )}
-                </TouchableOpacity>
               </View>
             ) : (
               <View style={s.unlockedRow}>
