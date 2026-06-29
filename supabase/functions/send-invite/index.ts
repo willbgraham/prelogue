@@ -6,10 +6,10 @@ const corsHeaders = {
 };
 
 // Set these as Supabase function secrets to enable real invite emails:
-//   RESEND_API_KEY  — from https://resend.com (verify the prelogue.studio domain)
-//   INVITE_FROM     — e.g. "Prelogue <invites@prelogue.studio>"
+//   RESEND_API_KEY  — from https://resend.com
+//   INVITE_FROM     — must be on a Resend-verified domain (send.prelogue.studio)
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
-const INVITE_FROM = Deno.env.get("INVITE_FROM") ?? "Prelogue <invites@prelogue.studio>";
+const INVITE_FROM = Deno.env.get("INVITE_FROM") ?? "Prelogue <invites@send.prelogue.studio>";
 const SITE = "https://prelogue.studio";
 
 function json(obj: unknown, status = 200) {
