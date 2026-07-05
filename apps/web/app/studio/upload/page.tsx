@@ -70,7 +70,13 @@ export default function UploadPage() {
     } catch (e) {
       setBusy(false);
       setStatus("");
-      setError(e instanceof Error ? e.message : "Upload failed.");
+      // Supabase Storage/Postgrest errors aren't `Error` instances — pull the
+      // message off whatever shape we got so the real reason shows.
+      const msg =
+        (e as { message?: string; error?: string } | null)?.message ||
+        (e as { error?: string } | null)?.error ||
+        "Upload failed — please try again.";
+      setError(msg);
     }
   }
 
