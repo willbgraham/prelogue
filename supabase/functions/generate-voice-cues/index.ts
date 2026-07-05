@@ -267,11 +267,23 @@ Deno.serve(async (req) => {
       entries.length = FREE_PREVIEW_LIMIT;
     }
 
-    // Config hash over only the output-affecting fields (canonical/sorted).
+    // Content digest over the ordered audible stream (index/type/character/text)
+    // so ANY line edit — reassign, reorder, merge, split, text change, delete —
+    // produces a new manifest key. Without this the manifest keyed only on the
+    // voice config, so editing parsed_json would replay stale audio against the
+    // new lines. Per-line audio is still content-addressed, so unchanged lines
+    // are reused; only genuinely changed lines regenerate.
+    const contentDigest = (
+      await sha1(
+        entries.map((e) => `${e.element_index}|${e.type}|${e.character ?? ""}|${e.text}`).join("\n")
+      )
+    ).slice(0, 16);
+
+    // Config hash over the output-affecting fields (canonical/sorted) + content.
     const hashInput =
       mode === "single"
-        ? { mode, single_voice_id: singleVoiceId }
-        : { mode, narrator_voice_id: narratorVoiceId, characters: effChars };
+        ? { mode, single_voice_id: singleVoiceId, content: contentDigest }
+        : { mode, narrator_voice_id: narratorVoiceId, characters: effChars, content: contentDigest };
     const voiceConfigHash = (await sha1(canonical(hashInput))).slice(0, 16);
     const manifestPath = `voice-cues/script/${script_id}/${voiceConfigHash}/manifest.json`;
 

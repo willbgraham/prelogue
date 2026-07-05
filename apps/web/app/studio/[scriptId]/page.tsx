@@ -137,6 +137,25 @@ export default function CastingPage() {
       </Link>
       <h1 className="mt-6 font-slab text-3xl">Casting · {title}</h1>
 
+      {/* Script lines / parse fixes */}
+      <section className="mt-8 rounded-xl border border-tan bg-ivory p-5">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="font-slab text-lg">Script &amp; lines</h2>
+            <p className="mt-1 text-sm text-taupe">
+              Fix anything the parser mis-read — move a line to the right character, merge or split lines, edit the text, or
+              remove stray content.
+            </p>
+          </div>
+          <Link
+            href={`/studio/${scriptId}/lines`}
+            className="shrink-0 rounded-lg border border-brick px-4 py-2 text-sm font-medium text-brick hover:bg-brick/5"
+          >
+            Edit lines →
+          </Link>
+        </div>
+      </section>
+
       {/* AI voices */}
       <section className="mt-8 rounded-xl border border-tan bg-ivory p-5">
         <div className="flex items-center justify-between gap-3">
