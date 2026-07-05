@@ -129,22 +129,31 @@ export default function UploadScriptScreen() {
       // No expiration — set far-future deadline
       const deadline = new Date("2099-12-31");
 
-      const { data: scriptData, error: insertError } = await supabase
-        .from("scripts")
-        .insert({
-          writer_id: session.user.id,
-          title: title.trim(),
-          genre,
-          logline: logline.trim(),
-          file_url: storagePath,
-          cover_image_url: coverImageUrl,
-          status: "open",
-          submission_deadline: deadline.toISOString(),
-        })
-        .select()
-        .single();
-
+      const { error: insertError } = await supabase.from("scripts").insert({
+        writer_id: session.user.id,
+        title: title.trim(),
+        genre,
+        logline: logline.trim(),
+        file_url: storagePath,
+        cover_image_url: coverImageUrl,
+        status: "open",
+        submission_deadline: deadline.toISOString(),
+      });
       if (insertError) throw insertError;
+
+      // Read the new row's id in a SEPARATE statement. A RETURNING (.select() on
+      // the insert) re-runs the private-view-guard SELECT policy against the
+      // not-yet-visible new row and fails ("new row violates ... policy"); a
+      // follow-up select sees the committed row. file_url is unique per upload.
+      const { data: scriptData, error: selectError } = await supabase
+        .from("scripts")
+        .select("id")
+        .eq("writer_id", session.user.id)
+        .eq("file_url", storagePath)
+        .single();
+      if (selectError || !scriptData) {
+        throw selectError ?? new Error("Could not load the saved script.");
+      }
 
       // Record the rights attestation + any copyright doc/registration
       // (best-effort; harmless no-op if those columns haven't been added yet).

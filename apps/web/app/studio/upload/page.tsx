@@ -48,25 +48,26 @@ export default function UploadPage() {
       if (up.error) throw up.error;
 
       setStatus("Saving script…");
-      const { data: script, error: insErr } = await supabase
-        .from("scripts")
-        .insert({
-          writer_id: user.id,
-          title: title.trim(),
-          genre,
-          logline: logline.trim(),
-          file_url: path,
-          status: "open",
-          submission_deadline: "2099-12-31",
-        })
-        .select("id")
-        .single();
+      // Generate the id client-side so we don't need INSERT…RETURNING — a
+      // read-after-insert would re-run the private-view-guard SELECT policy
+      // against the not-yet-visible new row and fail.
+      const scriptId = crypto.randomUUID();
+      const { error: insErr } = await supabase.from("scripts").insert({
+        id: scriptId,
+        writer_id: user.id,
+        title: title.trim(),
+        genre,
+        logline: logline.trim(),
+        file_url: path,
+        status: "open",
+        submission_deadline: "2099-12-31",
+      });
       if (insErr) throw insErr;
 
       setStatus("Parsing the screenplay…");
-      await supabase.functions.invoke("parse-script", { body: { script_id: script.id } });
+      await supabase.functions.invoke("parse-script", { body: { script_id: scriptId } });
 
-      router.push(`/script/${script.id}`);
+      router.push(`/script/${scriptId}`);
     } catch (e) {
       setBusy(false);
       setStatus("");
