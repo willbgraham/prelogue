@@ -96,15 +96,11 @@ export default async function DiscoverPage() {
                   href={`/script/${s.slug ?? s.id}`}
                   className="flex gap-4 rounded-xl border border-tan bg-ivory p-4 transition-colors hover:bg-elevated"
                 >
-                  <div className="relative h-32 w-[5.5rem] shrink-0 overflow-hidden rounded-lg border border-tan bg-elevated">
-                    {s.cover_image_url ? (
+                  {s.cover_image_url && (
+                    <div className="relative h-32 w-[5.5rem] shrink-0 overflow-hidden rounded-lg border border-tan bg-elevated">
                       <Image src={s.cover_image_url} alt="" fill sizes="88px" className="object-cover" />
-                    ) : (
-                      <span className="flex h-full w-full items-center justify-center px-1 text-center text-[10px] text-muted">
-                        No poster
-                      </span>
-                    )}
-                  </div>
+                    </div>
+                  )}
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-1.5">
                       <span className="text-xs font-medium text-brick">{s.genre}</span>
