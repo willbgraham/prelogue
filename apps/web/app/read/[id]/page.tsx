@@ -12,6 +12,7 @@ type ReadScript = {
   title: string;
   logline: string;
   genre: string;
+  writer_id: string;
   parsed_json: ParsedScript | null;
   voice_config: VoiceConfig | null;
 };
@@ -37,7 +38,7 @@ export default async function ReadPage({ params }: { params: Promise<{ id: strin
   const { data: read } = await supabase
     .from("assembled_reads")
     .select(
-      "id, script_id, scripts(id, slug, title, logline, genre, parsed_json, voice_config)"
+      "id, script_id, scripts(id, slug, title, logline, genre, writer_id, parsed_json, voice_config)"
     )
     .eq("id", id)
     .single();
@@ -73,7 +74,7 @@ export default async function ReadPage({ params }: { params: Promise<{ id: strin
 
       <section className="mt-10">
         <h2 className="font-slab text-lg">Comments</h2>
-        <ReadComments readId={id} />
+        <ReadComments readId={id} writerId={script.writer_id} />
       </section>
     </main>
   );

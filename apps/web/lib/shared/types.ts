@@ -45,6 +45,9 @@ export interface Script {
   age_rating?: string | null;
   /** Copyright / WGA registration, shown on the script page. */
   copyright_reg_number?: string | null;
+  /** Denormalized 1–5 star aggregate (trigger-maintained). */
+  rating_avg?: number | null;
+  rating_count?: number | null;
   submission_deadline: string;
   created_at: string;
   // Joined

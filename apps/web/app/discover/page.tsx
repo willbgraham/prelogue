@@ -24,7 +24,7 @@ export default async function DiscoverPage() {
   const [{ data: scriptRows }, { data: actorRows }, { data: readRows }] = await Promise.all([
     supabase
       .from("scripts")
-      .select("id, slug, title, logline, genre, visibility, cover_image_url, listing_status")
+      .select("id, slug, title, logline, genre, visibility, cover_image_url, listing_status, rating_avg, rating_count")
       .eq("status", "open")
       .order("created_at", { ascending: false })
       .limit(60),
@@ -108,6 +108,9 @@ export default async function DiscoverPage() {
                         <span className="rounded-full border border-brick/25 bg-brick/5 px-2 py-0.5 text-[10px] font-medium text-brick">
                           {statusLabel}
                         </span>
+                      )}
+                      {(s.rating_count ?? 0) > 0 && (
+                        <span className="text-xs text-muted">★ {Number(s.rating_avg).toFixed(1)}</span>
                       )}
                     </div>
                     <div className="mt-1 font-slab text-xl leading-tight">{s.title}</div>

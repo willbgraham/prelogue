@@ -8,6 +8,8 @@ import { OwnerPanel } from "@/components/OwnerPanel";
 import { ShareButton } from "@/components/ShareButton";
 import { ReadForRole } from "@/components/ReadForRole";
 import { SiteHeader } from "@/components/SiteHeader";
+import { StarRating } from "@/components/StarRating";
+import { DeleteScriptButton } from "@/components/DeleteScriptButton";
 import type { Script, Character } from "@/lib/shared";
 import { labelOf, LISTING_STATUSES, FORMATS, AGE_RATINGS } from "@/lib/constants";
 
@@ -44,7 +46,7 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
   const { data: script } = await supabase
     .from("scripts")
     .select(
-      "id, slug, title, logline, genre, visibility, full_read_unlocked, parsed_json, voice_config, writer_id, cover_image_url, synopsis, more_details, listing_status, format, page_count, age_rating, copyright_reg_number"
+      "id, slug, title, logline, genre, visibility, full_read_unlocked, parsed_json, voice_config, writer_id, cover_image_url, synopsis, more_details, listing_status, format, page_count, age_rating, copyright_reg_number, rating_avg, rating_count"
     )
     .eq(scriptCol(id), id)
     .single();
@@ -141,6 +143,14 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
         <p className="mt-5 whitespace-pre-line leading-relaxed text-ink/90">{s.synopsis}</p>
       )}
 
+      <div className="mt-4">
+        <StarRating
+          scriptId={s.id}
+          initialAvg={Number(s.rating_avg ?? 0)}
+          initialCount={s.rating_count ?? 0}
+        />
+      </div>
+
       {user?.id === s.writer_id && (
         <div className="mt-6">
           <div className="flex flex-wrap gap-2">
@@ -169,6 +179,9 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
             initialVisibility={(s.visibility ?? "public") as "public" | "hidden" | "private"}
             unlocked={!!s.full_read_unlocked}
           />
+          <div className="mt-4 flex justify-end">
+            <DeleteScriptButton scriptId={s.id} title={s.title} />
+          </div>
         </div>
       )}
 
