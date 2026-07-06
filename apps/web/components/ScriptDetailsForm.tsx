@@ -16,6 +16,7 @@ export type ScriptDetailsValues = {
   age_rating?: string | null;
   listing_status?: string | null;
   more_details?: string | null;
+  copyright_reg_number?: string | null;
 };
 
 /**
@@ -165,6 +166,20 @@ export function ScriptDetailsForm({
           placeholder="Accolades, coverage, comps, what you're looking for (a manager, financing, a director)…"
           className={input}
         />
+      </label>
+
+      {/* Copyright / registration */}
+      <label className="flex flex-col gap-1">
+        <span className={label}>Copyright / WGA registration</span>
+        <input
+          value={values.copyright_reg_number ?? ""}
+          onChange={(e) => onChange({ copyright_reg_number: e.target.value })}
+          placeholder="e.g. WGAw #2145367 · © 2026 Your Name"
+          className={input}
+        />
+        <span className="text-xs text-muted">
+          Shown on your script page — producers look for this before reading.
+        </span>
       </label>
     </div>
   );

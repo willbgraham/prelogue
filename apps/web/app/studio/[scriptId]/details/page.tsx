@@ -40,7 +40,7 @@ export default function ScriptDetailsPage() {
     const { data: s } = await supabase
       .from("scripts")
       .select(
-        "title, genre, logline, writer_id, cover_image_url, synopsis, more_details, format, age_rating, listing_status, page_count"
+        "title, genre, logline, writer_id, cover_image_url, synopsis, more_details, format, age_rating, listing_status, page_count, copyright_reg_number"
       )
       .eq("id", scriptId)
       .single();
@@ -59,6 +59,7 @@ export default function ScriptDetailsPage() {
       format: s.format,
       age_rating: s.age_rating,
       listing_status: s.listing_status,
+      copyright_reg_number: s.copyright_reg_number,
     });
     setLoading(false);
   }, [scriptId, router, supabase]);
@@ -90,6 +91,7 @@ export default function ScriptDetailsPage() {
           format: details.format || null,
           age_rating: details.age_rating || null,
           listing_status: details.listing_status || null,
+          copyright_reg_number: details.copyright_reg_number?.trim() || null,
           page_count: pc,
         })
         .eq("id", scriptId);

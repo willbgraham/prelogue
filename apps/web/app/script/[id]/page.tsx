@@ -44,7 +44,7 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
   const { data: script } = await supabase
     .from("scripts")
     .select(
-      "id, slug, title, logline, genre, visibility, full_read_unlocked, parsed_json, voice_config, writer_id, cover_image_url, synopsis, more_details, listing_status, format, page_count, age_rating"
+      "id, slug, title, logline, genre, visibility, full_read_unlocked, parsed_json, voice_config, writer_id, cover_image_url, synopsis, more_details, listing_status, format, page_count, age_rating, copyright_reg_number"
     )
     .eq(scriptCol(id), id)
     .single();
@@ -129,11 +129,47 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
               {ageLabel && <span>Rated {ageLabel}</span>}
             </div>
           )}
+          {s.copyright_reg_number && (
+            <div className="mt-2 text-xs text-muted">
+              <span className="font-medium">Copyright:</span> {s.copyright_reg_number}
+            </div>
+          )}
         </div>
       </div>
 
       {s.synopsis && (
         <p className="mt-5 whitespace-pre-line leading-relaxed text-ink/90">{s.synopsis}</p>
+      )}
+
+      {user?.id === s.writer_id && (
+        <div className="mt-6">
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href={`/studio/${s.id}/details`}
+              className="rounded-lg border border-brick px-4 py-2 text-sm font-medium text-brick hover:bg-brick/5"
+            >
+              Edit details →
+            </Link>
+            <Link
+              href={`/studio/${s.id}/lines`}
+              className="rounded-lg border border-brick px-4 py-2 text-sm font-medium text-brick hover:bg-brick/5"
+            >
+              ✏️ Edit lines →
+            </Link>
+            <Link
+              href={`/studio/${s.id}`}
+              className="rounded-lg border border-tan px-4 py-2 text-sm font-medium text-taupe hover:bg-elevated"
+            >
+              Manage casting &amp; voices →
+            </Link>
+          </div>
+          <OwnerUnlock scriptId={s.id} unlocked={!!s.full_read_unlocked} />
+          <OwnerPanel
+            scriptId={s.id}
+            initialVisibility={(s.visibility ?? "public") as "public" | "hidden" | "private"}
+            unlocked={!!s.full_read_unlocked}
+          />
+        </div>
       )}
 
       <div className="mt-6">
@@ -159,42 +195,6 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
           <h2 className="font-slab text-lg">More details</h2>
           <p className="mt-2 whitespace-pre-line leading-relaxed text-ink/90">{s.more_details}</p>
         </div>
-      )}
-
-      {user?.id === (script as Script).writer_id && (
-        <>
-          <div className="mt-8 flex flex-wrap gap-3">
-            <Link
-              href={`/studio/${(script as Script).id}/details`}
-              className="inline-flex items-center gap-2 rounded-xl border border-tan px-5 py-3 font-medium text-taupe hover:bg-ivory"
-            >
-              Edit details →
-            </Link>
-            <Link
-              href={`/studio/${(script as Script).id}/lines`}
-              className="inline-flex items-center gap-2 rounded-xl border border-brick px-5 py-3 font-medium text-brick hover:bg-brick/5"
-            >
-              ✏️ Edit lines →
-            </Link>
-            <Link
-              href={`/studio/${(script as Script).id}`}
-              className="inline-flex items-center gap-2 rounded-xl border border-tan px-5 py-3 font-medium text-taupe hover:bg-ivory"
-            >
-              Manage casting &amp; voices →
-            </Link>
-          </div>
-          <OwnerUnlock
-            scriptId={(script as Script).id}
-            unlocked={!!(script as Script).full_read_unlocked}
-          />
-          <OwnerPanel
-            scriptId={(script as Script).id}
-            initialVisibility={
-              ((script as Script).visibility ?? "public") as "public" | "hidden" | "private"
-            }
-            unlocked={!!(script as Script).full_read_unlocked}
-          />
-        </>
       )}
     </main>
   );

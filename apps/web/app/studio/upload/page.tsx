@@ -69,6 +69,9 @@ export default function UploadPage() {
         ...(details.format ? { format: details.format } : {}),
         ...(details.age_rating ? { age_rating: details.age_rating } : {}),
         ...(details.listing_status ? { listing_status: details.listing_status } : {}),
+        ...(details.copyright_reg_number?.trim()
+          ? { copyright_reg_number: details.copyright_reg_number.trim() }
+          : {}),
       });
       if (insErr) throw insErr;
 

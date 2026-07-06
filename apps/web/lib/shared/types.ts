@@ -43,6 +43,8 @@ export interface Script {
   page_count?: number | null;
   /** everyone | 13 | 17 — see AGE_RATINGS. */
   age_rating?: string | null;
+  /** Copyright / WGA registration, shown on the script page. */
+  copyright_reg_number?: string | null;
   submission_deadline: string;
   created_at: string;
   // Joined
