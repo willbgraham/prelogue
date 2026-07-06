@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { getBrowserClient } from "@/lib/supabase/client";
 import { GENRES } from "@/lib/constants";
 import { useRoles } from "@/lib/useRoles";
+import { ScriptDetailsForm, type ScriptDetailsValues } from "@/components/ScriptDetailsForm";
 
 const input =
   "w-full rounded-lg border border-tan bg-elevated px-4 py-3 outline-none focus:border-brick";
@@ -21,6 +22,7 @@ export default function UploadPage() {
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string>("");
   const [busy, setBusy] = useState(false);
+  const [details, setDetails] = useState<ScriptDetailsValues>({});
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -61,6 +63,12 @@ export default function UploadPage() {
         file_url: path,
         status: "open",
         submission_deadline: "2099-12-31",
+        ...(details.cover_image_url ? { cover_image_url: details.cover_image_url } : {}),
+        ...(details.synopsis?.trim() ? { synopsis: details.synopsis.trim() } : {}),
+        ...(details.more_details?.trim() ? { more_details: details.more_details.trim() } : {}),
+        ...(details.format ? { format: details.format } : {}),
+        ...(details.age_rating ? { age_rating: details.age_rating } : {}),
+        ...(details.listing_status ? { listing_status: details.listing_status } : {}),
       });
       if (insErr) throw insErr;
 
@@ -134,6 +142,22 @@ export default function UploadPage() {
             className={input}
           />
         </label>
+        <div className="mt-1 border-t border-tan pt-5">
+          <div className="text-sm font-medium">
+            Listing details <span className="font-normal text-muted">(optional — you can edit these anytime)</span>
+          </div>
+          <p className="mt-1 text-xs text-muted">
+            A poster, synopsis, and status help your script stand out in Discover.
+          </p>
+        </div>
+        {userId && (
+          <ScriptDetailsForm
+            userId={userId}
+            values={details}
+            onChange={(patch) => setDetails((v) => ({ ...v, ...patch }))}
+          />
+        )}
+
         <label className="flex flex-col gap-1">
           <span className={label}>Screenplay PDF</span>
           <input

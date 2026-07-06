@@ -31,7 +31,7 @@ const ALL_CAPS_RE = /^[A-Z][A-Z\s.'-]+$/;
  * whenever `hasEOL` is set or the y-coordinate shifts. Large vertical gaps
  * become blank lines (block separators) so dialogue blocks end correctly.
  */
-async function extractLines(data: Uint8Array): Promise<string[]> {
+async function extractLines(data: Uint8Array): Promise<{ lines: string[]; numPages: number }> {
   const pdf = await getDocumentProxy(data);
   const out: string[] = [];
 
@@ -79,7 +79,7 @@ async function extractLines(data: Uint8Array): Promise<string[]> {
     }
     out.push(""); // page boundary
   }
-  return out;
+  return { lines: out, numPages: pdf.numPages };
 }
 
 Deno.serve(async (req) => {
@@ -126,7 +126,7 @@ Deno.serve(async (req) => {
     }
 
     const arrayBuffer = await fileData.arrayBuffer();
-    const lines = await extractLines(new Uint8Array(arrayBuffer));
+    const { lines, numPages } = await extractLines(new Uint8Array(arrayBuffer));
 
     // -----------------------------------------------------------------------
     // First pass: identify character names (ALL CAPS cue lines appearing 2+
@@ -309,6 +309,10 @@ Deno.serve(async (req) => {
     const parsedJson = { scenes, characters: parsedCharacters };
 
     await supabase.from("scripts").update({ parsed_json: parsedJson }).eq("id", script_id);
+    // Best-effort page count in a SEPARATE statement, so a missing column (e.g.
+    // before the listing-metadata migration runs) can't block the critical
+    // parsed_json write. The returned error is intentionally ignored.
+    await supabase.from("scripts").update({ page_count: numPages }).eq("id", script_id);
 
     // Idempotent, non-destructive character insert (don't delete — that would
     // cascade-delete actor submissions).

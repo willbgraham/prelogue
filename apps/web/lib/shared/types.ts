@@ -34,6 +34,15 @@ export interface Script {
   full_read_unlocked?: boolean;
   unlocked_at?: string | null;
   cover_image_url?: string | null;
+  synopsis?: string | null;
+  more_details?: string | null;
+  /** Sale/availability status — see LISTING_STATUSES (distinct from `status`). */
+  listing_status?: string | null;
+  /** Feature | tv_pilot | web_series | short | episode — see FORMATS. */
+  format?: string | null;
+  page_count?: number | null;
+  /** everyone | 13 | 17 — see AGE_RATINGS. */
+  age_rating?: string | null;
   submission_deadline: string;
   created_at: string;
   // Joined

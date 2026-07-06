@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
 import { SiteHeader } from "@/components/SiteHeader";
 import type { Script } from "@/lib/shared";
+import { labelOf, LISTING_STATUSES } from "@/lib/constants";
 
 export const metadata: Metadata = {
   title: "Discover — Prelogue",
@@ -23,7 +24,7 @@ export default async function DiscoverPage() {
   const [{ data: scriptRows }, { data: actorRows }, { data: readRows }] = await Promise.all([
     supabase
       .from("scripts")
-      .select("id, slug, title, logline, genre, visibility")
+      .select("id, slug, title, logline, genre, visibility, cover_image_url, listing_status")
       .eq("status", "open")
       .order("created_at", { ascending: false })
       .limit(60),
@@ -87,17 +88,38 @@ export default async function DiscoverPage() {
         <section>
           <h2 className="font-slab text-lg">Open scripts</h2>
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            {scripts.map((s) => (
-              <Link
-                key={s.id}
-                href={`/script/${s.slug ?? s.id}`}
-                className="rounded-xl border border-tan bg-ivory p-5 transition-colors hover:bg-elevated"
-              >
-                <div className="text-xs font-medium text-brick">{s.genre}</div>
-                <div className="mt-1 font-slab text-xl">{s.title}</div>
-                <p className="mt-1 line-clamp-2 text-sm text-taupe">{s.logline}</p>
-              </Link>
-            ))}
+            {scripts.map((s) => {
+              const statusLabel = labelOf(LISTING_STATUSES, s.listing_status);
+              return (
+                <Link
+                  key={s.id}
+                  href={`/script/${s.slug ?? s.id}`}
+                  className="flex gap-4 rounded-xl border border-tan bg-ivory p-4 transition-colors hover:bg-elevated"
+                >
+                  <div className="relative h-32 w-[5.5rem] shrink-0 overflow-hidden rounded-lg border border-tan bg-elevated">
+                    {s.cover_image_url ? (
+                      <Image src={s.cover_image_url} alt="" fill sizes="88px" className="object-cover" />
+                    ) : (
+                      <span className="flex h-full w-full items-center justify-center px-1 text-center text-[10px] text-muted">
+                        No poster
+                      </span>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-xs font-medium text-brick">{s.genre}</span>
+                      {statusLabel && (
+                        <span className="rounded-full border border-brick/25 bg-brick/5 px-2 py-0.5 text-[10px] font-medium text-brick">
+                          {statusLabel}
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-1 font-slab text-xl leading-tight">{s.title}</div>
+                    <p className="mt-1 line-clamp-3 text-sm text-taupe">{s.logline}</p>
+                  </div>
+                </Link>
+              );
+            })}
             {scripts.length === 0 && (
               <p className="text-muted">No open scripts yet — check back soon.</p>
             )}
