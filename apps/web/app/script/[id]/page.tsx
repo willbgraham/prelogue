@@ -200,6 +200,7 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
             (script as Script).slug === "booth-nine" ||
             user?.id === (script as Script).writer_id
           }
+          isOwner={user?.id === (script as Script).writer_id}
         />
       </div>
 

@@ -53,12 +53,15 @@ export function TableReadPlayer({
   parsed,
   voiceConfig,
   canChangeVoices = false,
+  isOwner = false,
 }: {
   scriptId: string;
   parsed: ParsedScript | null;
   voiceConfig?: VoiceConfig | null;
   // Only the writer (or the public demo) may re-cast the AI voices.
   canChangeVoices?: boolean;
+  // The writer: their voice picks persist to scripts.voice_config (survive refresh).
+  isOwner?: boolean;
 }) {
   const rows = useMemo(() => buildRows(parsed), [parsed]);
   const characters = useMemo(() => {
@@ -352,6 +355,19 @@ export function TableReadPlayer({
         return;
       }
       overrideRef.current = cfg;
+      // The writer's picks ARE the script's real config — persist them so they
+      // survive a refresh (RLS also restricts this to the owner). Visitors on the
+      // public demo keep a temporary in-memory override only.
+      if (isOwner) {
+        getBrowserClient()
+          .from("scripts")
+          .update({ voice_config: cfg })
+          .eq("id", scriptId)
+          .then(
+            () => {},
+            () => {}
+          );
+      }
       stop();
       activeRef.current = 0;
       setActive(0);
@@ -364,7 +380,7 @@ export function TableReadPlayer({
       setPlaying(true);
       playRow(0);
     },
-    [ensureReady, playRow, stop]
+    [ensureReady, playRow, stop, isOwner, scriptId]
   );
 
   const handlePlay = useCallback(async () => {
