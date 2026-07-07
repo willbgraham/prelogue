@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { getBrowserClient } from "@/lib/supabase/client";
+import { VoicePicker } from "@/components/VoicePicker";
+import type { VoiceConfig } from "@/lib/shared";
 
 type Render = {
   id: string;
@@ -35,6 +37,7 @@ export default function AdminRendersPage() {
   const [urls, setUrls] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [voiceEdit, setVoiceEdit] = useState<{ render: Render; characters: string[]; config: VoiceConfig } | null>(null);
 
   const load = useCallback(async () => {
     const {
@@ -81,6 +84,35 @@ export default function AdminRendersPage() {
   const generateNow = () => dispatch({ action: "generate" }, "gen", "Generating a new scene — refresh in a couple of minutes.");
   const reRender = (r: Render) =>
     dispatch({ action: "render", script_id: r.script_id, variant: r.variant }, r.id, "Re-rendering — refresh shortly.");
+
+  async function openVoices(r: Render) {
+    setBusy(`${r.id}:voices`);
+    setNote(null);
+    const [{ data: script }, { data: chars }] = await Promise.all([
+      supabase.from("scripts").select("voice_config").eq("id", r.script_id).single(),
+      supabase.from("characters").select("name").eq("script_id", r.script_id).order("name"),
+    ]);
+    setBusy(null);
+    const config = (script?.voice_config as VoiceConfig | null) ?? {
+      mode: "per_character",
+      single_voice_id: null,
+      narrator_voice_id: null,
+      characters: {},
+    };
+    let names = (chars ?? []).map((c: { name: string }) => c.name);
+    if (!names.length) names = Object.keys(config.characters ?? {});
+    setVoiceEdit({ render: r, characters: names, config });
+  }
+  function applyVoices(cfg: VoiceConfig) {
+    if (!voiceEdit) return;
+    const r = voiceEdit.render;
+    setVoiceEdit(null);
+    dispatch(
+      { action: "render", script_id: r.script_id, variant: r.variant, voice_config: cfg },
+      r.id,
+      "Voices saved — re-rendering with the new cast. Refresh in a couple of minutes.",
+    );
+  }
 
   async function markPosted(r: Render) {
     await supabase.from("daily_renders").update({ status: "posted" }).eq("id", r.id);
@@ -161,6 +193,9 @@ export default function AdminRendersPage() {
                 <button onClick={() => reRender(r)} disabled={busy === r.id} className="rounded-lg border border-tan px-3 py-1.5 text-xs font-medium text-taupe hover:bg-elevated disabled:opacity-60">
                   {busy === r.id ? "…" : "↻ Re-render"}
                 </button>
+                <button onClick={() => openVoices(r)} disabled={busy === `${r.id}:voices`} className="rounded-lg border border-tan px-3 py-1.5 text-xs font-medium text-taupe hover:bg-elevated disabled:opacity-60">
+                  {busy === `${r.id}:voices` ? "…" : "🎙 Change voices"}
+                </button>
                 {r.status !== "posted" && (
                   <button onClick={() => markPosted(r)} className="rounded-lg border border-tan px-3 py-1.5 text-xs font-medium text-taupe hover:bg-elevated">
                     Mark posted
@@ -177,6 +212,15 @@ export default function AdminRendersPage() {
           <p className="text-muted">No renders yet — hit “Generate now,” or wait for the daily cron.</p>
         )}
       </div>
+
+      {voiceEdit && (
+        <VoicePicker
+          characters={voiceEdit.characters}
+          startConfig={voiceEdit.config}
+          onApply={(cfg) => applyVoices(cfg)}
+          onClose={() => setVoiceEdit(null)}
+        />
+      )}
     </main>
   );
 }
