@@ -155,10 +155,11 @@ Deno.serve(async (req) => {
       status = "rejected";
       meta = { scores: worst, reasons, clips: clips.length, verified: scored.length, at };
     } else if (errors.length) {
-      // Couldn't fully verify + nothing flagged → FAIL OPEN (stay visible) but record
-      // the flag + SightEngine's error so the real video-check cause can be fixed.
-      status = "approved";
-      meta = { verification: "failed_open", errors: errors.slice(0, 6), verified: scored.length, clips: clips.length, at };
+      // Couldn't auto-verify (e.g. SightEngine video isn't on the current plan) → hold
+      // for MANUAL review in the admin moderation queue. Not auto-approved, and not
+      // hidden forever — the queue surfaces every pending read for a human to decide.
+      status = "pending";
+      meta = { verification: "manual_review", errors: errors.slice(0, 6), verified: scored.length, clips: clips.length, at };
     } else {
       status = "approved";
       meta = { scores: worst, reasons: [], clips: clips.length, at };

@@ -105,7 +105,12 @@ export default function AdminLivePage() {
 
   return (
     <main className="mx-auto w-full max-w-5xl px-6 py-10">
-      <h1 className="font-slab text-3xl">Live readings</h1>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+        <Link href="/admin/moderation" className="text-taupe hover:text-brick">Moderation</Link>
+        <Link href="/admin/live" className="font-medium text-brick">Live readings</Link>
+        <Link href="/admin/renders" className="text-taupe hover:text-brick">Daily renders</Link>
+      </div>
+      <h1 className="mt-5 font-slab text-3xl">Live readings</h1>
       <p className="mt-1 text-sm text-taupe">
         Every scheduled reading. Import the Zoom recording, publish it to the Prelogue YouTube, and manage status.
       </p>
