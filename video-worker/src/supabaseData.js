@@ -1,3 +1,13 @@
+// @supabase/supabase-js (realtime) needs a global WebSocket; Node < 22 has none,
+// so polyfill from `ws` to run on the GitHub Actions Node 20 runner. On Node 22+
+// (native WebSocket) this is a no-op.
+if (typeof globalThis.WebSocket === "undefined") {
+  try {
+    globalThis.WebSocket = require("ws");
+  } catch (_) {
+    /* native WebSocket present */
+  }
+}
 const { createClient } = require("@supabase/supabase-js");
 
 // Service-role data access for the render pipeline (reads private buckets, signs
