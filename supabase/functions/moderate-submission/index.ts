@@ -54,9 +54,10 @@ function scoreFrames(frames: Record<string, any>[]): Scores {
   return out;
 }
 
-// Returns the clip's scores, or null if SightEngine couldn't be reached / errored
-// (caller treats null as "couldn't verify" → fail closed, stays hidden).
-async function checkClip(url: string): Promise<Scores | null> {
+// Screens one clip. Returns { scores } when SightEngine verified it, or { error }
+// with the reason it couldn't — so the caller can fail OPEN and record why.
+type ClipResult = { scores?: Scores; error?: string };
+async function checkClip(url: string): Promise<ClipResult> {
   const params = new URLSearchParams({
     stream_url: url,
     models: MODELS,
@@ -66,10 +67,13 @@ async function checkClip(url: string): Promise<Scores | null> {
   try {
     const r = await fetch(`https://api.sightengine.com/1.0/video/check-sync.json?${params}`);
     const j = await r.json();
-    if (j.status !== "success" || !Array.isArray(j.data?.frames)) return null;
-    return scoreFrames(j.data.frames);
-  } catch {
-    return null;
+    if (j.status !== "success" || !Array.isArray(j.data?.frames)) {
+      const detail = (j?.error && (j.error.message || j.error.type)) || j?.status || `http_${r.status}`;
+      return { error: String(detail).slice(0, 200) };
+    }
+    return { scores: scoreFrames(j.data.frames) };
+  } catch (e) {
+    return { error: "fetch_failed: " + (e instanceof Error ? e.message : String(e)).slice(0, 140) };
   }
 }
 
@@ -124,19 +128,13 @@ Deno.serve(async (req) => {
     const urls = (signed ?? []).map((s) => s?.signedUrl).filter(Boolean) as string[];
 
     const results = await Promise.all(urls.map((u) => checkClip(u)));
+    const errors = results.filter((r) => r.error).map((r) => r.error!);
+    const scored = results.filter((r) => r.scores).map((r) => r.scores!);
+    if (errors.length) console.log("moderate-submission verify errors:", JSON.stringify(errors.slice(0, 6)));
 
-    // Fail closed: if any clip couldn't be verified, leave it pending (hidden).
-    if (results.some((r) => r === null)) {
-      await admin
-        .from("submissions")
-        .update({ moderation_meta: { error: "verification_incomplete", at: new Date().toISOString() } })
-        .eq("id", sub.id);
-      return json({ status: "pending", error: "verification_incomplete" });
-    }
-
-    // Worst score per category across all clips.
+    // Worst score per category across the clips SightEngine could actually read.
     const worst: Scores = { nudity: 0, gore: 0, offensive: 0, selfharm: 0 };
-    for (const r of results as Scores[]) {
+    for (const r of scored) {
       worst.nudity = Math.max(worst.nudity, r.nudity);
       worst.gore = Math.max(worst.gore, r.gore);
       worst.offensive = Math.max(worst.offensive, r.offensive);
@@ -149,16 +147,25 @@ Deno.serve(async (req) => {
     if (worst.offensive >= THRESHOLDS.offensive) reasons.push("offensive");
     if (worst.selfharm >= THRESHOLDS.selfharm) reasons.push("self-harm");
 
-    const status = reasons.length ? "rejected" : "approved";
-    await admin
-      .from("submissions")
-      .update({
-        moderation_status: status,
-        moderation_meta: { scores: worst, reasons, clips: clips.length, at: new Date().toISOString() },
-      })
-      .eq("id", sub.id);
+    const at = new Date().toISOString();
+    let status: string;
+    let meta: Record<string, unknown>;
+    if (reasons.length) {
+      // A positive detection stands, even if other clips couldn't be verified.
+      status = "rejected";
+      meta = { scores: worst, reasons, clips: clips.length, verified: scored.length, at };
+    } else if (errors.length) {
+      // Couldn't fully verify + nothing flagged → FAIL OPEN (stay visible) but record
+      // the flag + SightEngine's error so the real video-check cause can be fixed.
+      status = "approved";
+      meta = { verification: "failed_open", errors: errors.slice(0, 6), verified: scored.length, clips: clips.length, at };
+    } else {
+      status = "approved";
+      meta = { scores: worst, reasons: [], clips: clips.length, at };
+    }
 
-    return json({ status, reasons });
+    await admin.from("submissions").update({ moderation_status: status, moderation_meta: meta }).eq("id", sub.id);
+    return json({ status, reasons, verify_errors: errors.length });
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : "error" }, 500);
   }
