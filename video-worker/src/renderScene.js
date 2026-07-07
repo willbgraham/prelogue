@@ -84,6 +84,26 @@ async function renderScene({ supabase, supabaseUrl, serviceKey, scriptId, varian
       })
       .eq("id", renderId);
 
+    // Keep only this render for the scene+variant — delete superseded ones and
+    // their videos so re-renders replace instead of piling up in the admin panel.
+    try {
+      const { data: stale } = await supabase
+        .from("daily_renders")
+        .select("id, video_path")
+        .eq("script_id", scriptId)
+        .eq("variant", variant)
+        .neq("id", renderId);
+      const paths = (stale || []).map((s) => s.video_path).filter(Boolean);
+      if (paths.length) await supabase.storage.from("daily-renders").remove(paths);
+      const ids = (stale || []).map((s) => s.id);
+      if (ids.length) {
+        await supabase.from("daily_renders").delete().in("id", ids);
+        console.log(`  cleaned up ${ids.length} superseded render(s)`);
+      }
+    } catch (e) {
+      console.warn("cleanup of old renders failed (non-fatal):", (e && e.message) || e);
+    }
+
     console.log(`✓ render ${renderId} ready: ${storagePath} (${composition.durationInFrames} frames)`);
     return { renderId, video_path: storagePath, duration_frames: composition.durationInFrames };
   } catch (e) {
