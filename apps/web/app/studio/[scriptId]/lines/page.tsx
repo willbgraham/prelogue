@@ -86,9 +86,17 @@ export default function EditLinesPage() {
       .select("title, writer_id, parsed_json")
       .eq("id", scriptId)
       .single();
-    if (!script || script.writer_id !== user.id) {
-      router.push("/studio"); // not found or not the owner
+    if (!script) {
+      router.push("/studio"); // not found
       return;
+    }
+    if (script.writer_id !== user.id) {
+      // Admins can edit any script (e.g. generated scenes owned by the house account).
+      const { data: me } = await supabase.from("users").select("is_admin").eq("id", user.id).single();
+      if (!me?.is_admin) {
+        router.push("/studio"); // not the owner
+        return;
+      }
     }
     setTitle(script.title ?? "");
     const parsed = (script.parsed_json as ParsedScript | null) ?? { scenes: [], characters: [] };
