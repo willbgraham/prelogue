@@ -9,7 +9,7 @@ const DEFAULT_NARRATOR = "onwK4e9ZLuTAKqWW03F9";
 
 const SYSTEM = [
   "You are a screenwriter. Write a short, self-contained dramatic scene for a social-media table read.",
-  "Rules: 2-4 characters; ~12-20 dialogue lines; a strong hook in the first beat and a twist or button at the end;",
+  "Rules: 2-4 characters; ~10-16 dialogue lines; a strong hook in the first beat and a twist or button at the end;",
   "vivid but concise action lines; PG-13 at most; no real people or copyrighted characters.",
   "Respond with ONLY valid JSON (no markdown, no prose) matching exactly:",
   '{"title":str,"genre":str,"logline":str,"synopsis":str,',
@@ -19,7 +19,16 @@ const SYSTEM = [
   "'action' elements are narration/stage directions; all character names UPPERCASE.",
 ].join(" ");
 
+const GENRES = [
+  "thriller", "dark comedy", "sci-fi", "noir", "romance", "horror", "heist",
+  "western", "workplace comedy", "psychological drama", "mystery", "crime",
+  "fantasy", "period drama", "coming-of-age", "family drama", "war", "sports",
+];
+
 async function generateScene(apiKey, model) {
+  // Force a random genre each run — the model otherwise converges on the same
+  // heist/forgery premise despite "vary the genre".
+  const genre = GENRES[Math.floor(Math.random() * GENRES.length)];
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
@@ -30,8 +39,7 @@ async function generateScene(apiKey, model) {
       messages: [
         {
           role: "user",
-          content:
-            "Write a fresh, original scene now. Vary the genre widely across calls (thriller, comedy, sci-fi, noir, romance, horror, heist...). Return only the JSON.",
+          content: `Write a fresh, original ${genre.toUpperCase()} scene now — a specific premise, characters, and setting you would not typically default to (NOT art forgery or a heist unless the genre is heist). Keep it punchy: ~10-16 dialogue lines. Return only the JSON.`,
         },
       ],
     }),
