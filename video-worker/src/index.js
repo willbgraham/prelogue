@@ -4,6 +4,8 @@ const ffmpeg = require("fluent-ffmpeg");
 const fs = require("fs");
 const path = require("path");
 const { pipeline } = require("stream/promises");
+const { renderScene } = require("./renderScene");
+const { generateAndRenderDaily } = require("./daily");
 
 const app = express();
 app.use(express.json({ limit: "10mb" }));
@@ -312,6 +314,40 @@ async function assembleSplitScreen(normalizedPaths, segments, outputPath, tmpDir
       .run();
   });
 }
+
+// ── Daily social-video pipeline ───────────────────────────────────────────
+// Render an EXISTING script to a 9:16 MP4 (AI voices, or actor composite).
+app.post("/render-scene", async (req, res) => {
+  const { script_id, variant = "ai", submission_ids } = req.body || {};
+  if (!script_id) return res.status(400).json({ error: "script_id required" });
+  res.json({ status: "processing", script_id, variant });
+  try {
+    await renderScene({
+      supabase,
+      supabaseUrl: SUPABASE_URL,
+      serviceKey: SUPABASE_SERVICE_KEY,
+      scriptId: script_id,
+      variant,
+      submissionIds: submission_ids,
+    });
+  } catch (e) {
+    console.error("render-scene failed:", (e && e.message) || e);
+  }
+});
+
+// Generate a brand-new scene with Claude, create a hidden house-account script,
+// and render it. Called by the daily cron (secured with CRON_SECRET).
+app.post("/daily", async (req, res) => {
+  if (process.env.CRON_SECRET && req.headers["x-cron-secret"] !== process.env.CRON_SECRET) {
+    return res.status(401).json({ error: "unauthorized" });
+  }
+  res.json({ status: "processing" });
+  try {
+    await generateAndRenderDaily({ supabase, supabaseUrl: SUPABASE_URL, serviceKey: SUPABASE_SERVICE_KEY });
+  } catch (e) {
+    console.error("daily failed:", (e && e.message) || e);
+  }
+});
 
 app.listen(PORT, () => {
   console.log(`Video worker listening on port ${PORT}`);
