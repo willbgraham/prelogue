@@ -1,0 +1,38 @@
+name: Render one scene
+on:
+  workflow_dispatch:
+    inputs:
+      script_id:
+        description: Script id to (re-)render
+        required: true
+      variant:
+        description: ai or composite
+        required: false
+        default: ai
+      submission_ids:
+        description: Comma-separated submission ids (composite only)
+        required: false
+        default: ""
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install worker deps
+        working-directory: video-worker
+        run: npm ci
+      - name: Ensure headless Chrome
+        working-directory: video-worker
+        run: npx remotion browser ensure
+      - name: Re-render the scene
+        working-directory: video-worker
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/run-render.js "${{ inputs.script_id }}" "${{ inputs.variant }}" "${{ inputs.submission_ids }}"
