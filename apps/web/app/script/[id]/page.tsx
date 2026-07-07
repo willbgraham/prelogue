@@ -8,6 +8,7 @@ import { OwnerPanel } from "@/components/OwnerPanel";
 import { ShareButton } from "@/components/ShareButton";
 import { ReadForRole } from "@/components/ReadForRole";
 import { ScriptLiveReadings } from "@/components/ScriptLiveReadings";
+import { ScriptCast } from "@/components/ScriptCast";
 import { SiteHeader } from "@/components/SiteHeader";
 import { StarRating } from "@/components/StarRating";
 import { DeleteScriptButton } from "@/components/DeleteScriptButton";
@@ -151,6 +152,12 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
           initialCount={s.rating_count ?? 0}
         />
       </div>
+
+      <ScriptCast
+        scriptId={s.id}
+        characters={(characters as { id: string; name: string }[] | null) ?? []}
+        voiceConfig={s.voice_config}
+      />
 
       {user?.id === s.writer_id && (
         <div className="mt-6">
