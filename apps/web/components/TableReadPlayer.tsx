@@ -125,13 +125,15 @@ export function TableReadPlayer({
       const { data } = await client
         .from("submissions")
         .select(
-          "id, take_number, clips, character:characters(name), actor:users!submissions_actor_id_fkey(display_name, avatar_url)"
+          "id, take_number, is_writers_choice, moderation_status, clips, character:characters(name), actor:users!submissions_actor_id_fkey(display_name, avatar_url)"
         )
         .eq("script_id", scriptId);
       const subs =
         (data as unknown as {
           id: string;
           take_number: number | null;
+          is_writers_choice: boolean;
+          moderation_status: string;
           clips:
             | { element_index: number; clip_url: string; trim_start?: number; trim_end?: number; volume?: number }[]
             | null;
@@ -183,6 +185,24 @@ export function TableReadPlayer({
       if (!alive) return;
       clipsBySubRef.current = clipsBySub;
       setSubsByRole(byRole);
+      // Default the performance to the writer's ★ choices (approved reads only), so
+      // playing the read uses the cast actors — not AI — unless the viewer overrides.
+      if (castMapRef.current.size === 0) {
+        const defaultCast = new Map<string, string>();
+        const defaultClips = new Map<number, ClipInfo>();
+        for (const s of subs) {
+          if (!s.is_writers_choice || s.moderation_status !== "approved") continue;
+          const role = (s.character?.name ?? "").toUpperCase();
+          if (!role) continue;
+          defaultCast.set(role, s.id);
+          const m = clipsBySub.get(s.id);
+          if (m) for (const [idx, info] of m) defaultClips.set(idx, info);
+        }
+        if (defaultCast.size) {
+          castMapRef.current = defaultCast;
+          clipMapRef.current = defaultClips;
+        }
+      }
     })();
     return () => {
       alive = false;

@@ -35,7 +35,8 @@ export function ScriptCast({
         .from("submissions")
         .select("character_id, actor:users!submissions_actor_id_fkey(display_name, username, avatar_url)")
         .eq("script_id", scriptId)
-        .eq("is_writers_choice", true);
+        .eq("is_writers_choice", true)
+        .eq("moderation_status", "approved");
       if (!alive) return;
       const map: Record<string, Actor | null> = {};
       for (const c of (data as unknown as Choice[]) ?? []) map[c.character_id] = c.actor;
