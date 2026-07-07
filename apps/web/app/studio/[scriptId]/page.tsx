@@ -7,12 +7,15 @@ import Image from "next/image";
 import { getBrowserClient } from "@/lib/supabase/client";
 import { VoicePicker } from "@/components/VoicePicker";
 import { VoiceDesigner } from "@/components/VoiceDesigner";
+import { ClipReel } from "@/components/ClipReel";
 import type { VoiceConfig } from "@/lib/shared";
 
 type Sub = {
   id: string;
   take_number: number;
   is_writers_choice: boolean;
+  clips: { element_index: number; clip_url: string }[] | null;
+  video_url: string | null;
   actor: { display_name: string; avatar_url: string | null } | null;
 };
 type Char = { id: string; name: string; submissions: Sub[] };
@@ -30,6 +33,8 @@ export default function CastingPage() {
   const [showDesigner, setShowDesigner] = useState(false);
   const [readId, setReadId] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
+  const [previewFor, setPreviewFor] = useState<string | null>(null);
+  const [previewUrls, setPreviewUrls] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     const {
@@ -53,7 +58,7 @@ export default function CastingPage() {
     const { data: chars } = await supabase
       .from("characters")
       .select(
-        "id, name, submissions(id, take_number, is_writers_choice, actor:users!submissions_actor_id_fkey(display_name, avatar_url))"
+        "id, name, submissions(id, take_number, is_writers_choice, clips, video_url, actor:users!submissions_actor_id_fkey(display_name, avatar_url))"
       )
       .eq("script_id", scriptId)
       .order("name");
@@ -119,6 +124,18 @@ export default function CastingPage() {
       .eq("is_writers_choice", true);
     await supabase.from("submissions").update({ is_writers_choice: true }).eq("id", submissionId);
     load();
+  }
+
+  async function togglePreview(sub: Sub) {
+    if (previewFor === sub.id) {
+      setPreviewFor(null);
+      setPreviewUrls([]);
+      return;
+    }
+    const paths = [...(sub.clips ?? []).map((c) => c.clip_url), ...(sub.video_url ? [sub.video_url] : [])];
+    const { data: signed } = await supabase.storage.from("submissions").createSignedUrls(paths, 3600);
+    setPreviewUrls((signed ?? []).map((s) => s?.signedUrl).filter(Boolean) as string[]);
+    setPreviewFor(sub.id);
   }
 
   const nameOf = (vid?: string | null) =>
@@ -256,42 +273,57 @@ export default function CastingPage() {
                   {c.submissions.map((sub) => (
                     <div
                       key={sub.id}
-                      className={`flex items-center gap-3 rounded-lg border px-3 py-2 ${
+                      className={`rounded-lg border ${
                         sub.is_writers_choice ? "border-brick bg-brick/5" : "border-tan"
                       }`}
                     >
-                      <span className="h-8 w-8 shrink-0 overflow-hidden rounded-full border border-tan bg-elevated">
-                        {sub.actor?.avatar_url ? (
-                          <Image
-                            src={sub.actor.avatar_url}
-                            alt=""
-                            width={32}
-                            height={32}
-                            className="h-full w-full object-cover"
-                          />
-                        ) : (
-                          <span className="flex h-full w-full items-center justify-center text-xs text-taupe">
-                            {(sub.actor?.display_name ?? "A").charAt(0).toUpperCase()}
-                          </span>
-                        )}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-medium">
-                          {sub.actor?.display_name ?? "Actor"}
-                        </div>
-                        <div className="text-xs text-muted">Take #{sub.take_number}</div>
-                      </div>
-                      {sub.is_writers_choice ? (
-                        <span className="shrink-0 rounded-lg bg-brick px-3 py-1 text-xs font-medium text-white">
-                          ★ Writer&rsquo;s Choice
+                      <div className="flex items-center gap-3 px-3 py-2">
+                        <span className="h-8 w-8 shrink-0 overflow-hidden rounded-full border border-tan bg-elevated">
+                          {sub.actor?.avatar_url ? (
+                            <Image
+                              src={sub.actor.avatar_url}
+                              alt=""
+                              width={32}
+                              height={32}
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <span className="flex h-full w-full items-center justify-center text-xs text-taupe">
+                              {(sub.actor?.display_name ?? "A").charAt(0).toUpperCase()}
+                            </span>
+                          )}
                         </span>
-                      ) : (
-                        <button
-                          onClick={() => setWritersChoice(sub.id, c.id)}
-                          className="shrink-0 rounded-lg border border-tan px-3 py-1 text-xs font-medium hover:bg-elevated"
-                        >
-                          Pick
-                        </button>
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-medium">
+                            {sub.actor?.display_name ?? "Actor"}
+                          </div>
+                          <div className="text-xs text-muted">Take #{sub.take_number}</div>
+                        </div>
+                        {((sub.clips?.length ?? 0) > 0 || sub.video_url) && (
+                          <button
+                            onClick={() => togglePreview(sub)}
+                            className="shrink-0 rounded-lg border border-tan px-3 py-1 text-xs font-medium text-taupe hover:bg-elevated"
+                          >
+                            {previewFor === sub.id ? "Hide" : "▶ Preview"}
+                          </button>
+                        )}
+                        {sub.is_writers_choice ? (
+                          <span className="shrink-0 rounded-lg bg-brick px-3 py-1 text-xs font-medium text-white">
+                            ★ Writer&rsquo;s Choice
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => setWritersChoice(sub.id, c.id)}
+                            className="shrink-0 rounded-lg border border-tan px-3 py-1 text-xs font-medium hover:bg-elevated"
+                          >
+                            Pick
+                          </button>
+                        )}
+                      </div>
+                      {previewFor === sub.id && (
+                        <div className="border-t border-tan p-3">
+                          <ClipReel urls={previewUrls} />
+                        </div>
                       )}
                     </div>
                   ))}
