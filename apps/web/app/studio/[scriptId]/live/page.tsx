@@ -85,23 +85,39 @@ export default function LiveReadingsManager() {
     const {
       data: { user },
     } = await supabase.auth.getUser();
-    const { error } = await supabase.from("live_readings").insert({
-      script_id: scriptId,
-      writer_id: user!.id,
-      title: form.title,
-      description: form.description || null,
-      scheduled_at: new Date(form.scheduled_at).toISOString(),
-      duration_min: form.duration_min,
-      signup_deadline: form.signup_deadline ? new Date(form.signup_deadline).toISOString() : null,
-      visibility: form.visibility,
-    });
-    setBusy(null);
+    const { data: ins, error } = await supabase
+      .from("live_readings")
+      .insert({
+        script_id: scriptId,
+        writer_id: user!.id,
+        title: form.title,
+        description: form.description || null,
+        scheduled_at: new Date(form.scheduled_at).toISOString(),
+        duration_min: form.duration_min,
+        signup_deadline: form.signup_deadline ? new Date(form.signup_deadline).toISOString() : null,
+        visibility: form.visibility,
+      })
+      .select("id")
+      .single();
     if (error) {
+      setBusy(null);
       setNote(`Error: ${error.message}`);
       return;
     }
+    // Best-effort auto-provision of a Prelogue-hosted Zoom meeting. Until the Zoom
+    // app is configured the reading still schedules — you paste a join link below.
+    let zoomMsg = "";
+    if (ins?.id) {
+      const { data: z, error: zErr } = await supabase.functions.invoke("zoom-create-meeting", {
+        body: { live_reading_id: ins.id },
+      });
+      const zr = z as { ok?: boolean } | null;
+      zoomMsg = !zErr && zr?.ok ? " Zoom meeting created." : " Add a Zoom link below (auto-create isn't set up yet).";
+    }
+    setBusy(null);
     setShowForm(false);
     setForm((f) => ({ ...f, scheduled_at: "", signup_deadline: "", description: "" }));
+    setNote("Reading scheduled." + zoomMsg);
     load();
   }
 
