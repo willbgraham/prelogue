@@ -14,6 +14,7 @@ type Sub = {
   id: string;
   take_number: number;
   is_writers_choice: boolean;
+  moderation_status: string;
   clips: { element_index: number; clip_url: string }[] | null;
   video_url: string | null;
   actor: { display_name: string; avatar_url: string | null } | null;
@@ -58,11 +59,18 @@ export default function CastingPage() {
     const { data: chars } = await supabase
       .from("characters")
       .select(
-        "id, name, submissions(id, take_number, is_writers_choice, clips, video_url, actor:users!submissions_actor_id_fkey(display_name, avatar_url))"
+        "id, name, submissions(id, take_number, is_writers_choice, moderation_status, clips, video_url, actor:users!submissions_actor_id_fkey(display_name, avatar_url))"
       )
       .eq("script_id", scriptId)
       .order("name");
-    setCharacters((chars as unknown as Char[]) ?? []);
+    // Only approved reads are castable here — pending ones go through /admin/moderation
+    // first (an admin would otherwise see unmoderated reads mixed into casting).
+    setCharacters(
+      ((chars as unknown as Char[]) ?? []).map((c) => ({
+        ...c,
+        submissions: (c.submissions ?? []).filter((s) => s.moderation_status === "approved"),
+      }))
+    );
     const { data: read } = await supabase
       .from("assembled_reads")
       .select("id")
