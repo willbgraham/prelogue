@@ -219,6 +219,24 @@ export default function CastingPage() {
         </div>
       </section>
 
+      {/* Live readings */}
+      <section className="mt-8 rounded-xl border border-tan bg-ivory p-5">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="font-slab text-lg">Live readings</h2>
+            <p className="mt-1 text-sm text-taupe">
+              Schedule a live Zoom reading — actors sign up, you pick the cast, and it&rsquo;s recorded for the Prelogue YouTube.
+            </p>
+          </div>
+          <Link
+            href={`/studio/${scriptId}/live`}
+            className="shrink-0 rounded-lg bg-brick px-4 py-2 text-sm font-medium text-white"
+          >
+            Schedule →
+          </Link>
+        </div>
+      </section>
+
       {/* Reads / submissions */}
       <section className="mt-8">
         <h2 className="font-slab text-lg">Reads</h2>

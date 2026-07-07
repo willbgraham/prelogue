@@ -19,9 +19,18 @@ type Actor = {
   writers_choice_count: number;
 };
 
+type LiveRow = {
+  id: string;
+  title: string;
+  scheduled_at: string;
+  status: string;
+  youtube_url: string | null;
+  script: { title: string; genre: string } | { title: string; genre: string }[] | null;
+};
+
 export default async function DiscoverPage() {
   const supabase = await createClient();
-  const [{ data: scriptRows }, { data: actorRows }, { data: readRows }] = await Promise.all([
+  const [{ data: scriptRows }, { data: actorRows }, { data: readRows }, { data: liveRows }] = await Promise.all([
     supabase
       .from("scripts")
       .select("id, slug, title, logline, genre, visibility, cover_image_url, listing_status, rating_avg, rating_count")
@@ -39,6 +48,13 @@ export default async function DiscoverPage() {
       .eq("status", "ready")
       .order("created_at", { ascending: false })
       .limit(12),
+    supabase
+      .from("live_readings")
+      .select("id, title, scheduled_at, status, youtube_url, script:scripts(title, genre)")
+      .eq("visibility", "public")
+      .neq("status", "canceled")
+      .order("scheduled_at", { ascending: true })
+      .limit(8),
   ]);
 
   const reads = ((readRows as { id: string; scripts: { title: string; genre: string } | { title: string; genre: string }[] | null }[] | null) ?? [])
@@ -55,6 +71,11 @@ export default async function DiscoverPage() {
     (a) => a.writers_choice_count > 0
   );
 
+  const nowMs = Date.now();
+  const live = ((liveRows as unknown as LiveRow[] | null) ?? [])
+    .filter((r) => new Date(r.scheduled_at).getTime() > nowMs && r.status !== "completed")
+    .slice(0, 4);
+
   return (
     <main className="mx-auto w-full max-w-6xl px-6 py-10">
       <SiteHeader />
@@ -63,6 +84,41 @@ export default async function DiscoverPage() {
         <h1 className="font-slab text-4xl leading-tight sm:text-5xl">Discover</h1>
         <p className="mt-3 text-taupe">Screenplays performed as table reads — pick one and press play.</p>
       </section>
+
+      {live.length > 0 && (
+        <section className="mt-10">
+          <div className="flex items-center justify-between">
+            <h2 className="font-slab text-lg">🎭 Live readings</h2>
+            <Link href="/live" className="text-sm text-taupe hover:text-brick">
+              See all →
+            </Link>
+          </div>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {live.map((r) => {
+              const sc = Array.isArray(r.script) ? r.script[0] : r.script;
+              const when = new Date(r.scheduled_at);
+              return (
+                <Link
+                  key={r.id}
+                  href={`/live/${r.id}`}
+                  className="rounded-xl border border-tan bg-ivory p-4 transition-colors hover:border-brick"
+                >
+                  {r.status === "live" && (
+                    <span className="rounded-full bg-brick px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-white">
+                      ● Live
+                    </span>
+                  )}
+                  <div className="mt-1 font-slab text-base leading-tight">{r.title}</div>
+                  {sc?.title && <div className="text-xs text-muted">{sc.title}</div>}
+                  <div className="mt-2 text-xs text-taupe">
+                    {when.toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {reads.length > 0 && (
         <section className="mt-10">

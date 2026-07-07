@@ -7,6 +7,7 @@ import { OwnerUnlock } from "@/components/OwnerUnlock";
 import { OwnerPanel } from "@/components/OwnerPanel";
 import { ShareButton } from "@/components/ShareButton";
 import { ReadForRole } from "@/components/ReadForRole";
+import { ScriptLiveReadings } from "@/components/ScriptLiveReadings";
 import { SiteHeader } from "@/components/SiteHeader";
 import { StarRating } from "@/components/StarRating";
 import { DeleteScriptButton } from "@/components/DeleteScriptButton";
@@ -190,6 +191,11 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
           characters={((characters as Pick<Character, "id" | "name" | "line_count">[] | null) ?? [])}
         />
       </div>
+
+      <ScriptLiveReadings
+        scriptId={s.id}
+        characters={(characters as { id: string; name: string }[] | null) ?? []}
+      />
 
       <div className="mt-6">
         <TableReadPlayer

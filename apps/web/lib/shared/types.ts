@@ -138,3 +138,49 @@ export interface Submission {
   actor?: User;
   character?: Character;
 }
+
+export type LiveReadingStatus = "draft" | "scheduled" | "live" | "completed" | "canceled";
+export type LiveReadingRecordingStatus = "none" | "pending" | "stored" | "published" | "failed";
+export type SignupStatus = "signed_up" | "cast" | "declined" | "waitlist";
+
+/** A scheduled live (Zoom) reading of a script. */
+export interface LiveReading {
+  id: string;
+  script_id: string;
+  writer_id: string;
+  title: string;
+  description: string | null;
+  scheduled_at: string;
+  duration_min: number;
+  signup_deadline: string | null;
+  status: LiveReadingStatus;
+  visibility: "public" | "unlisted";
+  zoom_meeting_id?: string | null;
+  zoom_join_url?: string | null;
+  /** Host link — only ever exposed to the writer/admin, never public. */
+  zoom_start_url?: string | null;
+  zoom_passcode?: string | null;
+  recording_status: LiveReadingRecordingStatus;
+  recording_path?: string | null;
+  youtube_url?: string | null;
+  stream_url?: string | null;
+  created_at: string;
+  // Joined
+  script?: Script;
+  writer?: User;
+  signups?: LiveReadingSignup[];
+}
+
+/** An actor's sign-up for a role in a live reading. */
+export interface LiveReadingSignup {
+  id: string;
+  live_reading_id: string;
+  actor_id: string;
+  character_id: string | null;
+  status: SignupStatus;
+  note: string | null;
+  created_at: string;
+  // Joined
+  actor?: User;
+  character?: Character;
+}

@@ -12,6 +12,10 @@ const LABELS: Record<string, string> = {
   assembly_ready: "Table Read Ready",
   audience_vote: "Audience Vote",
   new_comment: "New Comment",
+  live_reading_signup: "Live Reading Sign-up",
+  live_reading_cast: "You're Cast!",
+  live_reading_reminder: "Live Reading Reminder",
+  live_reading_published: "Recording Posted",
 };
 
 type Notif = {
@@ -90,6 +94,8 @@ export default function NotificationsPage() {
     }
     const p = (n.payload ?? {}) as Record<string, string>;
     if (n.type === "new_submission" && p.script_id) router.push(`/studio/${p.script_id}`);
+    else if (n.type === "live_reading_signup" && p.script_id) router.push(`/studio/${p.script_id}/live`);
+    else if (n.type.startsWith("live_reading") && p.live_reading_id) router.push(`/live/${p.live_reading_id}`);
     else if (p.script_id) router.push(`/script/${p.script_id}`);
   }
 
@@ -101,7 +107,8 @@ export default function NotificationsPage() {
   const read = items.filter((n) => n.read);
 
   const Row = ({ n }: { n: Notif }) => {
-    const message = (n.payload as { message?: string } | null)?.message;
+    const p0 = n.payload as { message?: string; body?: string } | null;
+    const message = p0?.message ?? p0?.body;
     return (
       <button
         onClick={() => onClick(n)}
