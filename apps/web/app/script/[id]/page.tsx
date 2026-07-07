@@ -180,6 +180,12 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
             >
               Manage casting &amp; voices →
             </Link>
+            <Link
+              href={`/studio/${s.id}/live`}
+              className="rounded-lg border border-brick px-4 py-2 text-sm font-medium text-brick hover:bg-brick/5"
+            >
+              🎭 Live readings →
+            </Link>
           </div>
           <OwnerUnlock scriptId={s.id} unlocked={!!s.full_read_unlocked} />
           <OwnerPanel
