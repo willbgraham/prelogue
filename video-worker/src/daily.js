@@ -94,15 +94,25 @@ async function generateAndRenderDaily({ supabase, supabaseUrl, serviceKey }) {
 
   const scene = await generateScene(apiKey, model);
 
-  const scenes = (scene.scenes || []).map((s, i) => ({
-    heading: s.heading || "",
-    scene_index: i,
-    elements: (s.elements || []).map((el) => ({
-      type: el.type,
-      character_name: el.character_name ? String(el.character_name).toUpperCase() : undefined,
-      text: el.text || "",
-    })),
-  }));
+  const scenes = (scene.scenes || []).map((s, i) => {
+    // Claude puts each speaker's name in a "character" element (often only in
+    // `text`) and omits character_name on the dialogue. Propagate the speaker
+    // onto the following dialogue so labels AND per-character voices work —
+    // buildRows / generate-voice-cues key on dialogue.character_name.
+    let speaker;
+    const elements = (s.elements || []).map((el) => {
+      if (el.type === "character") {
+        speaker = String(el.character_name || el.text || "").toUpperCase() || speaker;
+        return { type: "character", character_name: speaker, text: el.text || speaker || "" };
+      }
+      if (el.type === "dialogue" || el.type === "parenthetical") {
+        const cn = el.character_name ? String(el.character_name).toUpperCase() : speaker;
+        return { type: el.type, character_name: cn, text: el.text || "" };
+      }
+      return { type: el.type, text: el.text || "" };
+    });
+    return { heading: s.heading || "", scene_index: i, elements };
+  });
   const lineCount = {};
   for (const s of scenes) for (const el of s.elements) {
     if (el.type === "dialogue" && el.character_name) lineCount[el.character_name] = (lineCount[el.character_name] || 0) + 1;
