@@ -117,12 +117,19 @@ export default function CastingPage() {
   }
 
   async function setWritersChoice(submissionId: string, characterId: string) {
-    await supabase
+    const { error: clearErr } = await supabase
       .from("submissions")
       .update({ is_writers_choice: false })
       .eq("character_id", characterId)
       .eq("is_writers_choice", true);
-    await supabase.from("submissions").update({ is_writers_choice: true }).eq("id", submissionId);
+    const { error: setErr } = await supabase
+      .from("submissions")
+      .update({ is_writers_choice: true })
+      .eq("id", submissionId);
+    if (clearErr || setErr) {
+      // Surface it instead of silently reverting on the next load.
+      alert(`Couldn't save your pick: ${(clearErr || setErr)?.message ?? "unknown error"}`);
+    }
     load();
   }
 
