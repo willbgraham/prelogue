@@ -23,6 +23,21 @@ export function SiteFooter() {
           </Link>
         </nav>
       </div>
+      <div className="mx-auto mt-6 flex w-full max-w-5xl justify-center sm:justify-start">
+        <a
+          href="https://postyourstartup.co/startup/prelogue-studio?ref=badge"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="https://postyourstartup.co/api/badge/prelogue-studio?theme=light"
+            alt="Featured on PostYourStartup"
+            width={212}
+            height={55}
+          />
+        </a>
+      </div>
     </footer>
   );
 }
