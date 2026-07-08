@@ -30,7 +30,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   if (!data) return { title: "Prelogue" };
   const description = (data.synopsis as string | null) || data.logline;
   return {
-    title: `${data.title} — Prelogue`,
+    title: `${data.title} - Prelogue`,
     description,
     openGraph: {
       title: data.title as string,

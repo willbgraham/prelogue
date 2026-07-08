@@ -7,7 +7,7 @@ import type { Script } from "@/lib/shared";
 import { labelOf, LISTING_STATUSES } from "@/lib/constants";
 
 export const metadata: Metadata = {
-  title: "Discover — Prelogue",
+  title: "Discover - Prelogue",
   description: "Browse screenplays performed as table reads by AI voices and real actors.",
 };
 

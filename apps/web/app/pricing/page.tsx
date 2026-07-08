@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { SiteHeader } from "@/components/SiteHeader";
 
 export const metadata: Metadata = {
-  title: "Pricing — Prelogue",
+  title: "Pricing - Prelogue",
   description:
     "Free to browse and listen. Unlock a full AI table read of your script for $19 one-time — no subscription.",
 };

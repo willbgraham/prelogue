@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { SiteHeader } from "@/components/SiteHeader";
 
 export const metadata: Metadata = {
-  title: "Terms of Service — Prelogue",
+  title: "Terms of Service - Prelogue",
   description: "The terms that govern your use of Prelogue.",
 };
 

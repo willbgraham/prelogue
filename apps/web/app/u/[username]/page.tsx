@@ -36,7 +36,7 @@ export async function generateMetadata({ params }: { params: Promise<{ username:
     .single();
   if (!data) return { title: "Prelogue" };
   return {
-    title: `${data.display_name || username} — Prelogue`,
+    title: `${data.display_name || username} - Prelogue`,
     description: data.bio ?? undefined,
   };
 }

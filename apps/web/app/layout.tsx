@@ -17,9 +17,9 @@ const courierPrime = Courier_Prime({
 });
 
 export const metadata: Metadata = {
-  title: "Prelogue — hear your screenplay performed",
+  title: "Prelogue - hear your screenplay performed",
   description:
-    "Prelogue turns a screenplay into a performed table read — AI voices and real actors, with the script typed on screen.",
+    "Prelogue turns a screenplay into a performed table read - AI voices and real actors, with the script typed on screen.",
 };
 
 export default function RootLayout({
