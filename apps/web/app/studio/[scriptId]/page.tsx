@@ -352,6 +352,7 @@ export default function CastingPage() {
 
       {showPicker && voiceConfig && (
         <VoicePicker
+          scriptId={scriptId}
           characters={characterNames}
           startConfig={voiceConfig}
           onApply={applyVoices}

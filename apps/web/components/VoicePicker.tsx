@@ -53,18 +53,29 @@ type RoleSub = { id: string; actor: string; take: number; avatar: string | null;
  * actor clips only play for roles explicitly cast here. Narrator is AI-only.
  */
 export function VoicePicker({
+  scriptId,
   characters,
   startConfig,
   submissionsByRole = {},
+  linesByRole = {},
   startCast = {},
+  canPersist = false,
+  onSaveConfig,
   onApply,
   onClose,
   changesLeft,
 }: {
+  scriptId: string;
   characters: string[];
   startConfig: VoiceConfig;
   submissionsByRole?: Record<string, RoleSub[]>;
+  /** Role → its spoken lines (element_index + text), for per-line settings. */
+  linesByRole?: Record<string, { index: number; text: string }[]>;
   startCast?: Record<string, string>;
+  /** Whether Save persists (the writer). Visitors' tweaks stay session-only. */
+  canPersist?: boolean;
+  /** Persist the config now (without regenerating) — used by Save. */
+  onSaveConfig?: (cfg: VoiceConfig) => void;
   onApply: (cfg: VoiceConfig, cast: Record<string, string>) => void;
   onClose: () => void;
   changesLeft?: number;
@@ -81,7 +92,15 @@ export function VoicePicker({
   const [roleSettings, setRoleSettings] = useState<Record<string, VoiceSettings>>(() => ({
     ...(startConfig.role_settings ?? {}),
   }));
+  const [lineSettings, setLineSettings] = useState<Record<string, VoiceSettings>>(() => ({
+    ...(startConfig.line_settings ?? {}),
+  }));
+  // Which line the sliders edit: "role" = every line this voice reads.
+  const [selectedLine, setSelectedLine] = useState<"role" | number>("role");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [previewBusy, setPreviewBusy] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [justSaved, setJustSaved] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [mode, setMode] = useState<"ai" | "actors">("ai");
   const [search, setSearch] = useState("");
@@ -182,6 +201,87 @@ export function VoicePicker({
     );
   };
 
+  // ---- Per-line settings (win over the role's settings for that line) ----
+  const linesFor = (role: string) => linesByRole[role] ?? [];
+  const lineHasCustom = (idx: number) => !!lineSettings[String(idx)];
+  const roleHasLineSettings = (role: string) =>
+    linesFor(role).some((l) => lineHasCustom(l.index));
+  // What the sliders show/edit: the selected line's settings (inheriting the
+  // role's as the base) or the role's settings.
+  const effectiveSettings = (role: string): VoiceSettings =>
+    selectedLine === "role"
+      ? settingsFor(role)
+      : { ...settingsFor(role), ...(lineSettings[String(selectedLine)] ?? {}) };
+  const setEffectiveSetting = (role: string, key: keyof VoiceSettings, val: number) => {
+    if (selectedLine === "role") return setRoleSetting(role, key, val);
+    const k = String(selectedLine);
+    setLineSettings((prev) => ({
+      ...prev,
+      [k]: { ...settingsFor(role), ...(prev[k] ?? {}), [key]: val },
+    }));
+  };
+  const resetEffective = (role: string) => {
+    if (selectedLine === "role") return resetRoleSettings(role);
+    setLineSettings((prev) => {
+      const next = { ...prev };
+      delete next[String(selectedLine)];
+      return next;
+    });
+  };
+
+  const mergedConfig = (): VoiceConfig => ({
+    ...config,
+    role_settings: roleSettings,
+    line_settings: lineSettings,
+  });
+
+  // Generate + play ONE line with the current sliders (content-addressed server
+  // side, so the full read reuses the exact same audio later — nothing wasted).
+  const previewLine = async (role: string) => {
+    const lines = linesFor(role);
+    if (!lines.length || previewBusy) return;
+    const idx = selectedLine === "role" ? lines[0].index : selectedLine;
+    setPreviewBusy(true);
+    setPreviewError(null);
+    audioRef.current?.pause();
+    setPreviewing(null);
+    try {
+      const { data, error } = await getBrowserClient().functions.invoke("preview-voice-line", {
+        body: {
+          script_id: scriptId,
+          element_index: idx,
+          voice_id: currentVoiceFor(role) ?? undefined,
+          settings: effectiveSettings(role),
+        },
+      });
+      const url = (data as { url?: string; error?: string } | null)?.url;
+      if (!url) {
+        throw new Error(
+          (data as { error?: string } | null)?.error ??
+            (error as Error | null)?.message ??
+            "Preview failed"
+        );
+      }
+      const audio = audioRef.current;
+      if (audio) {
+        audio.src = url;
+        await audio.play().catch(() => {});
+      }
+    } catch (e) {
+      setPreviewError(e instanceof Error ? e.message : "Preview failed");
+    } finally {
+      setPreviewBusy(false);
+    }
+  };
+
+  // Persist role + line settings now (no regeneration — the next Play/Apply
+  // picks them up). Only the writer persists; visitors' tweaks are session-only.
+  const saveSettings = () => {
+    onSaveConfig?.(mergedConfig());
+    setJustSaved(true);
+    window.setTimeout(() => setJustSaved(false), 2000);
+  };
+
   const choiceLabel = (role: string) => {
     if (cast[role]) {
       const sub = actorsFor(role).find((s) => s.id === cast[role]);
@@ -195,6 +295,8 @@ export function VoicePicker({
     setSearch("");
     setFilters({});
     setSettingsOpen(false);
+    setSelectedLine("role");
+    setPreviewError(null);
     // Default to Actors whenever any have recorded a read for this role.
     setMode(actorsFor(role).length ? "actors" : "ai");
   };
@@ -204,6 +306,8 @@ export function VoicePicker({
     setSearch("");
     setFilters({});
     setSettingsOpen(false);
+    setSelectedLine("role");
+    setPreviewError(null);
     audioRef.current?.pause();
     setPreviewing(null);
     previewVideoRef.current?.pause();
@@ -316,7 +420,7 @@ export function VoicePicker({
             </div>
             <div className="border-t border-tan p-4">
               <button
-                onClick={() => onApply({ ...config, role_settings: roleSettings }, cast)}
+                onClick={() => onApply(mergedConfig(), cast)}
                 disabled={outOfChanges}
                 className="w-full rounded-lg bg-brick px-4 py-3 font-medium text-white disabled:opacity-50"
               >
@@ -406,8 +510,8 @@ export function VoicePicker({
               </div>
             ) : (
               <>
-                {/* Settings for the voice picked for this role (per-voice). */}
-                {currentVoiceFor(editing!) && !cast[editing!] && (
+                {/* Settings for this role's AI voice — for every line or one line. */}
+                {currentVoiceFor(editing!) && (
                   <div className="border-b border-tan px-5 py-3">
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0">
@@ -422,17 +526,41 @@ export function VoicePicker({
                             : "border-tan text-taupe hover:bg-elevated"
                         }`}
                       >
-                        ⚙ Voice settings{roleHasCustomSettings(editing!) ? " •" : ""}
+                        ⚙ Voice settings
+                        {roleHasCustomSettings(editing!) || roleHasLineSettings(editing!) ? " •" : ""}
                       </button>
                     </div>
                     {settingsOpen && (
                       <div className="mt-3 space-y-4">
+                        {linesFor(editing!).length > 0 && (
+                          <label className="block">
+                            <div className="text-sm font-medium">Apply to</div>
+                            <select
+                              value={selectedLine === "role" ? "role" : String(selectedLine)}
+                              onChange={(e) =>
+                                setSelectedLine(
+                                  e.target.value === "role" ? "role" : Number(e.target.value)
+                                )
+                              }
+                              className="mt-1 w-full rounded-lg border border-tan bg-elevated px-2 py-1.5 text-sm outline-none focus:border-brick"
+                            >
+                              <option value="role">All {roleLabel(editing!)} lines</option>
+                              {linesFor(editing!).map((l, i) => (
+                                <option key={l.index} value={l.index}>
+                                  {`Line ${i + 1} — "${
+                                    l.text.length > 32 ? `${l.text.slice(0, 32)}…` : l.text
+                                  }"${lineHasCustom(l.index) ? " •" : ""}`}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        )}
                         {SETTING_SLIDERS.map((s) => (
                           <label key={s.key} className="block">
                             <div className="flex items-center justify-between text-sm">
                               <span className="font-medium">{s.label}</span>
                               <span className="font-mono text-xs text-taupe">
-                                {settingsFor(editing!)[s.key].toFixed(2)}
+                                {effectiveSettings(editing!)[s.key].toFixed(2)}
                               </span>
                             </div>
                             <input
@@ -440,9 +568,9 @@ export function VoicePicker({
                               min={s.min}
                               max={s.max}
                               step={s.step}
-                              value={settingsFor(editing!)[s.key]}
+                              value={effectiveSettings(editing!)[s.key]}
                               onChange={(e) =>
-                                setRoleSetting(editing!, s.key, Number(e.target.value))
+                                setEffectiveSetting(editing!, s.key, Number(e.target.value))
                               }
                               className="mt-1 w-full accent-brick"
                             />
@@ -452,12 +580,35 @@ export function VoicePicker({
                             </div>
                           </label>
                         ))}
-                        <button
-                          onClick={() => resetRoleSettings(editing!)}
-                          className="text-xs text-taupe underline hover:text-ink"
-                        >
-                          Reset to default
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => previewLine(editing!)}
+                            disabled={previewBusy || !linesFor(editing!).length}
+                            className="rounded-lg bg-brick px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+                          >
+                            {previewBusy ? "Generating…" : "▶ Preview"}
+                          </button>
+                          {canPersist && (
+                            <button
+                              onClick={saveSettings}
+                              className="rounded-lg border border-brick px-3 py-1.5 text-sm font-medium text-brick hover:bg-brick/5"
+                            >
+                              {justSaved ? "Saved ✓" : "Save"}
+                            </button>
+                          )}
+                          <button
+                            onClick={() => resetEffective(editing!)}
+                            className="ml-auto text-xs text-taupe underline hover:text-ink"
+                          >
+                            Reset to default
+                          </button>
+                        </div>
+                        {previewError && <p className="text-xs text-brick">{previewError}</p>}
+                        <p className="text-xs text-muted">
+                          {selectedLine === "role"
+                            ? "Applies to every line this voice reads. Preview plays the first line."
+                            : "Applies to this line only — it overrides the role settings."}
+                        </p>
                       </div>
                     )}
                   </div>

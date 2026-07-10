@@ -79,6 +79,20 @@ export function TableReadPlayer({
     return names;
   }, [rows]);
 
+  // Role → its spoken lines, for the picker's per-line voice settings.
+  // Narrator = the action lines, under the same key the server resolves.
+  const linesByRole = useMemo(() => {
+    const map: Record<string, { index: number; text: string }[]> = {};
+    for (const r of rows) {
+      if (r.kind === "narrator") {
+        (map["__narrator__"] ??= []).push({ index: r.elementIndex, text: r.text });
+      } else if (r.character) {
+        (map[r.character.toUpperCase()] ??= []).push({ index: r.elementIndex, text: r.text });
+      }
+    }
+    return map;
+  }, [rows]);
+
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const manifestRef = useRef<Map<number, VoiceCueEntry>>(new Map());
@@ -453,6 +467,26 @@ export function TableReadPlayer({
     [ensureReady, playRow, stop, isOwner, scriptId, preloadClips]
   );
 
+  // The picker's Save: persist role/line voice settings NOW without regenerating.
+  // The override becomes the picker's start config on reopen, and the next
+  // Play/Apply prepares with it (keyed on the override JSON).
+  const persistConfig = useCallback(
+    (cfg: VoiceConfig) => {
+      overrideRef.current = cfg;
+      if (isOwner) {
+        getBrowserClient()
+          .from("scripts")
+          .update({ voice_config: cfg })
+          .eq("id", scriptId)
+          .then(
+            () => {},
+            () => {}
+          );
+      }
+    },
+    [isOwner, scriptId]
+  );
+
   const handlePlay = useCallback(async () => {
     if (playing) {
       stop();
@@ -650,10 +684,14 @@ export function TableReadPlayer({
 
       {showPicker && (
         <VoicePicker
+          scriptId={scriptId}
           characters={characters}
           startConfig={overrideRef.current ?? voiceConfig ?? { mode: "per_character" }}
           submissionsByRole={subsByRole}
+          linesByRole={linesByRole}
           startCast={Object.fromEntries(castMapRef.current)}
+          canPersist={isOwner}
+          onSaveConfig={persistConfig}
           onApply={applyVoices}
           onClose={() => setShowPicker(false)}
           changesLeft={Math.max(0, MAX_VOICE_CHANGES_PER_DAY - changesUsed)}

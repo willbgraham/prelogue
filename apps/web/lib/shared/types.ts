@@ -64,6 +64,11 @@ export interface VoiceConfig {
   /** Per-role ElevenLabs generation controls, keyed like `characters` (UPPER-CASED
    *  names) plus "__narrator__" (and "__single__" in single-voice mode). */
   role_settings?: Record<string, VoiceSettings> | null;
+  /** Per-line overrides, keyed by the line's global element_index (stringified).
+   *  A line's settings win over its role's settings. NOTE: keys follow the
+   *  parsed element order, so heavy line edits can orphan them (same convention
+   *  as submission clips). */
+  line_settings?: Record<string, VoiceSettings> | null;
   updated_at?: string;
 }
 

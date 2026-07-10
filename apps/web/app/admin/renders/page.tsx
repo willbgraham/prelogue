@@ -289,6 +289,7 @@ export default function AdminRendersPage() {
 
       {voiceEdit && (
         <VoicePicker
+          scriptId={voiceEdit.render.script_id}
           characters={voiceEdit.characters}
           startConfig={voiceEdit.config}
           onApply={(cfg) => applyVoices(cfg)}

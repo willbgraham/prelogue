@@ -214,19 +214,18 @@ Deno.serve(async (req) => {
       cfg.single_voice_id || cfg.narrator_voice_id || FALLBACK_VOICES[0];
     const charMap: Record<string, string> = cfg.characters || {};
 
-    // Per-role voice generation settings (the picker's sliders, keyed by role:
-    // UPPER-CASED character names + "__narrator__" / "__single__"). Each role
-    // resolves to a TTS body (stability + similarity always; style/speed only when
-    // changed) and a cache-key tag (empty at default → reuses the text-only audio,
-    // so default reads generate byte-identical audio and skip needless work).
+    // Voice generation settings (the picker's sliders): per-role (keyed by
+    // UPPER-CASED character names + "__narrator__" / "__single__") with optional
+    // per-line overrides (keyed by global element_index). A line's settings win
+    // over its role's. Each resolves to a TTS body (stability + similarity
+    // always; style/speed only when changed) and a cache-key tag (empty at
+    // default → reuses the text-only audio, so default reads generate
+    // byte-identical audio and skip needless work).
     const roleSettings = (cfg.role_settings as Record<string, Record<string, unknown>>) || {};
+    const lineSettingsCfg = (cfg.line_settings as Record<string, Record<string, unknown>>) || {};
     const NARRATOR_KEY = "__narrator__";
     const SINGLE_KEY = "__single__";
-    const settingsCache = new Map<string, { body: Record<string, number>; tag: string }>();
-    const resolveSettings = (roleKey: string) => {
-      const cached = settingsCache.get(roleKey);
-      if (cached) return cached;
-      const raw = roleSettings[roleKey] || {};
+    const resolveRaw = (raw: Record<string, unknown>) => {
       const s = {
         stability: clampNum(raw.stability, DEFAULT_SETTINGS.stability, 0, 1),
         similarity_boost: clampNum(raw.similarity_boost, DEFAULT_SETTINGS.similarity_boost, 0, 1),
@@ -249,8 +248,25 @@ Deno.serve(async (req) => {
         : `_s${Math.round(s.stability * 100)}b${Math.round(s.similarity_boost * 100)}y${Math.round(
             s.style * 100
           )}v${Math.round(s.speed * 100)}`;
-      const resolved = { body, tag };
+      return { body, tag };
+    };
+    const settingsCache = new Map<string, { body: Record<string, number>; tag: string }>();
+    const resolveSettings = (roleKey: string) => {
+      const cached = settingsCache.get(roleKey);
+      if (cached) return cached;
+      const resolved = resolveRaw(roleSettings[roleKey] || {});
       settingsCache.set(roleKey, resolved);
+      return resolved;
+    };
+    // Line override merges OVER the role's settings (an untouched knob inherits).
+    const resolveFor = (roleKey: string, idx: number) => {
+      const lineRaw = lineSettingsCfg[String(idx)];
+      if (!lineRaw) return resolveSettings(roleKey);
+      const key = `line:${idx}`;
+      const cached = settingsCache.get(key);
+      if (cached) return cached;
+      const resolved = resolveRaw({ ...(roleSettings[roleKey] ?? {}), ...lineRaw });
+      settingsCache.set(key, resolved);
       return resolved;
     };
 
@@ -275,7 +291,11 @@ Deno.serve(async (req) => {
     const entries: Entry[] = [];
     let globalIdx = 0;
     const effChars: Record<string, string> = {};
-    const effSettings: Record<string, string> = {}; // role → non-default tag (manifest hash)
+    // Effective settings tags for the manifest hash: roleKey → tag for role-level,
+    // "#<element_index>" → tag for line overrides. A line override that resolves
+    // back to defaults still records "default" so it hashes differently from the
+    // same config without the override (its audio differs when the role is custom).
+    const effTags: Record<string, string> = {};
 
     for (const scene of scenes) {
       for (const el of scene.elements ?? []) {
@@ -285,8 +305,9 @@ Deno.serve(async (req) => {
           const roleKey = mode === "single" ? SINGLE_KEY : (el.character_name || "").toUpperCase();
           const voiceId = mode === "single" ? singleVoiceId : characterVoice(el.character_name);
           effChars[(el.character_name || "").toUpperCase()] = voiceId;
-          const { body, tag } = resolveSettings(roleKey);
-          if (tag) effSettings[roleKey] = tag;
+          const { body, tag } = resolveFor(roleKey, myIndex);
+          if (lineSettingsCfg[String(myIndex)]) effTags[`#${myIndex}`] = tag || "default";
+          else if (tag) effTags[roleKey] = tag;
           const hash = await sha1(norm);
           entries.push({
             element_index: myIndex,
@@ -301,8 +322,9 @@ Deno.serve(async (req) => {
         } else if (el.type === "action" && norm) {
           const roleKey = mode === "single" ? SINGLE_KEY : NARRATOR_KEY;
           const voiceId = mode === "single" ? singleVoiceId : narratorVoiceId;
-          const { body, tag } = resolveSettings(roleKey);
-          if (tag) effSettings[roleKey] = tag;
+          const { body, tag } = resolveFor(roleKey, myIndex);
+          if (lineSettingsCfg[String(myIndex)]) effTags[`#${myIndex}`] = tag || "default";
+          else if (tag) effTags[roleKey] = tag;
           const hash = await sha1(norm);
           entries.push({
             element_index: myIndex,
@@ -337,10 +359,10 @@ Deno.serve(async (req) => {
     ).slice(0, 16);
 
     // Config hash over the output-affecting fields (canonical/sorted) + content.
-    // Fold in only the roles whose settings are non-default, so an all-default
-    // read keeps its existing manifest key (no needless regeneration) while any
-    // per-role change gets its own manifest.
-    const settingsKey = Object.keys(effSettings).length ? { role_settings: effSettings } : {};
+    // Fold in only the roles/lines whose settings are non-default, so an
+    // all-default read keeps its existing manifest key (no needless
+    // regeneration) while any per-role or per-line change gets its own manifest.
+    const settingsKey = Object.keys(effTags).length ? { settings_tags: effTags } : {};
     const hashInput =
       mode === "single"
         ? { mode, single_voice_id: singleVoiceId, content: contentDigest, ...settingsKey }
