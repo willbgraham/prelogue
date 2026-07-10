@@ -24,6 +24,13 @@ const BUCKET = "scripts";
 const BATCH_SIZE = 5; // parallel TTS per batch
 const MAX_NEW_PER_RUN = 80; // generation cap per invocation (resumable)
 
+// ElevenLabs generation settings (mirror the picker's sliders). Defaults match
+// the historical hardcoded values so existing cached audio stays valid.
+const DEFAULT_SETTINGS = { stability: 0.5, similarity_boost: 0.75, style: 0, speed: 1.0 };
+type VoiceSettings = typeof DEFAULT_SETTINGS;
+const clampNum = (v: unknown, d: number, lo: number, hi: number) =>
+  Math.min(hi, Math.max(lo, typeof v === "number" && isFinite(v) ? v : d));
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -66,7 +73,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function ttsAndUpload(
   job: { voiceId: string; text: string; path: string },
-  supabase: any
+  supabase: any,
+  voiceSettings: Record<string, number>
 ): Promise<boolean> {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
@@ -82,7 +90,7 @@ async function ttsAndUpload(
           body: JSON.stringify({
             text: job.text,
             model_id: "eleven_flash_v2_5",
-            voice_settings: { stability: 0.5, similarity_boost: 0.75 },
+            voice_settings: voiceSettings,
           }),
         }
       );
@@ -207,6 +215,36 @@ Deno.serve(async (req) => {
       cfg.single_voice_id || cfg.narrator_voice_id || FALLBACK_VOICES[0];
     const charMap: Record<string, string> = cfg.characters || {};
 
+    // Voice generation settings (the picker's sliders). Clamp to valid ranges.
+    const rawSettings = (cfg.settings as Record<string, unknown>) || {};
+    const ttsSettings: VoiceSettings = {
+      stability: clampNum(rawSettings.stability, DEFAULT_SETTINGS.stability, 0, 1),
+      similarity_boost: clampNum(rawSettings.similarity_boost, DEFAULT_SETTINGS.similarity_boost, 0, 1),
+      style: clampNum(rawSettings.style, DEFAULT_SETTINGS.style, 0, 1),
+      speed: clampNum(rawSettings.speed, DEFAULT_SETTINGS.speed, 0.7, 1.2),
+    };
+    const settingsIsDefault =
+      ttsSettings.stability === DEFAULT_SETTINGS.stability &&
+      ttsSettings.similarity_boost === DEFAULT_SETTINGS.similarity_boost &&
+      ttsSettings.style === DEFAULT_SETTINGS.style &&
+      ttsSettings.speed === DEFAULT_SETTINGS.speed;
+    // Cache-key suffix so distinct settings yield distinct audio files. Empty for
+    // the defaults, so audio cached under the old (text-only) key is still reused.
+    const settingsTag = settingsIsDefault
+      ? ""
+      : `_s${Math.round(ttsSettings.stability * 100)}b${Math.round(
+          ttsSettings.similarity_boost * 100
+        )}y${Math.round(ttsSettings.style * 100)}v${Math.round(ttsSettings.speed * 100)}`;
+    // Always send stability + similarity (matches the historical default body
+    // exactly); add style/speed only when changed, so default reads generate
+    // byte-identical audio and never hit model style/speed support edge cases.
+    const voiceSettingsBody: Record<string, number> = {
+      stability: ttsSettings.stability,
+      similarity_boost: ttsSettings.similarity_boost,
+    };
+    if (ttsSettings.style !== DEFAULT_SETTINGS.style) voiceSettingsBody.style = ttsSettings.style;
+    if (ttsSettings.speed !== DEFAULT_SETTINGS.speed) voiceSettingsBody.speed = ttsSettings.speed;
+
     const characterVoice = (name?: string): string => {
       const key = (name || "").toUpperCase();
       return charMap[key] || fallbackVoiceForName(key);
@@ -242,8 +280,8 @@ Deno.serve(async (req) => {
             character: el.character_name ?? null,
             text: norm,
             voice_id: voiceId,
-            audio_path: `voice-cues/audio/${voiceId}/${hash}.mp3`,
-            audio_key: `${voiceId}/${hash}`,
+            audio_path: `voice-cues/audio/${voiceId}/${hash}${settingsTag}.mp3`,
+            audio_key: `${voiceId}/${hash}${settingsTag}`,
           });
         } else if (el.type === "action" && norm) {
           const voiceId = mode === "single" ? singleVoiceId : narratorVoiceId;
@@ -254,8 +292,8 @@ Deno.serve(async (req) => {
             character: null,
             text: norm,
             voice_id: voiceId,
-            audio_path: `voice-cues/audio/${voiceId}/${hash}.mp3`,
-            audio_key: `${voiceId}/${hash}`,
+            audio_path: `voice-cues/audio/${voiceId}/${hash}${settingsTag}.mp3`,
+            audio_key: `${voiceId}/${hash}${settingsTag}`,
           });
         }
         // character / parenthetical: index consumed, no audio entry
@@ -280,10 +318,14 @@ Deno.serve(async (req) => {
     ).slice(0, 16);
 
     // Config hash over the output-affecting fields (canonical/sorted) + content.
+    // Fold settings into the config hash ONLY when non-default, so default reads
+    // keep their existing manifest key (no needless regeneration) while custom
+    // settings get their own manifest.
+    const settingsKey = settingsIsDefault ? {} : { settings: ttsSettings };
     const hashInput =
       mode === "single"
-        ? { mode, single_voice_id: singleVoiceId, content: contentDigest }
-        : { mode, narrator_voice_id: narratorVoiceId, characters: effChars, content: contentDigest };
+        ? { mode, single_voice_id: singleVoiceId, content: contentDigest, ...settingsKey }
+        : { mode, narrator_voice_id: narratorVoiceId, characters: effChars, content: contentDigest, ...settingsKey };
     const voiceConfigHash = (await sha1(canonical(hashInput))).slice(0, 16);
     const manifestPath = `voice-cues/script/${script_id}/${voiceConfigHash}/manifest.json`;
 
@@ -314,7 +356,7 @@ Deno.serve(async (req) => {
     for (let i = 0; i < toDo.length; i += BATCH_SIZE) {
       const batch = toDo.slice(i, i + BATCH_SIZE);
       const results = await Promise.all(
-        batch.map(([, job]) => ttsAndUpload(job, supabase))
+        batch.map(([, job]) => ttsAndUpload(job, supabase, voiceSettingsBody))
       );
       results.forEach((ok, j) => {
         if (ok) generatedKeys.add(batch[j][0]);

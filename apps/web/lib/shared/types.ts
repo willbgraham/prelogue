@@ -61,8 +61,25 @@ export interface VoiceConfig {
   single_voice_id?: string | null;
   narrator_voice_id?: string | null;
   characters?: Record<string, string>;
+  /** ElevenLabs generation controls applied to every AI voice in the read. */
+  settings?: VoiceSettings | null;
   updated_at?: string;
 }
+
+/** ElevenLabs voice generation controls (mirror the ElevenLabs sliders). */
+export interface VoiceSettings {
+  stability: number; // 0..1  — variable ↔ stable
+  similarity_boost: number; // 0..1  — low ↔ high
+  style: number; // 0..1  — style exaggeration
+  speed: number; // 0.7..1.2 — slower ↔ faster
+}
+
+export const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
+  stability: 0.5,
+  similarity_boost: 0.75,
+  style: 0,
+  speed: 1.0,
+};
 
 /** A voice option from the ElevenLabs catalog (via the list-voices function). */
 export interface VoiceCatalogItem {

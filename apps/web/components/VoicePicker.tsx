@@ -2,8 +2,26 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
-import type { VoiceCatalogItem, VoiceConfig } from "@/lib/shared";
+import type { VoiceCatalogItem, VoiceConfig, VoiceSettings } from "@/lib/shared";
+import { DEFAULT_VOICE_SETTINGS } from "@/lib/shared";
 import { getBrowserClient } from "@/lib/supabase/client";
+
+// The four ElevenLabs generation controls, exposed as sliders. Applied to every
+// AI voice in the read (actor clips are real recordings, so they're unaffected).
+const SETTING_SLIDERS: {
+  key: keyof VoiceSettings;
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+  lo: string;
+  hi: string;
+}[] = [
+  { key: "speed", label: "Speed", min: 0.7, max: 1.2, step: 0.05, lo: "Slower", hi: "Faster" },
+  { key: "stability", label: "Stability", min: 0, max: 1, step: 0.05, lo: "Variable", hi: "Stable" },
+  { key: "similarity_boost", label: "Similarity", min: 0, max: 1, step: 0.05, lo: "Low", hi: "High" },
+  { key: "style", label: "Style", min: 0, max: 1, step: 0.05, lo: "None", hi: "Exaggerated" },
+];
 
 const NARRATOR = "__narrator__";
 const FILTER_KEYS: { key: string; label: string }[] = [
@@ -60,6 +78,11 @@ export function VoicePicker({
     characters: { ...(startConfig.characters ?? {}) },
   }));
   const [cast, setCast] = useState<Record<string, string>>({ ...startCast });
+  const [settings, setSettings] = useState<VoiceSettings>(() => ({
+    ...DEFAULT_VOICE_SETTINGS,
+    ...(startConfig.settings ?? {}),
+  }));
+  const [showSettings, setShowSettings] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [mode, setMode] = useState<"ai" | "actors">("ai");
   const [search, setSearch] = useState("");
@@ -107,7 +130,17 @@ export function VoicePicker({
     (async () => {
       const { data } = await getBrowserClient().functions.invoke("list-voices", { body: {} });
       if (!alive) return;
-      setCatalog((data?.voices as VoiceCatalogItem[]) ?? []);
+      // Dedupe by voice_id: the same voice can appear as both an account voice
+      // and a library voice under slightly different names, and duplicate keys
+      // corrupt the filtered/searched list render. Keep the first (account wins).
+      const raw = (data?.voices as VoiceCatalogItem[]) ?? [];
+      const seenIds = new Set<string>();
+      const deduped = raw.filter((v) => {
+        if (seenIds.has(v.voice_id)) return false;
+        seenIds.add(v.voice_id);
+        return true;
+      });
+      setCatalog(deduped);
       setLoading(false);
     })();
     return () => {
@@ -252,10 +285,57 @@ export function VoicePicker({
                   </span>
                 </button>
               ))}
+
+              {/* Global AI voice settings (ElevenLabs generation controls). */}
+              <div className="mt-1 py-3">
+                <button
+                  onClick={() => setShowSettings((s) => !s)}
+                  className="flex w-full items-center justify-between text-left"
+                >
+                  <span className="font-medium">Voice settings</span>
+                  <span className="text-sm text-taupe">{showSettings ? "Hide ▲" : "Adjust ▼"}</span>
+                </button>
+                {showSettings && (
+                  <div className="mt-3 space-y-4">
+                    <p className="text-xs text-muted">Applied to all AI voices in the read.</p>
+                    {SETTING_SLIDERS.map((s) => (
+                      <label key={s.key} className="block">
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="font-medium">{s.label}</span>
+                          <span className="font-mono text-xs text-taupe">
+                            {settings[s.key].toFixed(2)}
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          min={s.min}
+                          max={s.max}
+                          step={s.step}
+                          value={settings[s.key]}
+                          onChange={(e) =>
+                            setSettings((prev) => ({ ...prev, [s.key]: Number(e.target.value) }))
+                          }
+                          className="mt-1 w-full accent-brick"
+                        />
+                        <div className="flex justify-between text-[10px] uppercase tracking-wide text-muted">
+                          <span>{s.lo}</span>
+                          <span>{s.hi}</span>
+                        </div>
+                      </label>
+                    ))}
+                    <button
+                      onClick={() => setSettings({ ...DEFAULT_VOICE_SETTINGS })}
+                      className="text-xs text-taupe underline hover:text-ink"
+                    >
+                      Reset to default
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
             <div className="border-t border-tan p-4">
               <button
-                onClick={() => onApply(config, cast)}
+                onClick={() => onApply({ ...config, settings }, cast)}
                 disabled={outOfChanges}
                 className="w-full rounded-lg bg-brick px-4 py-3 font-medium text-white disabled:opacity-50"
               >

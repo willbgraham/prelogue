@@ -121,9 +121,12 @@ Deno.serve(async (req) => {
       fetchLibraryVoices("male", 4), // up to ~400
     ]);
 
-    // Drop library voices already in the account (by name) to avoid duplicates.
+    // Drop library voices already in the account — by voice_id AND by name.
+    // The same voice often appears in both lists under a slightly different name
+    // (a trailing space, a translated label), so a name-only check misses it and
+    // leaves a duplicate voice_id, which then breaks the picker's list render.
     const accountNames = new Set(account.map((v) => v.name.toLowerCase()));
-    const seen = new Set<string>();
+    const seen = new Set<string>(account.map((v) => v.voice_id));
     const library = [...female, ...male].filter((v) => {
       if (accountNames.has(v.name.toLowerCase())) return false;
       if (seen.has(v.voice_id)) return false;
