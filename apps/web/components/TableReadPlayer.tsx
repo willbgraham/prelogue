@@ -85,6 +85,10 @@ export function TableReadPlayer({
   // element_index → cast clip (signed URL + non-destructive trim/volume) — built
   // ONLY from the roles the user explicitly cast to an actor (never automatic).
   const clipMapRef = useRef<Map<number, ClipInfo>>(new Map());
+  // Preloaded cast clips: signed URL → in-memory blob object URL, so a cast line
+  // plays instantly instead of downloading cold when its turn comes (slow links).
+  const clipBlobRef = useRef<Map<string, string>>(new Map());
+  const preloadAbortRef = useRef<AbortController | null>(null);
   const clipsBySubRef = useRef<Map<string, Map<number, ClipInfo>>>(new Map()); // submissionId → (element_index → clip)
   const castMapRef = useRef<Map<string, string>>(new Map()); // ROLE → submissionId
   const clipEndRef = useRef<number | null>(null); // active clip's trim-end (seconds), or null
@@ -106,10 +110,52 @@ export function TableReadPlayer({
   const [showPicker, setShowPicker] = useState(false);
   const [changesUsed, setChangesUsed] = useState(0);
   const [showVideo, setShowVideo] = useState(false);
+  // Preload progress for the cast video clips (0 → total). Transient UI cue.
+  const [videosReady, setVideosReady] = useState(0);
+  const [videosTotal, setVideosTotal] = useState(0);
   // Actor submissions per role (ROLE → takes) for the picker's "Actors" option.
   const [subsByRole, setSubsByRole] = useState<
     Record<string, { id: string; actor: string; take: number; avatar: string | null; clips: string[] }[]>
   >({});
+
+  // Prefetch every currently-cast clip into an in-memory blob (earliest line
+  // first, so the first cast line is ready soonest). Idempotent per URL, and
+  // silently falls back to on-demand streaming if a fetch fails. Re-run whenever
+  // the cast changes; the previous run is aborted so we don't fetch stale clips.
+  const preloadClips = useCallback(async () => {
+    const urls = [...clipMapRef.current.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([, info]) => info.url);
+    preloadAbortRef.current?.abort();
+    const controller = new AbortController();
+    preloadAbortRef.current = controller;
+    const pending = urls.filter((u) => !clipBlobRef.current.has(u));
+    setVideosTotal(urls.length);
+    setVideosReady(urls.length - pending.length);
+    for (const url of pending) {
+      try {
+        const res = await fetch(url, { signal: controller.signal });
+        if (!res.ok) continue;
+        const blob = await res.blob();
+        if (controller.signal.aborted) return;
+        clipBlobRef.current.set(url, URL.createObjectURL(blob));
+        setVideosReady((n) => n + 1);
+      } catch {
+        if (controller.signal.aborted) return;
+        // network/CORS hiccup — leave this clip to stream on demand
+      }
+    }
+  }, []);
+
+  // Revoke preloaded blobs + cancel in-flight prefetches on unmount.
+  useEffect(() => {
+    const blobs = clipBlobRef.current;
+    return () => {
+      preloadAbortRef.current?.abort();
+      for (const u of blobs.values()) URL.revokeObjectURL(u);
+      blobs.clear();
+    };
+  }, []);
 
   useEffect(() => {
     setChangesUsed(voiceChangesToday());
@@ -203,11 +249,13 @@ export function TableReadPlayer({
           clipMapRef.current = defaultClips;
         }
       }
+      // Warm the cast clips now so playback is instant when the viewer hits play.
+      preloadClips();
     })();
     return () => {
       alive = false;
     };
-  }, [scriptId]);
+  }, [scriptId, preloadClips]);
   useEffect(() => {
     activeRef.current = active;
     // Auto-scroll the script *within its own box* (don't move the page/stage).
@@ -252,7 +300,8 @@ export function TableReadPlayer({
       if (clip && video) {
         audio?.pause();
         setShowVideo(true);
-        video.src = clip.url;
+        // Prefer the preloaded in-memory blob (instant); fall back to streaming.
+        video.src = clipBlobRef.current.get(clip.url) ?? clip.url;
         video.volume = clip.volume;
         clipEndRef.current = clip.trimEnd;
         video.currentTime = clip.trimStart;
@@ -364,6 +413,7 @@ export function TableReadPlayer({
         if (clips) for (const [idx, info] of clips) clipMap.set(idx, info);
       }
       clipMapRef.current = clipMap;
+      preloadClips(); // warm the newly-cast clips so playback stays instant
       // Only a genuinely new voice config regenerates (and costs); re-applying
       // the same voices replays from cache and doesn't count against the cap.
       const newKey = JSON.stringify(cfg);
@@ -400,7 +450,7 @@ export function TableReadPlayer({
       setPlaying(true);
       playRow(0);
     },
-    [ensureReady, playRow, stop, isOwner, scriptId]
+    [ensureReady, playRow, stop, isOwner, scriptId, preloadClips]
   );
 
   const handlePlay = useCallback(async () => {
@@ -467,6 +517,7 @@ export function TableReadPlayer({
         <video
           ref={videoRef}
           playsInline
+          preload="auto"
           className={`absolute inset-0 h-full w-full object-contain ${showVideo ? "block" : "hidden"}`}
         />
         {!showVideo && (
@@ -515,9 +566,16 @@ export function TableReadPlayer({
             Choose Cast
           </button>
         )}
-        <span className="ml-auto font-mono text-xs text-muted">
-          {Math.min(active + 1, rows.length)} / {rows.length}
-        </span>
+        <div className="ml-auto flex items-center gap-3 font-mono text-xs text-muted">
+          {videosTotal > 0 && videosReady < videosTotal && (
+            <span title="Caching cast videos for instant playback">
+              Caching video {videosReady}/{videosTotal}…
+            </span>
+          )}
+          <span>
+            {Math.min(active + 1, rows.length)} / {rows.length}
+          </span>
+        </div>
       </div>
 
       {preparing && (
