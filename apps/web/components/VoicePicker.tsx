@@ -6,10 +6,32 @@ import type { VoiceCatalogItem, VoiceConfig, VoiceSettings } from "@/lib/shared"
 import { DEFAULT_VOICE_SETTINGS } from "@/lib/shared";
 import { getBrowserClient } from "@/lib/supabase/client";
 
+// Emotional delivery for a single line — rendered as an ElevenLabs v3 audio tag
+// ("[sad] …"). Value = the tag word sent to the model; label = what the UI shows.
+const EMOTIONS: { value: string; label: string }[] = [
+  { value: "sad", label: "Sad" },
+  { value: "angry", label: "Angry" },
+  { value: "scared", label: "Scared" },
+  { value: "nervous", label: "Nervous" },
+  { value: "excited", label: "Excited" },
+  { value: "calm", label: "Calm" },
+  { value: "frustrated", label: "Frustrated" },
+  { value: "sarcastic", label: "Sarcastic" },
+  { value: "whispers", label: "Whisper" },
+  { value: "shouts", label: "Shout" },
+  { value: "crying", label: "Crying" },
+  { value: "deadpan", label: "Deadpan" },
+  { value: "cheerfully", label: "Cheerful" },
+  { value: "tired", label: "Tired" },
+];
+
+// The numeric slider keys (emotion is a separate dropdown, not a slider).
+type NumericSetting = "stability" | "similarity_boost" | "style" | "speed";
+
 // The four ElevenLabs generation controls, exposed as sliders. Applied to every
 // AI voice in the read (actor clips are real recordings, so they're unaffected).
 const SETTING_SLIDERS: {
-  key: keyof VoiceSettings;
+  key: NumericSetting;
   label: string;
   min: number;
   max: number;
@@ -180,7 +202,7 @@ export function VoicePicker({
     ...DEFAULT_VOICE_SETTINGS,
     ...(roleSettings[role] ?? {}),
   });
-  const setRoleSetting = (role: string, key: keyof VoiceSettings, val: number) =>
+  const setRoleSetting = (role: string, key: NumericSetting, val: number) =>
     setRoleSettings((prev) => ({
       ...prev,
       [role]: { ...DEFAULT_VOICE_SETTINGS, ...(prev[role] ?? {}), [key]: val },
@@ -212,7 +234,7 @@ export function VoicePicker({
     selectedLine === "role"
       ? settingsFor(role)
       : { ...settingsFor(role), ...(lineSettings[String(selectedLine)] ?? {}) };
-  const setEffectiveSetting = (role: string, key: keyof VoiceSettings, val: number) => {
+  const setEffectiveSetting = (role: string, key: NumericSetting, val: number) => {
     if (selectedLine === "role") return setRoleSetting(role, key, val);
     const k = String(selectedLine);
     setLineSettings((prev) => ({
@@ -220,6 +242,19 @@ export function VoicePicker({
       [k]: { ...settingsFor(role), ...(prev[k] ?? {}), [key]: val },
     }));
   };
+  // Emotion is line-level only (it switches that line to the pricier v3 model).
+  const setLineEmotion = (role: string, emotion: string) => {
+    if (selectedLine === "role") return;
+    const k = String(selectedLine);
+    setLineSettings((prev) => {
+      const base = { ...settingsFor(role), ...(prev[k] ?? {}) };
+      if (emotion) return { ...prev, [k]: { ...base, emotion } };
+      delete base.emotion; // clearing keeps any numeric overrides
+      return { ...prev, [k]: base };
+    });
+  };
+  const effectiveEmotion = (role: string): string =>
+    selectedLine === "role" ? "" : (effectiveSettings(role).emotion ?? "");
   const resetEffective = (role: string) => {
     if (selectedLine === "role") return resetRoleSettings(role);
     setLineSettings((prev) => {
@@ -555,31 +590,64 @@ export function VoicePicker({
                             </select>
                           </label>
                         )}
-                        {SETTING_SLIDERS.map((s) => (
-                          <label key={s.key} className="block">
+                        {selectedLine !== "role" && (
+                          <label className="block">
                             <div className="flex items-center justify-between text-sm">
-                              <span className="font-medium">{s.label}</span>
-                              <span className="font-mono text-xs text-taupe">
-                                {effectiveSettings(editing!)[s.key].toFixed(2)}
-                              </span>
+                              <span className="font-medium">Emotion</span>
+                              {effectiveEmotion(editing!) && (
+                                <span className="font-mono text-xs text-taupe">v3</span>
+                              )}
                             </div>
-                            <input
-                              type="range"
-                              min={s.min}
-                              max={s.max}
-                              step={s.step}
-                              value={effectiveSettings(editing!)[s.key]}
-                              onChange={(e) =>
-                                setEffectiveSetting(editing!, s.key, Number(e.target.value))
-                              }
-                              className="mt-1 w-full accent-brick"
-                            />
-                            <div className="flex justify-between text-[10px] uppercase tracking-wide text-muted">
-                              <span>{s.lo}</span>
-                              <span>{s.hi}</span>
-                            </div>
+                            <select
+                              value={effectiveEmotion(editing!)}
+                              onChange={(e) => setLineEmotion(editing!, e.target.value)}
+                              className="mt-1 w-full rounded-lg border border-tan bg-elevated px-2 py-1.5 text-sm outline-none focus:border-brick"
+                            >
+                              <option value="">None (neutral)</option>
+                              {EMOTIONS.map((e) => (
+                                <option key={e.value} value={e.value}>
+                                  {e.label}
+                                </option>
+                              ))}
+                            </select>
+                            {effectiveEmotion(editing!) && (
+                              <p className="mt-1 text-[11px] leading-snug text-muted">
+                                This line uses the more expressive v3 model. Speed &amp; Style
+                                don&rsquo;t apply; Stability snaps to Creative / Natural / Robust.
+                              </p>
+                            )}
                           </label>
-                        ))}
+                        )}
+                        {SETTING_SLIDERS.map((s) => {
+                          const v3Inactive =
+                            !!effectiveEmotion(editing!) && (s.key === "speed" || s.key === "style");
+                          return (
+                            <label key={s.key} className={`block ${v3Inactive ? "opacity-40" : ""}`}>
+                              <div className="flex items-center justify-between text-sm">
+                                <span className="font-medium">{s.label}</span>
+                                <span className="font-mono text-xs text-taupe">
+                                  {v3Inactive ? "—" : effectiveSettings(editing!)[s.key].toFixed(2)}
+                                </span>
+                              </div>
+                              <input
+                                type="range"
+                                min={s.min}
+                                max={s.max}
+                                step={s.step}
+                                value={effectiveSettings(editing!)[s.key]}
+                                disabled={v3Inactive}
+                                onChange={(e) =>
+                                  setEffectiveSetting(editing!, s.key, Number(e.target.value))
+                                }
+                                className="mt-1 w-full accent-brick"
+                              />
+                              <div className="flex justify-between text-[10px] uppercase tracking-wide text-muted">
+                                <span>{s.lo}</span>
+                                <span>{s.hi}</span>
+                              </div>
+                            </label>
+                          );
+                        })}
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => previewLine(editing!)}

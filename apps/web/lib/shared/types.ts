@@ -78,6 +78,10 @@ export interface VoiceSettings {
   similarity_boost: number; // 0..1  — low ↔ high
   style: number; // 0..1  — style exaggeration
   speed: number; // 0.7..1.2 — slower ↔ faster
+  /** Emotional delivery (line-level only): a v3 audio tag like "sad"/"nervous".
+   *  A line with an emotion renders on eleven_v3 (tags need it); Speed/Style
+   *  don't apply there and Stability snaps to Creative/Natural/Robust. */
+  emotion?: string | null;
 }
 
 export const DEFAULT_VOICE_SETTINGS: VoiceSettings = {

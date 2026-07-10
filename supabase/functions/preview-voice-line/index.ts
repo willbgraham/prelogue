@@ -34,6 +34,15 @@ const DEFAULT_SETTINGS = { stability: 0.5, similarity_boost: 0.75, style: 0, spe
 const clampNum = (v: unknown, d: number, lo: number, hi: number) =>
   Math.min(hi, Math.max(lo, typeof v === "number" && isFinite(v) ? v : d));
 
+// v3 audio-tag emotions (must mirror generate-voice-cues exactly so the preview
+// file is the same content-addressed file the full read plays).
+const EMOTIONS = new Set([
+  "sad", "angry", "scared", "nervous", "excited", "calm", "frustrated",
+  "sarcastic", "whispers", "shouts", "crying", "deadpan", "cheerfully", "tired",
+]);
+const V3_MODEL = "eleven_v3";
+const snapV3Stability = (v: number) => (v < 0.25 ? 0 : v < 0.75 ? 0.5 : 1);
+
 function normalizeText(t: string): string {
   return (t || "").replace(/\s+/g, " ").trim();
 }
@@ -144,28 +153,43 @@ Deno.serve(async (req) => {
 
     // Settings → TTS body + cache tag (identical scheme to generate-voice-cues).
     const raw = (settings as Record<string, unknown>) || {};
+    const emotionRaw = typeof raw.emotion === "string" ? raw.emotion.toLowerCase() : "";
+    const emotion = EMOTIONS.has(emotionRaw) ? emotionRaw : undefined;
     const s = {
       stability: clampNum(raw.stability, DEFAULT_SETTINGS.stability, 0, 1),
       similarity_boost: clampNum(raw.similarity_boost, DEFAULT_SETTINGS.similarity_boost, 0, 1),
       style: clampNum(raw.style, DEFAULT_SETTINGS.style, 0, 1),
       speed: clampNum(raw.speed, DEFAULT_SETTINGS.speed, 0.7, 1.2),
     };
-    const isDefault =
-      s.stability === DEFAULT_SETTINGS.stability &&
-      s.similarity_boost === DEFAULT_SETTINGS.similarity_boost &&
-      s.style === DEFAULT_SETTINGS.style &&
-      s.speed === DEFAULT_SETTINGS.speed;
-    const body: Record<string, number> = {
-      stability: s.stability,
-      similarity_boost: s.similarity_boost,
-    };
-    if (s.style !== DEFAULT_SETTINGS.style) body.style = s.style;
-    if (s.speed !== DEFAULT_SETTINGS.speed) body.speed = s.speed;
-    const tag = isDefault
-      ? ""
-      : `_s${Math.round(s.stability * 100)}b${Math.round(s.similarity_boost * 100)}y${Math.round(
-          s.style * 100
-        )}v${Math.round(s.speed * 100)}`;
+    let body: Record<string, number>;
+    let tag: string;
+    let model = "eleven_flash_v2_5";
+    let ttsText = target.text;
+    if (emotion) {
+      // v3: modal stability, no style/speed; the "[tag] " prefix directs delivery.
+      const stab = snapV3Stability(s.stability);
+      body = { stability: stab, similarity_boost: s.similarity_boost };
+      tag = `_v3${emotion}s${Math.round(stab * 100)}b${Math.round(s.similarity_boost * 100)}`;
+      model = V3_MODEL;
+      ttsText = `[${emotion}] ${target.text}`;
+    } else {
+      const isDefault =
+        s.stability === DEFAULT_SETTINGS.stability &&
+        s.similarity_boost === DEFAULT_SETTINGS.similarity_boost &&
+        s.style === DEFAULT_SETTINGS.style &&
+        s.speed === DEFAULT_SETTINGS.speed;
+      body = {
+        stability: s.stability,
+        similarity_boost: s.similarity_boost,
+      };
+      if (s.style !== DEFAULT_SETTINGS.style) body.style = s.style;
+      if (s.speed !== DEFAULT_SETTINGS.speed) body.speed = s.speed;
+      tag = isDefault
+        ? ""
+        : `_s${Math.round(s.stability * 100)}b${Math.round(s.similarity_boost * 100)}y${Math.round(
+            s.style * 100
+          )}v${Math.round(s.speed * 100)}`;
+    }
 
     const hash = await sha1(target.text);
     const dir = `voice-cues/audio/${vid}`;
@@ -189,8 +213,8 @@ Deno.serve(async (req) => {
             Accept: "audio/mpeg",
           },
           body: JSON.stringify({
-            text: target.text,
-            model_id: "eleven_flash_v2_5",
+            text: ttsText,
+            model_id: model,
             voice_settings: body,
           }),
         }

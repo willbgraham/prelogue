@@ -30,6 +30,18 @@ const DEFAULT_SETTINGS = { stability: 0.5, similarity_boost: 0.75, style: 0, spe
 const clampNum = (v: unknown, d: number, lo: number, hi: number) =>
   Math.min(hi, Math.max(lo, typeof v === "number" && isFinite(v) ? v : d));
 
+// Emotional delivery (v3 audio tags), line-level only. A tagged line renders on
+// eleven_v3 — the only model that honors [sad]/[nervous]/… direction. Whitelist
+// keeps the tag a known word (it's interpolated into the TTS text) and bounds
+// cost: v3 ≈ 2× flash per char, so only explicitly tagged lines pay it.
+const EMOTIONS = new Set([
+  "sad", "angry", "scared", "nervous", "excited", "calm", "frustrated",
+  "sarcastic", "whispers", "shouts", "crying", "deadpan", "cheerfully", "tired",
+]);
+const V3_MODEL = "eleven_v3";
+// v3 stability is modal: 0 Creative / 0.5 Natural / 1 Robust — snap to nearest.
+const snapV3Stability = (v: number) => (v < 0.25 ? 0 : v < 0.75 ? 0.5 : 1);
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -71,7 +83,7 @@ function canonical(obj: unknown): string {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function ttsAndUpload(
-  job: { voiceId: string; text: string; path: string },
+  job: { voiceId: string; text: string; path: string; model?: string },
   supabase: any,
   voiceSettings: Record<string, number>
 ): Promise<boolean> {
@@ -88,7 +100,7 @@ async function ttsAndUpload(
           },
           body: JSON.stringify({
             text: job.text,
-            model_id: "eleven_flash_v2_5",
+            model_id: job.model ?? "eleven_flash_v2_5",
             voice_settings: voiceSettings,
           }),
         }
@@ -225,13 +237,31 @@ Deno.serve(async (req) => {
     const lineSettingsCfg = (cfg.line_settings as Record<string, Record<string, unknown>>) || {};
     const NARRATOR_KEY = "__narrator__";
     const SINGLE_KEY = "__single__";
-    const resolveRaw = (raw: Record<string, unknown>) => {
+    // Resolved shape: TTS body + cache tag + (for emotion lines) the v3 model
+    // and the "[tag] " text prefix that carries the emotional direction.
+    type Resolved = {
+      body: Record<string, number>;
+      tag: string;
+      model?: string;
+      ttsPrefix?: string;
+    };
+    const resolveRaw = (raw: Record<string, unknown>, emotion?: string): Resolved => {
       const s = {
         stability: clampNum(raw.stability, DEFAULT_SETTINGS.stability, 0, 1),
         similarity_boost: clampNum(raw.similarity_boost, DEFAULT_SETTINGS.similarity_boost, 0, 1),
         style: clampNum(raw.style, DEFAULT_SETTINGS.style, 0, 1),
         speed: clampNum(raw.speed, DEFAULT_SETTINGS.speed, 0.7, 1.2),
       };
+      if (emotion) {
+        // v3: modal stability, no style/speed; tag folds emotion + settings.
+        const stab = snapV3Stability(s.stability);
+        return {
+          body: { stability: stab, similarity_boost: s.similarity_boost },
+          tag: `_v3${emotion}s${Math.round(stab * 100)}b${Math.round(s.similarity_boost * 100)}`,
+          model: V3_MODEL,
+          ttsPrefix: `[${emotion}] `,
+        };
+      }
       const isDefault =
         s.stability === DEFAULT_SETTINGS.stability &&
         s.similarity_boost === DEFAULT_SETTINGS.similarity_boost &&
@@ -250,7 +280,8 @@ Deno.serve(async (req) => {
           )}v${Math.round(s.speed * 100)}`;
       return { body, tag };
     };
-    const settingsCache = new Map<string, { body: Record<string, number>; tag: string }>();
+    const settingsCache = new Map<string, Resolved>();
+    // Role-level settings never carry an emotion (line-level only — bounds v3 cost).
     const resolveSettings = (roleKey: string) => {
       const cached = settingsCache.get(roleKey);
       if (cached) return cached;
@@ -265,7 +296,9 @@ Deno.serve(async (req) => {
       const key = `line:${idx}`;
       const cached = settingsCache.get(key);
       if (cached) return cached;
-      const resolved = resolveRaw({ ...(roleSettings[roleKey] ?? {}), ...lineRaw });
+      const emotionRaw = typeof lineRaw.emotion === "string" ? lineRaw.emotion.toLowerCase() : "";
+      const emotion = EMOTIONS.has(emotionRaw) ? emotionRaw : undefined;
+      const resolved = resolveRaw({ ...(roleSettings[roleKey] ?? {}), ...lineRaw }, emotion);
       settingsCache.set(key, resolved);
       return resolved;
     };
@@ -287,6 +320,8 @@ Deno.serve(async (req) => {
       audio_path: string;
       audio_key: string; // voiceId/hash(/settingsTag) for existence checks
       settings: Record<string, number>; // ElevenLabs voice_settings for this line
+      tts_text: string; // what's sent to TTS (emotion lines carry a "[tag] " prefix)
+      model?: string; // eleven_v3 for emotion lines; default flash otherwise
     }
     const entries: Entry[] = [];
     let globalIdx = 0;
@@ -305,7 +340,7 @@ Deno.serve(async (req) => {
           const roleKey = mode === "single" ? SINGLE_KEY : (el.character_name || "").toUpperCase();
           const voiceId = mode === "single" ? singleVoiceId : characterVoice(el.character_name);
           effChars[(el.character_name || "").toUpperCase()] = voiceId;
-          const { body, tag } = resolveFor(roleKey, myIndex);
+          const { body, tag, model, ttsPrefix } = resolveFor(roleKey, myIndex);
           if (lineSettingsCfg[String(myIndex)]) effTags[`#${myIndex}`] = tag || "default";
           else if (tag) effTags[roleKey] = tag;
           const hash = await sha1(norm);
@@ -318,11 +353,13 @@ Deno.serve(async (req) => {
             audio_path: `voice-cues/audio/${voiceId}/${hash}${tag}.mp3`,
             audio_key: `${voiceId}/${hash}${tag}`,
             settings: body,
+            tts_text: `${ttsPrefix ?? ""}${norm}`,
+            model,
           });
         } else if (el.type === "action" && norm) {
           const roleKey = mode === "single" ? SINGLE_KEY : NARRATOR_KEY;
           const voiceId = mode === "single" ? singleVoiceId : narratorVoiceId;
-          const { body, tag } = resolveFor(roleKey, myIndex);
+          const { body, tag, model, ttsPrefix } = resolveFor(roleKey, myIndex);
           if (lineSettingsCfg[String(myIndex)]) effTags[`#${myIndex}`] = tag || "default";
           else if (tag) effTags[roleKey] = tag;
           const hash = await sha1(norm);
@@ -335,6 +372,8 @@ Deno.serve(async (req) => {
             audio_path: `voice-cues/audio/${voiceId}/${hash}${tag}.mp3`,
             audio_key: `${voiceId}/${hash}${tag}`,
             settings: body,
+            tts_text: `${ttsPrefix ?? ""}${norm}`,
+            model,
           });
         }
         // character / parenthetical: index consumed, no audio entry
@@ -373,15 +412,16 @@ Deno.serve(async (req) => {
     // Existence check: list cached hashes per distinct voice.
     const distinctJobs = new Map<
       string,
-      { voiceId: string; text: string; path: string; settings: Record<string, number> }
+      { voiceId: string; text: string; path: string; settings: Record<string, number>; model?: string }
     >();
     for (const e of entries) {
       if (!distinctJobs.has(e.audio_key)) {
         distinctJobs.set(e.audio_key, {
           voiceId: e.voice_id,
-          text: e.text,
+          text: e.tts_text, // emotion lines carry their "[tag] " prefix
           path: e.audio_path,
           settings: e.settings,
+          model: e.model,
         });
       }
     }
