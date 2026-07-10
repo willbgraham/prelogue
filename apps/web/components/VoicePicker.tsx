@@ -81,6 +81,8 @@ export function VoicePicker({
   submissionsByRole = {},
   linesByRole = {},
   startCast = {},
+  writersCast = {},
+  canChangeVoices = true,
   canPersist = false,
   onSaveConfig,
   onApply,
@@ -94,6 +96,11 @@ export function VoicePicker({
   /** Role → its spoken lines (element_index + text), for per-line settings. */
   linesByRole?: Record<string, { index: number; text: string }[]>;
   startCast?: Record<string, string>;
+  /** Role → the writer's ★ submission id (badged as the default pick). */
+  writersCast?: Record<string, string>;
+  /** AI voices/settings/emotions are writer-or-demo only; when false the picker
+   *  is actor casting: viewers swap performers, the writer's AI voices stand. */
+  canChangeVoices?: boolean;
   /** Whether Save persists (the writer). Visitors' tweaks stay session-only. */
   canPersist?: boolean;
   /** Persist the config now (without regenerating) — used by Save. */
@@ -472,8 +479,9 @@ export function VoicePicker({
           </>
         ) : (
           <>
-            {/* AI / Actors toggle — only when the role has recorded reads. */}
-            {editingActors.length > 0 && (
+            {/* AI / Actors toggle — only when the role has recorded reads AND the
+                viewer may edit AI voices (otherwise the picker is actors-only). */}
+            {editingActors.length > 0 && canChangeVoices && (
               <div className="flex gap-2 px-5 pt-3">
                 <button
                   onClick={() => setMode("ai")}
@@ -503,6 +511,35 @@ export function VoicePicker({
                   className={`mb-3 w-full rounded-lg bg-black ${previewSub ? "block" : "hidden"}`}
                   style={{ maxHeight: "40vh" }}
                 />
+                {/* When the writer's default for this role is the AI voice (no ★
+                    read), viewers can return to it after trying an actor. */}
+                {!canChangeVoices && !writersCast[editing!] && (
+                  <div className="flex items-center gap-3 border-b border-tan/60 py-2">
+                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-tan bg-elevated text-sm text-taupe">
+                      AI
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-medium">
+                        {nameOf(currentVoiceFor(editing!))}
+                      </div>
+                      <div className="text-xs text-muted">AI voice · writer&rsquo;s default</div>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setCast((c) => {
+                          if (!c[editing!]) return c;
+                          const n = { ...c };
+                          delete n[editing!];
+                          return n;
+                        });
+                        closeRole();
+                      }}
+                      className="shrink-0 rounded-lg bg-brick px-3 py-1.5 text-xs font-medium text-white"
+                    >
+                      {!cast[editing!] ? "Cast ✓" : "Use"}
+                    </button>
+                  </div>
+                )}
                 {editingActors.map((sub) => (
                   <div
                     key={sub.id}
@@ -525,7 +562,12 @@ export function VoicePicker({
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm font-medium">{sub.actor}</div>
-                      <div className="text-xs text-muted">Take #{sub.take}</div>
+                      <div className="text-xs text-muted">
+                        Take #{sub.take}
+                        {writersCast[editing!] === sub.id && (
+                          <span className="text-brick"> · ★ Writer&rsquo;s pick</span>
+                        )}
+                      </div>
                     </div>
                     <button
                       onClick={() => previewRead(sub)}
@@ -542,6 +584,18 @@ export function VoicePicker({
                     </button>
                   </div>
                 ))}
+              </div>
+            ) : !canChangeVoices ? (
+              /* Voice-locked (a real script, viewer isn't the writer) and no actor
+                 reads for this role yet: show the writer's voice, read-only. */
+              <div className="flex-1 overflow-y-auto px-5 py-6">
+                <div className="text-xs text-muted">AI voice for {roleLabel(editing!)}</div>
+                <div className="mt-1 font-medium">{nameOf(currentVoiceFor(editing!))}</div>
+                <p className="mt-3 text-sm leading-relaxed text-taupe">
+                  {editing === NARRATOR
+                    ? "The writer chooses the narrator's voice on this script."
+                    : "The writer chooses the AI voices on this script. No actor reads for this role yet — record one from the script page and it can appear here."}
+                </p>
               </div>
             ) : (
               <>

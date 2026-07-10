@@ -131,6 +131,8 @@ export function TableReadPlayer({
   const [subsByRole, setSubsByRole] = useState<
     Record<string, { id: string; actor: string; take: number; avatar: string | null; clips: string[] }[]>
   >({});
+  // ROLE → the writer's ★ submission id (the default cast + picker badge).
+  const [writersCast, setWritersCast] = useState<Record<string, string>>({});
 
   // Prefetch every currently-cast clip into an in-memory blob (earliest line
   // first, so the first cast line is ready soonest). Idempotent per URL, and
@@ -245,23 +247,24 @@ export function TableReadPlayer({
       if (!alive) return;
       clipsBySubRef.current = clipsBySub;
       setSubsByRole(byRole);
-      // Default the performance to the writer's ★ choices (approved reads only), so
-      // playing the read uses the cast actors — not AI — unless the viewer overrides.
-      if (castMapRef.current.size === 0) {
-        const defaultCast = new Map<string, string>();
-        const defaultClips = new Map<number, ClipInfo>();
-        for (const s of subs) {
-          if (!s.is_writers_choice || s.moderation_status !== "approved") continue;
-          const role = (s.character?.name ?? "").toUpperCase();
-          if (!role) continue;
-          defaultCast.set(role, s.id);
-          const m = clipsBySub.get(s.id);
-          if (m) for (const [idx, info] of m) defaultClips.set(idx, info);
-        }
-        if (defaultCast.size) {
-          castMapRef.current = defaultCast;
-          clipMapRef.current = defaultClips;
-        }
+      // The writer's ★ choices (approved reads only): the read's default cast,
+      // and the "Writer's pick" badge in the picker.
+      const defaultCast = new Map<string, string>();
+      const defaultClips = new Map<number, ClipInfo>();
+      for (const s of subs) {
+        if (!s.is_writers_choice || s.moderation_status !== "approved") continue;
+        const role = (s.character?.name ?? "").toUpperCase();
+        if (!role) continue;
+        defaultCast.set(role, s.id);
+        const m = clipsBySub.get(s.id);
+        if (m) for (const [idx, info] of m) defaultClips.set(idx, info);
+      }
+      setWritersCast(Object.fromEntries(defaultCast));
+      // Default the performance to those choices unless the viewer already
+      // overrode the cast in this session.
+      if (castMapRef.current.size === 0 && defaultCast.size) {
+        castMapRef.current = defaultCast;
+        clipMapRef.current = defaultClips;
       }
       // Warm the cast clips now so playback is instant when the viewer hits play.
       preloadClips();
@@ -394,7 +397,10 @@ export function TableReadPlayer({
   const ensureReady = useCallback(async () => {
     // Re-generate whenever the chosen voices change (keyed on the override).
     const key = overrideRef.current ? JSON.stringify(overrideRef.current) : "default";
-    if (preparedKeyRef.current === key) return true;
+    if (preparedKeyRef.current === key) {
+      setReady(true); // already prepared (e.g. a cast-only re-apply)
+      return true;
+    }
     setPreparing(true);
     setError(null);
     try {
@@ -428,43 +434,50 @@ export function TableReadPlayer({
       }
       clipMapRef.current = clipMap;
       preloadClips(); // warm the newly-cast clips so playback stays instant
-      // Only a genuinely new voice config regenerates (and costs); re-applying
-      // the same voices replays from cache and doesn't count against the cap.
-      const newKey = JSON.stringify(cfg);
-      const willRegenerate = preparedKeyRef.current !== newKey;
-      if (willRegenerate && voiceChangesToday() >= MAX_VOICE_CHANGES_PER_DAY) {
-        setError(
-          "You've reached today's voice-change limit. Voices you've already tried still replay free — come back tomorrow to try more."
-        );
-        return;
-      }
-      overrideRef.current = cfg;
-      // The writer's picks ARE the script's real config — persist them so they
-      // survive a refresh (RLS also restricts this to the owner). Visitors on the
-      // public demo keep a temporary in-memory override only.
-      if (isOwner) {
-        getBrowserClient()
-          .from("scripts")
-          .update({ voice_config: cfg })
-          .eq("id", scriptId)
-          .then(
-            () => {},
-            () => {}
+      // AI-voice changes are writer-or-demo only (the server enforces the same);
+      // for everyone else the picker is actor casting, which regenerates nothing
+      // and never counts against the daily voice-change cap.
+      if (canChangeVoices) {
+        // Only a genuinely new voice config regenerates (and costs); re-applying
+        // the same voices replays from cache and doesn't count against the cap.
+        const newKey = JSON.stringify(cfg);
+        const willRegenerate = preparedKeyRef.current !== newKey;
+        if (willRegenerate && voiceChangesToday() >= MAX_VOICE_CHANGES_PER_DAY) {
+          setError(
+            "You've reached today's voice-change limit. Voices you've already tried still replay free — come back tomorrow to try more."
           );
+          return;
+        }
+        overrideRef.current = cfg;
+        // The writer's picks ARE the script's real config — persist them so they
+        // survive a refresh (RLS also restricts this to the owner). Visitors on the
+        // public demo keep a temporary in-memory override only.
+        if (isOwner) {
+          getBrowserClient()
+            .from("scripts")
+            .update({ voice_config: cfg })
+            .eq("id", scriptId)
+            .then(
+              () => {},
+              () => {}
+            );
+        }
+        if (willRegenerate) {
+          setReady(false);
+          setChangesUsed(bumpVoiceChanges());
+        }
       }
       stop();
       activeRef.current = 0;
       setActive(0);
       setReveal(0);
       setNeedsTap(false);
-      setReady(false);
-      if (willRegenerate) setChangesUsed(bumpVoiceChanges());
       await ensureReady(); // regenerates with the new voices (keyed on override)
       playingRef.current = true;
       setPlaying(true);
       playRow(0);
     },
-    [ensureReady, playRow, stop, isOwner, scriptId, preloadClips]
+    [ensureReady, playRow, stop, isOwner, scriptId, preloadClips, canChangeVoices]
   );
 
   // The picker's Save: persist role/line voice settings NOW without regenerating.
@@ -591,15 +604,15 @@ export function TableReadPlayer({
         >
           ↺ Restart
         </button>
-        {canChangeVoices && (
-          <button
-            onClick={() => setShowPicker(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-tan px-3 py-2 text-sm text-taupe hover:bg-elevated"
-          >
-            <CastIcon className="h-4 w-4" />
-            Choose Cast
-          </button>
-        )}
+        {/* Everyone can open the picker: writers (and the demo) re-cast AI voices;
+            on real scripts visitors cast actors into the roles instead. */}
+        <button
+          onClick={() => setShowPicker(true)}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-tan px-3 py-2 text-sm text-taupe hover:bg-elevated"
+        >
+          <CastIcon className="h-4 w-4" />
+          Choose Cast
+        </button>
         <div className="ml-auto flex items-center gap-3 font-mono text-xs text-muted">
           {videosTotal > 0 && videosReady < videosTotal && (
             <span title="Caching cast videos for instant playback">
@@ -690,11 +703,15 @@ export function TableReadPlayer({
           submissionsByRole={subsByRole}
           linesByRole={linesByRole}
           startCast={Object.fromEntries(castMapRef.current)}
+          writersCast={writersCast}
+          canChangeVoices={canChangeVoices}
           canPersist={isOwner}
           onSaveConfig={persistConfig}
           onApply={applyVoices}
           onClose={() => setShowPicker(false)}
-          changesLeft={Math.max(0, MAX_VOICE_CHANGES_PER_DAY - changesUsed)}
+          changesLeft={
+            canChangeVoices ? Math.max(0, MAX_VOICE_CHANGES_PER_DAY - changesUsed) : undefined
+          }
         />
       )}
     </div>
