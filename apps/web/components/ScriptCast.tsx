@@ -4,9 +4,10 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { getBrowserClient } from "@/lib/supabase/client";
+import { CastIcon, MicIcon } from "@/components/icons";
 import type { VoiceConfig } from "@/lib/shared";
 
-type Char = { id: string; name: string };
+type Char = { id: string; name: string; description?: string | null };
 type Actor = { display_name: string; username: string | null; avatar_url: string | null };
 type Choice = { character_id: string; actor: Actor | null };
 
@@ -67,26 +68,48 @@ export function ScriptCast({
 
   return (
     <section className="mt-8">
-      <h2 className="font-slab text-lg">Cast</h2>
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="font-slab text-lg">Cast</h2>
+        <button
+          onClick={() => window.dispatchEvent(new CustomEvent("prelogue:choose-cast"))}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-tan px-3 py-1.5 text-sm text-taupe hover:bg-elevated"
+        >
+          <CastIcon className="h-4 w-4" />
+          Choose Cast
+        </button>
+      </div>
       <div className="mt-3 divide-y divide-tan overflow-hidden rounded-xl border border-tan bg-ivory">
         {characters.map((c) => {
           const actor = cast[c.id];
           const ai = aiVoiceFor(c.name);
           return (
-            <div key={c.id} className="flex items-center gap-3 px-4 py-2.5">
-              <span className="min-w-0 flex-1 truncate font-medium">{c.name}</span>
-              {actor ? (
-                <CastActor actor={actor} />
-              ) : (
-                <span className="text-sm text-muted">🎙 {ai ? `AI Voice · ${ai}` : "AI Voice"}</span>
+            <div key={c.id} className="px-4 py-2.5">
+              <div className="flex items-center gap-3">
+                <span className="shrink-0 font-medium">{c.name}</span>
+                <span className="min-w-0 flex-1" />
+                {actor ? (
+                  <CastActor actor={actor} />
+                ) : (
+                  <span className="flex min-w-0 items-center gap-1.5 text-sm text-muted">
+                    <MicIcon className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">{ai ? `AI Voice · ${ai}` : "AI Voice"}</span>
+                  </span>
+                )}
+              </div>
+              {c.description && (
+                <p className="mt-1 text-xs leading-snug text-taupe">{c.description}</p>
               )}
             </div>
           );
         })}
         {narratorName && (
           <div className="flex items-center gap-3 px-4 py-2.5">
-            <span className="min-w-0 flex-1 truncate font-medium text-taupe">Narration</span>
-            <span className="text-sm text-muted">🎙 AI Voice · {narratorName}</span>
+            <span className="shrink-0 font-medium text-taupe">Narration</span>
+            <span className="min-w-0 flex-1" />
+            <span className="flex min-w-0 items-center gap-1.5 text-sm text-muted">
+              <MicIcon className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">AI Voice · {narratorName}</span>
+            </span>
           </div>
         )}
       </div>

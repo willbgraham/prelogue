@@ -177,6 +177,14 @@ export function TableReadPlayer({
     setChangesUsed(voiceChangesToday());
   }, []);
 
+  // The Cast section's header button (a separate component) opens the picker
+  // via a window event — the picker renders as a fixed overlay, so no scroll.
+  useEffect(() => {
+    const open = () => setShowPicker(true);
+    window.addEventListener("prelogue:choose-cast", open);
+    return () => window.removeEventListener("prelogue:choose-cast", open);
+  }, []);
+
   // Load actor submissions for the picker's "Actors" option. Sign every clip and
   // index it by submission — but splice NOTHING until a role is explicitly cast
   // to an actor in the picker (clipMapRef stays empty by default).

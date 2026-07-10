@@ -19,7 +19,7 @@ type Sub = {
   video_url: string | null;
   actor: { display_name: string; avatar_url: string | null } | null;
 };
-type Char = { id: string; name: string; submissions: Sub[] };
+type Char = { id: string; name: string; description: string | null; submissions: Sub[] };
 
 export default function CastingPage() {
   const { scriptId } = useParams<{ scriptId: string }>();
@@ -59,7 +59,7 @@ export default function CastingPage() {
     const { data: chars } = await supabase
       .from("characters")
       .select(
-        "id, name, submissions(id, take_number, is_writers_choice, moderation_status, clips, video_url, actor:users!submissions_actor_id_fkey(display_name, avatar_url))"
+        "id, name, description, submissions(id, take_number, is_writers_choice, moderation_status, clips, video_url, actor:users!submissions_actor_id_fkey(display_name, avatar_url))"
       )
       .eq("script_id", scriptId)
       .order("name");
@@ -155,6 +155,24 @@ export default function CastingPage() {
 
   const nameOf = (vid?: string | null) =>
     vid ? voiceNames[vid] ?? "Selected voice" : "Default";
+
+  // Character blurb for actors — shows on the script page under the Cast list
+  // and on the "Read for a Role" cards. Saves on blur.
+  const [descSavedFor, setDescSavedFor] = useState<string | null>(null);
+  async function saveDescription(charId: string, description: string) {
+    const clean = description.trim();
+    const { error } = await supabase
+      .from("characters")
+      .update({ description: clean || null })
+      .eq("id", charId);
+    if (error) {
+      alert(`Couldn't save the description: ${error.message}`);
+      return;
+    }
+    setCharacters((cs) => cs.map((c) => (c.id === charId ? { ...c, description: clean || null } : c)));
+    setDescSavedFor(charId);
+    window.setTimeout(() => setDescSavedFor((cur) => (cur === charId ? null : cur)), 2000);
+  }
 
   if (loading) {
     return <main className="mx-auto max-w-3xl px-6 py-16 text-taupe">Loading…</main>;
@@ -278,9 +296,21 @@ export default function CastingPage() {
               <div className="flex items-center justify-between">
                 <span className="font-medium">{c.name}</span>
                 <span className="text-sm text-muted">
+                  {descSavedFor === c.id && <span className="mr-2 text-forest">Saved ✓</span>}
                   {c.submissions.length} read{c.submissions.length !== 1 ? "s" : ""}
                 </span>
               </div>
+              <textarea
+                defaultValue={c.description ?? ""}
+                placeholder="Describe this character for actors — age, temperament, what they want in the scene…"
+                rows={2}
+                onBlur={(e) => {
+                  if (e.target.value.trim() !== (c.description ?? "")) {
+                    saveDescription(c.id, e.target.value);
+                  }
+                }}
+                className="mt-2 w-full resize-y rounded-lg border border-tan bg-elevated px-3 py-2 text-sm outline-none focus:border-brick"
+              />
               {c.submissions.length === 0 ? (
                 <p className="mt-2 text-sm text-muted">No reads yet.</p>
               ) : (

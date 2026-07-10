@@ -73,7 +73,7 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
 
   const { data: characters } = await supabase
     .from("characters")
-    .select("id, name, line_count")
+    .select("id, name, line_count, description")
     .eq("script_id", (script as Script).id)
     .order("line_count", { ascending: false });
 
@@ -155,7 +155,9 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
 
       <ScriptCast
         scriptId={s.id}
-        characters={(characters as { id: string; name: string }[] | null) ?? []}
+        characters={
+          (characters as { id: string; name: string; description?: string | null }[] | null) ?? []
+        }
         voiceConfig={s.voice_config}
       />
 
@@ -201,7 +203,10 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
 
       <div className="mt-6">
         <ReadForRole
-          characters={((characters as Pick<Character, "id" | "name" | "line_count">[] | null) ?? [])}
+          characters={
+            (characters as Pick<Character, "id" | "name" | "line_count" | "description">[] | null) ??
+            []
+          }
         />
       </div>
 
