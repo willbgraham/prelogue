@@ -78,11 +78,10 @@ export function VoicePicker({
     characters: { ...(startConfig.characters ?? {}) },
   }));
   const [cast, setCast] = useState<Record<string, string>>({ ...startCast });
-  const [settings, setSettings] = useState<VoiceSettings>(() => ({
-    ...DEFAULT_VOICE_SETTINGS,
-    ...(startConfig.settings ?? {}),
+  const [roleSettings, setRoleSettings] = useState<Record<string, VoiceSettings>>(() => ({
+    ...(startConfig.role_settings ?? {}),
   }));
-  const [showSettings, setShowSettings] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [mode, setMode] = useState<"ai" | "actors">("ai");
   const [search, setSearch] = useState("");
@@ -157,6 +156,32 @@ export function VoicePicker({
     role === NARRATOR ? config.narrator_voice_id : config.characters?.[role];
   const actorsFor = (role: string) => submissionsByRole[role] ?? [];
 
+  // Per-role ElevenLabs settings (each character's voice tuned independently).
+  const settingsFor = (role: string): VoiceSettings => ({
+    ...DEFAULT_VOICE_SETTINGS,
+    ...(roleSettings[role] ?? {}),
+  });
+  const setRoleSetting = (role: string, key: keyof VoiceSettings, val: number) =>
+    setRoleSettings((prev) => ({
+      ...prev,
+      [role]: { ...DEFAULT_VOICE_SETTINGS, ...(prev[role] ?? {}), [key]: val },
+    }));
+  const resetRoleSettings = (role: string) =>
+    setRoleSettings((prev) => {
+      const next = { ...prev };
+      delete next[role];
+      return next;
+    });
+  const roleHasCustomSettings = (role: string) => {
+    const s = settingsFor(role);
+    return (
+      s.stability !== DEFAULT_VOICE_SETTINGS.stability ||
+      s.similarity_boost !== DEFAULT_VOICE_SETTINGS.similarity_boost ||
+      s.style !== DEFAULT_VOICE_SETTINGS.style ||
+      s.speed !== DEFAULT_VOICE_SETTINGS.speed
+    );
+  };
+
   const choiceLabel = (role: string) => {
     if (cast[role]) {
       const sub = actorsFor(role).find((s) => s.id === cast[role]);
@@ -169,6 +194,7 @@ export function VoicePicker({
     setEditing(role);
     setSearch("");
     setFilters({});
+    setSettingsOpen(false);
     // Default to Actors whenever any have recorded a read for this role.
     setMode(actorsFor(role).length ? "actors" : "ai");
   };
@@ -177,6 +203,7 @@ export function VoicePicker({
     setEditing(null);
     setSearch("");
     setFilters({});
+    setSettingsOpen(false);
     audioRef.current?.pause();
     setPreviewing(null);
     previewVideoRef.current?.pause();
@@ -196,7 +223,8 @@ export function VoicePicker({
       delete n[role];
       return n;
     });
-    closeRole();
+    // Stay in the editor (don't closeRole) so the writer can now open Voice
+    // settings for the voice they just picked.
   };
 
   const setRoleActor = (role: string, subId: string) => {
@@ -285,57 +313,10 @@ export function VoicePicker({
                   </span>
                 </button>
               ))}
-
-              {/* Global AI voice settings (ElevenLabs generation controls). */}
-              <div className="mt-1 py-3">
-                <button
-                  onClick={() => setShowSettings((s) => !s)}
-                  className="flex w-full items-center justify-between text-left"
-                >
-                  <span className="font-medium">Voice settings</span>
-                  <span className="text-sm text-taupe">{showSettings ? "Hide ▲" : "Adjust ▼"}</span>
-                </button>
-                {showSettings && (
-                  <div className="mt-3 space-y-4">
-                    <p className="text-xs text-muted">Applied to all AI voices in the read.</p>
-                    {SETTING_SLIDERS.map((s) => (
-                      <label key={s.key} className="block">
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="font-medium">{s.label}</span>
-                          <span className="font-mono text-xs text-taupe">
-                            {settings[s.key].toFixed(2)}
-                          </span>
-                        </div>
-                        <input
-                          type="range"
-                          min={s.min}
-                          max={s.max}
-                          step={s.step}
-                          value={settings[s.key]}
-                          onChange={(e) =>
-                            setSettings((prev) => ({ ...prev, [s.key]: Number(e.target.value) }))
-                          }
-                          className="mt-1 w-full accent-brick"
-                        />
-                        <div className="flex justify-between text-[10px] uppercase tracking-wide text-muted">
-                          <span>{s.lo}</span>
-                          <span>{s.hi}</span>
-                        </div>
-                      </label>
-                    ))}
-                    <button
-                      onClick={() => setSettings({ ...DEFAULT_VOICE_SETTINGS })}
-                      className="text-xs text-taupe underline hover:text-ink"
-                    >
-                      Reset to default
-                    </button>
-                  </div>
-                )}
-              </div>
             </div>
             <div className="border-t border-tan p-4">
               <button
-                onClick={() => onApply({ ...config, settings }, cast)}
+                onClick={() => onApply({ ...config, role_settings: roleSettings }, cast)}
                 disabled={outOfChanges}
                 className="w-full rounded-lg bg-brick px-4 py-3 font-medium text-white disabled:opacity-50"
               >
@@ -425,6 +406,62 @@ export function VoicePicker({
               </div>
             ) : (
               <>
+                {/* Settings for the voice picked for this role (per-voice). */}
+                {currentVoiceFor(editing!) && !cast[editing!] && (
+                  <div className="border-b border-tan px-5 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-xs text-muted">Voice for {roleLabel(editing!)}</div>
+                        <div className="truncate font-medium">{nameOf(currentVoiceFor(editing!))}</div>
+                      </div>
+                      <button
+                        onClick={() => setSettingsOpen((o) => !o)}
+                        className={`shrink-0 rounded-lg border px-3 py-1.5 text-sm ${
+                          settingsOpen
+                            ? "border-brick text-brick"
+                            : "border-tan text-taupe hover:bg-elevated"
+                        }`}
+                      >
+                        ⚙ Voice settings{roleHasCustomSettings(editing!) ? " •" : ""}
+                      </button>
+                    </div>
+                    {settingsOpen && (
+                      <div className="mt-3 space-y-4">
+                        {SETTING_SLIDERS.map((s) => (
+                          <label key={s.key} className="block">
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="font-medium">{s.label}</span>
+                              <span className="font-mono text-xs text-taupe">
+                                {settingsFor(editing!)[s.key].toFixed(2)}
+                              </span>
+                            </div>
+                            <input
+                              type="range"
+                              min={s.min}
+                              max={s.max}
+                              step={s.step}
+                              value={settingsFor(editing!)[s.key]}
+                              onChange={(e) =>
+                                setRoleSetting(editing!, s.key, Number(e.target.value))
+                              }
+                              className="mt-1 w-full accent-brick"
+                            />
+                            <div className="flex justify-between text-[10px] uppercase tracking-wide text-muted">
+                              <span>{s.lo}</span>
+                              <span>{s.hi}</span>
+                            </div>
+                          </label>
+                        ))}
+                        <button
+                          onClick={() => resetRoleSettings(editing!)}
+                          className="text-xs text-taupe underline hover:text-ink"
+                        >
+                          Reset to default
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div className="space-y-2 px-5 py-3">
                   <input
                     value={search}

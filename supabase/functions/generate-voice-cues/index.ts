@@ -27,7 +27,6 @@ const MAX_NEW_PER_RUN = 80; // generation cap per invocation (resumable)
 // ElevenLabs generation settings (mirror the picker's sliders). Defaults match
 // the historical hardcoded values so existing cached audio stays valid.
 const DEFAULT_SETTINGS = { stability: 0.5, similarity_boost: 0.75, style: 0, speed: 1.0 };
-type VoiceSettings = typeof DEFAULT_SETTINGS;
 const clampNum = (v: unknown, d: number, lo: number, hi: number) =>
   Math.min(hi, Math.max(lo, typeof v === "number" && isFinite(v) ? v : d));
 
@@ -215,35 +214,45 @@ Deno.serve(async (req) => {
       cfg.single_voice_id || cfg.narrator_voice_id || FALLBACK_VOICES[0];
     const charMap: Record<string, string> = cfg.characters || {};
 
-    // Voice generation settings (the picker's sliders). Clamp to valid ranges.
-    const rawSettings = (cfg.settings as Record<string, unknown>) || {};
-    const ttsSettings: VoiceSettings = {
-      stability: clampNum(rawSettings.stability, DEFAULT_SETTINGS.stability, 0, 1),
-      similarity_boost: clampNum(rawSettings.similarity_boost, DEFAULT_SETTINGS.similarity_boost, 0, 1),
-      style: clampNum(rawSettings.style, DEFAULT_SETTINGS.style, 0, 1),
-      speed: clampNum(rawSettings.speed, DEFAULT_SETTINGS.speed, 0.7, 1.2),
+    // Per-role voice generation settings (the picker's sliders, keyed by role:
+    // UPPER-CASED character names + "__narrator__" / "__single__"). Each role
+    // resolves to a TTS body (stability + similarity always; style/speed only when
+    // changed) and a cache-key tag (empty at default → reuses the text-only audio,
+    // so default reads generate byte-identical audio and skip needless work).
+    const roleSettings = (cfg.role_settings as Record<string, Record<string, unknown>>) || {};
+    const NARRATOR_KEY = "__narrator__";
+    const SINGLE_KEY = "__single__";
+    const settingsCache = new Map<string, { body: Record<string, number>; tag: string }>();
+    const resolveSettings = (roleKey: string) => {
+      const cached = settingsCache.get(roleKey);
+      if (cached) return cached;
+      const raw = roleSettings[roleKey] || {};
+      const s = {
+        stability: clampNum(raw.stability, DEFAULT_SETTINGS.stability, 0, 1),
+        similarity_boost: clampNum(raw.similarity_boost, DEFAULT_SETTINGS.similarity_boost, 0, 1),
+        style: clampNum(raw.style, DEFAULT_SETTINGS.style, 0, 1),
+        speed: clampNum(raw.speed, DEFAULT_SETTINGS.speed, 0.7, 1.2),
+      };
+      const isDefault =
+        s.stability === DEFAULT_SETTINGS.stability &&
+        s.similarity_boost === DEFAULT_SETTINGS.similarity_boost &&
+        s.style === DEFAULT_SETTINGS.style &&
+        s.speed === DEFAULT_SETTINGS.speed;
+      const body: Record<string, number> = {
+        stability: s.stability,
+        similarity_boost: s.similarity_boost,
+      };
+      if (s.style !== DEFAULT_SETTINGS.style) body.style = s.style;
+      if (s.speed !== DEFAULT_SETTINGS.speed) body.speed = s.speed;
+      const tag = isDefault
+        ? ""
+        : `_s${Math.round(s.stability * 100)}b${Math.round(s.similarity_boost * 100)}y${Math.round(
+            s.style * 100
+          )}v${Math.round(s.speed * 100)}`;
+      const resolved = { body, tag };
+      settingsCache.set(roleKey, resolved);
+      return resolved;
     };
-    const settingsIsDefault =
-      ttsSettings.stability === DEFAULT_SETTINGS.stability &&
-      ttsSettings.similarity_boost === DEFAULT_SETTINGS.similarity_boost &&
-      ttsSettings.style === DEFAULT_SETTINGS.style &&
-      ttsSettings.speed === DEFAULT_SETTINGS.speed;
-    // Cache-key suffix so distinct settings yield distinct audio files. Empty for
-    // the defaults, so audio cached under the old (text-only) key is still reused.
-    const settingsTag = settingsIsDefault
-      ? ""
-      : `_s${Math.round(ttsSettings.stability * 100)}b${Math.round(
-          ttsSettings.similarity_boost * 100
-        )}y${Math.round(ttsSettings.style * 100)}v${Math.round(ttsSettings.speed * 100)}`;
-    // Always send stability + similarity (matches the historical default body
-    // exactly); add style/speed only when changed, so default reads generate
-    // byte-identical audio and never hit model style/speed support edge cases.
-    const voiceSettingsBody: Record<string, number> = {
-      stability: ttsSettings.stability,
-      similarity_boost: ttsSettings.similarity_boost,
-    };
-    if (ttsSettings.style !== DEFAULT_SETTINGS.style) voiceSettingsBody.style = ttsSettings.style;
-    if (ttsSettings.speed !== DEFAULT_SETTINGS.speed) voiceSettingsBody.speed = ttsSettings.speed;
 
     const characterVoice = (name?: string): string => {
       const key = (name || "").toUpperCase();
@@ -260,19 +269,24 @@ Deno.serve(async (req) => {
       text: string;
       voice_id: string;
       audio_path: string;
-      audio_key: string; // voiceId/hash for existence checks
+      audio_key: string; // voiceId/hash(/settingsTag) for existence checks
+      settings: Record<string, number>; // ElevenLabs voice_settings for this line
     }
     const entries: Entry[] = [];
     let globalIdx = 0;
     const effChars: Record<string, string> = {};
+    const effSettings: Record<string, string> = {}; // role → non-default tag (manifest hash)
 
     for (const scene of scenes) {
       for (const el of scene.elements ?? []) {
         const myIndex = globalIdx++;
         const norm = normalizeText(el.text);
         if (el.type === "dialogue" && norm) {
+          const roleKey = mode === "single" ? SINGLE_KEY : (el.character_name || "").toUpperCase();
           const voiceId = mode === "single" ? singleVoiceId : characterVoice(el.character_name);
           effChars[(el.character_name || "").toUpperCase()] = voiceId;
+          const { body, tag } = resolveSettings(roleKey);
+          if (tag) effSettings[roleKey] = tag;
           const hash = await sha1(norm);
           entries.push({
             element_index: myIndex,
@@ -280,11 +294,15 @@ Deno.serve(async (req) => {
             character: el.character_name ?? null,
             text: norm,
             voice_id: voiceId,
-            audio_path: `voice-cues/audio/${voiceId}/${hash}${settingsTag}.mp3`,
-            audio_key: `${voiceId}/${hash}${settingsTag}`,
+            audio_path: `voice-cues/audio/${voiceId}/${hash}${tag}.mp3`,
+            audio_key: `${voiceId}/${hash}${tag}`,
+            settings: body,
           });
         } else if (el.type === "action" && norm) {
+          const roleKey = mode === "single" ? SINGLE_KEY : NARRATOR_KEY;
           const voiceId = mode === "single" ? singleVoiceId : narratorVoiceId;
+          const { body, tag } = resolveSettings(roleKey);
+          if (tag) effSettings[roleKey] = tag;
           const hash = await sha1(norm);
           entries.push({
             element_index: myIndex,
@@ -292,8 +310,9 @@ Deno.serve(async (req) => {
             character: null,
             text: norm,
             voice_id: voiceId,
-            audio_path: `voice-cues/audio/${voiceId}/${hash}${settingsTag}.mp3`,
-            audio_key: `${voiceId}/${hash}${settingsTag}`,
+            audio_path: `voice-cues/audio/${voiceId}/${hash}${tag}.mp3`,
+            audio_key: `${voiceId}/${hash}${tag}`,
+            settings: body,
           });
         }
         // character / parenthetical: index consumed, no audio entry
@@ -318,10 +337,10 @@ Deno.serve(async (req) => {
     ).slice(0, 16);
 
     // Config hash over the output-affecting fields (canonical/sorted) + content.
-    // Fold settings into the config hash ONLY when non-default, so default reads
-    // keep their existing manifest key (no needless regeneration) while custom
-    // settings get their own manifest.
-    const settingsKey = settingsIsDefault ? {} : { settings: ttsSettings };
+    // Fold in only the roles whose settings are non-default, so an all-default
+    // read keeps its existing manifest key (no needless regeneration) while any
+    // per-role change gets its own manifest.
+    const settingsKey = Object.keys(effSettings).length ? { role_settings: effSettings } : {};
     const hashInput =
       mode === "single"
         ? { mode, single_voice_id: singleVoiceId, content: contentDigest, ...settingsKey }
@@ -330,10 +349,18 @@ Deno.serve(async (req) => {
     const manifestPath = `voice-cues/script/${script_id}/${voiceConfigHash}/manifest.json`;
 
     // Existence check: list cached hashes per distinct voice.
-    const distinctJobs = new Map<string, { voiceId: string; text: string; path: string }>();
+    const distinctJobs = new Map<
+      string,
+      { voiceId: string; text: string; path: string; settings: Record<string, number> }
+    >();
     for (const e of entries) {
       if (!distinctJobs.has(e.audio_key)) {
-        distinctJobs.set(e.audio_key, { voiceId: e.voice_id, text: e.text, path: e.audio_path });
+        distinctJobs.set(e.audio_key, {
+          voiceId: e.voice_id,
+          text: e.text,
+          path: e.audio_path,
+          settings: e.settings,
+        });
       }
     }
     const voiceIds = new Set([...distinctJobs.values()].map((j) => j.voiceId));
@@ -356,7 +383,7 @@ Deno.serve(async (req) => {
     for (let i = 0; i < toDo.length; i += BATCH_SIZE) {
       const batch = toDo.slice(i, i + BATCH_SIZE);
       const results = await Promise.all(
-        batch.map(([, job]) => ttsAndUpload(job, supabase, voiceSettingsBody))
+        batch.map(([, job]) => ttsAndUpload(job, supabase, job.settings))
       );
       results.forEach((ok, j) => {
         if (ok) generatedKeys.add(batch[j][0]);

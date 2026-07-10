@@ -61,8 +61,9 @@ export interface VoiceConfig {
   single_voice_id?: string | null;
   narrator_voice_id?: string | null;
   characters?: Record<string, string>;
-  /** ElevenLabs generation controls applied to every AI voice in the read. */
-  settings?: VoiceSettings | null;
+  /** Per-role ElevenLabs generation controls, keyed like `characters` (UPPER-CASED
+   *  names) plus "__narrator__" (and "__single__" in single-voice mode). */
+  role_settings?: Record<string, VoiceSettings> | null;
   updated_at?: string;
 }
 
