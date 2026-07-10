@@ -445,38 +445,20 @@ export function VoicePicker({
         </div>
 
         {!editing ? (
-          <>
-            <div className="flex-1 overflow-y-auto px-5 py-1">
-              {roles.map((r) => (
-                <button
-                  key={r}
-                  onClick={() => openRole(r)}
-                  className="flex w-full items-center justify-between border-b border-tan/60 py-3 text-left last:border-0"
-                >
-                  <span className="font-medium">{roleLabel(r)}</span>
-                  <span className="text-sm text-taupe">
-                    {loading ? "…" : choiceLabel(r)} ›
-                  </span>
-                </button>
-              ))}
-            </div>
-            <div className="border-t border-tan p-4">
+          <div className="flex-1 overflow-y-auto px-5 py-1">
+            {roles.map((r) => (
               <button
-                onClick={() => onApply(mergedConfig(), cast)}
-                disabled={outOfChanges}
-                className="w-full rounded-lg bg-brick px-4 py-3 font-medium text-white disabled:opacity-50"
+                key={r}
+                onClick={() => openRole(r)}
+                className="flex w-full items-center justify-between border-b border-tan/60 py-3 text-left last:border-0"
               >
-                Apply &amp; play
+                <span className="font-medium">{roleLabel(r)}</span>
+                <span className="text-sm text-taupe">
+                  {loading ? "…" : choiceLabel(r)} ›
+                </span>
               </button>
-              {typeof changesLeft === "number" && (
-                <p className="mt-2 text-center text-xs text-muted">
-                  {outOfChanges
-                    ? "You've reached today's voice-change limit."
-                    : `${changesLeft} AI voice ${changesLeft === 1 ? "change" : "changes"} left today`}
-                </p>
-              )}
-            </div>
-          </>
+            ))}
+          </div>
         ) : (
           <>
             {/* AI / Actors toggle — only when the role has recorded reads AND the
@@ -598,7 +580,10 @@ export function VoicePicker({
                 </p>
               </div>
             ) : (
-              <>
+              /* One scrollable column: settings + search + voice list. The settings
+                 panel can be taller than the modal (emotion + sliders), so it must
+                 scroll WITH the list — a fixed block would cut off its buttons. */
+              <div className="flex-1 overflow-y-auto">
                 {/* Settings for this role's AI voice — for every line or one line. */}
                 {currentVoiceFor(editing!) && (
                   <div className="border-b border-tan px-5 py-3">
@@ -770,7 +755,7 @@ export function VoicePicker({
                     )}
                   </div>
                 </div>
-                <div className="flex-1 overflow-y-auto px-5 pb-4">
+                <div className="px-5 pb-4">
                   {loading ? (
                     <p className="py-6 text-center text-taupe">Loading voices…</p>
                   ) : (
@@ -814,10 +799,29 @@ export function VoicePicker({
                     </>
                   )}
                 </div>
-              </>
+              </div>
             )}
           </>
         )}
+
+        {/* Apply from ANY screen — tweak a role's settings/emotion, then listen
+            to the whole scene with those choices without backing out first. */}
+        <div className="border-t border-tan p-4">
+          <button
+            onClick={() => onApply(mergedConfig(), cast)}
+            disabled={outOfChanges}
+            className="w-full rounded-lg bg-brick px-4 py-3 font-medium text-white disabled:opacity-50"
+          >
+            Apply &amp; play
+          </button>
+          {typeof changesLeft === "number" && (
+            <p className="mt-2 text-center text-xs text-muted">
+              {outOfChanges
+                ? "You've reached today's voice-change limit."
+                : `${changesLeft} AI voice ${changesLeft === 1 ? "change" : "changes"} left today`}
+            </p>
+          )}
+        </div>
       </div>
     </div>
   );
