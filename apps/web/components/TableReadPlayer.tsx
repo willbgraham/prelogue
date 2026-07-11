@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { buildRows, prepareVoiceCues } from "@/lib/shared";
-import type { ParsedScript, VoiceCueEntry, VoiceConfig } from "@/lib/shared";
+import { buildRows, prepareVoiceCues, DEFAULT_AMBIENCE_VOLUME } from "@/lib/shared";
+import type { AmbienceConfig, ParsedScript, VoiceCueEntry, VoiceConfig } from "@/lib/shared";
 import { getBrowserClient } from "@/lib/supabase/client";
 import { VoicePicker } from "@/components/VoicePicker";
 import { CastIcon } from "@/components/icons";
@@ -52,12 +52,15 @@ export function TableReadPlayer({
   scriptId,
   parsed,
   voiceConfig,
+  ambience = null,
   canChangeVoices = false,
   isOwner = false,
 }: {
   scriptId: string;
   parsed: ParsedScript | null;
   voiceConfig?: VoiceConfig | null;
+  // The writer's saved per-scene background beds (scripts.ambience_config).
+  ambience?: AmbienceConfig | null;
   // Only the writer (or the public demo) may re-cast the AI voices.
   canChangeVoices?: boolean;
   // The writer: their voice picks persist to scripts.voice_config (survive refresh).
@@ -95,6 +98,12 @@ export function TableReadPlayer({
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  // Scene background bed: a second looping <audio> under the voices. Signed
+  // URLs per scene load once; playRow swaps the track on scene changes.
+  const ambienceRef = useRef<HTMLAudioElement | null>(null);
+  const ambienceSceneRef = useRef<number | null>(null);
+  const ambienceUrlsRef = useRef<Map<number, string>>(new Map());
+  const ambienceMutedRef = useRef(false);
   const manifestRef = useRef<Map<number, VoiceCueEntry>>(new Map());
   // element_index → cast clip (signed URL + non-destructive trim/volume) — built
   // ONLY from the roles the user explicitly cast to an actor (never automatic).
@@ -127,6 +136,9 @@ export function TableReadPlayer({
   // Preload progress for the cast video clips (0 → total). Transient UI cue.
   const [videosReady, setVideosReady] = useState(0);
   const [videosTotal, setVideosTotal] = useState(0);
+  // Ambience: whether any scene bed is loaded (shows the ♪ toggle) + mute.
+  const [ambienceLoaded, setAmbienceLoaded] = useState(false);
+  const [ambienceMuted, setAmbienceMuted] = useState(false);
   // Actor submissions per role (ROLE → takes) for the picker's "Actors" option.
   const [subsByRole, setSubsByRole] = useState<
     Record<string, { id: string; actor: string; take: number; avatar: string | null; clips: string[] }[]>
@@ -176,6 +188,68 @@ export function TableReadPlayer({
   useEffect(() => {
     setChangesUsed(voiceChangesToday());
   }, []);
+
+  // Bed volume under the voices (writer-set, clamped like the server would).
+  const ambienceVolume = Math.min(0.4, Math.max(0, ambience?.volume ?? DEFAULT_AMBIENCE_VOLUME));
+
+  // Sign the writer's saved scene beds once; playback swaps between them.
+  useEffect(() => {
+    let alive = true;
+    const scenes = ambience?.enabled ? (ambience.scenes ?? {}) : {};
+    const entries = Object.entries(scenes).filter(([, s]) => s?.path);
+    if (!entries.length) return;
+    (async () => {
+      const { data: signed } = await getBrowserClient()
+        .storage.from("scripts")
+        .createSignedUrls(
+          entries.map(([, s]) => s.path),
+          86400
+        );
+      if (!alive) return;
+      const map = new Map<number, string>();
+      entries.forEach(([k], i) => {
+        const u = signed?.[i]?.signedUrl;
+        if (u) map.set(Number(k), u);
+      });
+      ambienceUrlsRef.current = map;
+      setAmbienceLoaded(map.size > 0);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [ambience]);
+
+  // Keep the bed matched to the active row's scene: swap tracks on scene
+  // changes, keep looping within a scene, stay silent where no bed exists.
+  const syncAmbience = useCallback(
+    (sceneIdx: number) => {
+      const a = ambienceRef.current;
+      if (!a) return;
+      const url = ambienceUrlsRef.current.get(sceneIdx);
+      if (!url) {
+        ambienceSceneRef.current = sceneIdx;
+        a.pause();
+        return;
+      }
+      if (ambienceSceneRef.current !== sceneIdx) {
+        a.src = url;
+        a.currentTime = 0;
+        ambienceSceneRef.current = sceneIdx;
+      }
+      a.loop = true;
+      a.volume = ambienceMutedRef.current ? 0 : ambienceVolume;
+      a.play().catch(() => {}); // the bed is optional — never block the read on it
+    },
+    [ambienceVolume]
+  );
+
+  const toggleAmbienceMute = useCallback(() => {
+    const next = !ambienceMutedRef.current;
+    ambienceMutedRef.current = next;
+    setAmbienceMuted(next);
+    const a = ambienceRef.current;
+    if (a) a.volume = next ? 0 : ambienceVolume; // keeps looping — unmute is seamless
+  }, [ambienceVolume]);
 
   // The Cast section's header button (a separate component) opens the picker
   // via a window event — the picker renders as a fixed overlay, so no scroll.
@@ -302,6 +376,7 @@ export function TableReadPlayer({
     setPlaying(false);
     audioRef.current?.pause();
     videoRef.current?.pause();
+    ambienceRef.current?.pause();
   }, []);
 
   const playRow = useCallback(
@@ -316,6 +391,7 @@ export function TableReadPlayer({
       setNeedsTap(false);
 
       const row = rows[pos];
+      syncAmbience(row.sceneIndex);
       const audio = audioRef.current;
       const video = videoRef.current;
       const clip = clipMapRef.current.get(row.elementIndex);
@@ -363,7 +439,7 @@ export function TableReadPlayer({
         setNeedsTap(true);
       }
     },
-    [rows, stop]
+    [rows, stop, syncAmbience]
   );
 
   // Media events (AI audio AND the actor clip video): type the line ∝ playback,
@@ -543,6 +619,15 @@ export function TableReadPlayer({
   const handleRestart = useCallback(() => {
     stop();
     if (audioRef.current) audioRef.current.currentTime = 0;
+    const amb = ambienceRef.current;
+    if (amb) {
+      try {
+        amb.currentTime = 0;
+      } catch {
+        /* no src yet */
+      }
+    }
+    ambienceSceneRef.current = null; // restart re-enters scene 0's bed fresh
     setShowVideo(false);
     activeRef.current = 0;
     setActive(0);
@@ -566,6 +651,7 @@ export function TableReadPlayer({
   return (
     <div className="overflow-hidden rounded-xl border border-tan bg-ivory">
       <audio ref={audioRef} preload="auto" />
+      <audio ref={ambienceRef} loop preload="auto" />
 
       {/* STAGE — actor video, or the current line typing out on a "page" */}
       <div className="relative aspect-video w-full bg-black">
@@ -626,6 +712,20 @@ export function TableReadPlayer({
             <span title="Caching cast videos for instant playback">
               Caching video {videosReady}/{videosTotal}…
             </span>
+          )}
+          {ambienceLoaded && (
+            <button
+              onClick={toggleAmbienceMute}
+              title={ambienceMuted ? "Unmute scene music" : "Mute scene music"}
+              aria-pressed={!ambienceMuted}
+              className={`rounded-lg border px-2.5 py-1.5 text-sm ${
+                ambienceMuted
+                  ? "border-tan text-muted opacity-60"
+                  : "border-tan text-taupe hover:bg-elevated"
+              }`}
+            >
+              <span className={ambienceMuted ? "line-through" : ""}>♪</span>
+            </button>
           )}
           <span>
             {Math.min(active + 1, rows.length)} / {rows.length}

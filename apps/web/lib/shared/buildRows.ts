@@ -10,6 +10,8 @@ export interface ScriptRow {
    * `element_index`. Only `dialogue` + `action` become rows (and audio).
    */
   elementIndex: number;
+  /** 0-based index of the scene this row belongs to (ambience keys off it). */
+  sceneIndex: number;
   kind: RowKind;
   character?: string;
   text: string;
@@ -37,8 +39,10 @@ export function buildRows(
   const actorUpper = opts.actorName ? opts.actorName.toUpperCase() : null;
   const rows: ScriptRow[] = [];
   let globalIdx = 0;
+  let sceneIdx = -1;
 
   for (const scene of parsed.scenes) {
+    sceneIdx++;
     const heading = scene.heading?.trim();
     let headingPending = !!heading;
     for (const el of scene.elements ?? []) {
@@ -58,13 +62,20 @@ export function buildRows(
           : "line";
         rows.push({
           elementIndex: idx,
+          sceneIndex: sceneIdx,
           kind,
           character: el.character_name,
           text: el.text,
           sceneHeading: rowHeading,
         });
       } else if (el.type === "action") {
-        rows.push({ elementIndex: idx, kind: "narrator", text: el.text, sceneHeading: rowHeading });
+        rows.push({
+          elementIndex: idx,
+          sceneIndex: sceneIdx,
+          kind: "narrator",
+          text: el.text,
+          sceneHeading: rowHeading,
+        });
       }
       // character / parenthetical: index consumed, no row (matches the server).
     }

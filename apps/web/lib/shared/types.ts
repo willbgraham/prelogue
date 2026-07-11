@@ -29,6 +29,8 @@ export interface Script {
   file_url: string;
   parsed_json: ParsedScript | null;
   voice_config: VoiceConfig | null;
+  /** Per-scene background music/ambience (scripts.ambience_config). */
+  ambience_config?: AmbienceConfig | null;
   status: ScriptStatus;
   visibility?: ScriptVisibility;
   full_read_unlocked?: boolean;
@@ -90,6 +92,27 @@ export const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
   style: 0,
   speed: 1.0,
 };
+
+/** One scene's generated background bed (Eleven Music score or SFX loop). */
+export interface AmbienceScene {
+  kind: "music" | "sfx";
+  prompt: string;
+  /** Storage path in the `scripts` bucket (ambience/{script_id}/{hash}.mp3). */
+  path: string;
+  length_ms: number;
+}
+
+/** scripts.ambience_config — per-scene background music/ambience. */
+export interface AmbienceConfig {
+  enabled: boolean;
+  /** Bed volume under the voices (0–0.4). */
+  volume: number;
+  /** Keyed by scene_index (stringified). */
+  scenes: Record<string, AmbienceScene>;
+  updated_at?: string;
+}
+
+export const DEFAULT_AMBIENCE_VOLUME = 0.15;
 
 /** A voice option from the ElevenLabs catalog (via the list-voices function). */
 export interface VoiceCatalogItem {

@@ -8,7 +8,8 @@ import { getBrowserClient } from "@/lib/supabase/client";
 import { VoicePicker } from "@/components/VoicePicker";
 import { VoiceDesigner } from "@/components/VoiceDesigner";
 import { ClipReel } from "@/components/ClipReel";
-import type { VoiceConfig } from "@/lib/shared";
+import { AmbienceManager } from "@/components/AmbienceManager";
+import type { AmbienceConfig, ParsedScript, VoiceConfig } from "@/lib/shared";
 
 type Sub = {
   id: string;
@@ -29,6 +30,9 @@ export default function CastingPage() {
   const [title, setTitle] = useState("");
   const [characters, setCharacters] = useState<Char[]>([]);
   const [voiceConfig, setVoiceConfig] = useState<VoiceConfig | null>(null);
+  const [parsed, setParsed] = useState<ParsedScript | null>(null);
+  const [genre, setGenre] = useState<string | null>(null);
+  const [ambience, setAmbience] = useState<AmbienceConfig | null>(null);
   const [voiceNames, setVoiceNames] = useState<Record<string, string>>({});
   const [showPicker, setShowPicker] = useState(false);
   const [showDesigner, setShowDesigner] = useState(false);
@@ -47,7 +51,7 @@ export default function CastingPage() {
     }
     const { data: script } = await supabase
       .from("scripts")
-      .select("title, writer_id, voice_config")
+      .select("title, writer_id, voice_config, parsed_json, ambience_config, genre")
       .eq("id", scriptId)
       .single();
     if (!script || script.writer_id !== user.id) {
@@ -56,6 +60,9 @@ export default function CastingPage() {
     }
     setTitle(script.title);
     setVoiceConfig((script.voice_config as VoiceConfig) ?? { mode: "per_character" });
+    setParsed((script.parsed_json as ParsedScript) ?? null);
+    setGenre((script.genre as string) ?? null);
+    setAmbience((script.ambience_config as AmbienceConfig) ?? null);
     const { data: chars } = await supabase
       .from("characters")
       .select(
@@ -240,6 +247,9 @@ export default function CastingPage() {
           ))}
         </div>
       </section>
+
+      {/* Music & ambience */}
+      <AmbienceManager scriptId={scriptId} parsed={parsed} genre={genre} initial={ambience} />
 
       {/* Publish */}
       <section className="mt-8 rounded-xl border border-tan bg-ivory p-5">

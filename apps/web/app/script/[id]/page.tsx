@@ -48,7 +48,7 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
   const { data: script } = await supabase
     .from("scripts")
     .select(
-      "id, slug, title, logline, genre, visibility, full_read_unlocked, parsed_json, voice_config, writer_id, cover_image_url, synopsis, more_details, listing_status, format, page_count, age_rating, copyright_reg_number, rating_avg, rating_count"
+      "id, slug, title, logline, genre, visibility, full_read_unlocked, parsed_json, voice_config, ambience_config, writer_id, cover_image_url, synopsis, more_details, listing_status, format, page_count, age_rating, copyright_reg_number, rating_avg, rating_count"
     )
     .eq(scriptCol(id), id)
     .single();
@@ -220,6 +220,7 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
           scriptId={(script as Script).id}
           parsed={(script as Script).parsed_json}
           voiceConfig={(script as Script).voice_config}
+          ambience={(script as Script).ambience_config ?? null}
           canChangeVoices={
             (script as Script).slug === "booth-nine" ||
             user?.id === (script as Script).writer_id
