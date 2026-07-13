@@ -4,7 +4,7 @@ import { SiteHeader } from "@/components/SiteHeader";
 import type { LiveReading } from "@/lib/shared";
 
 export const metadata = {
-  title: "Live Readings - Prelogue",
+  title: "Live Readings - Prelogue Studio",
   description: "Watch screenplays performed live by real actors, or sign up to read.",
 };
 

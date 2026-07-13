@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { SiteHeader } from "@/components/SiteHeader";
 
 export const metadata: Metadata = {
-  title: "Privacy Policy - Prelogue",
+  title: "Privacy Policy - Prelogue Studio",
   description: "How Prelogue collects, uses, and protects your data.",
 };
 

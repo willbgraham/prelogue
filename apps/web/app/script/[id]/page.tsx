@@ -27,10 +27,10 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
     .select("title, logline, synopsis, cover_image_url")
     .eq(scriptCol(id), id)
     .single();
-  if (!data) return { title: "Prelogue" };
+  if (!data) return { title: "Prelogue Studio" };
   const description = (data.synopsis as string | null) || data.logline;
   return {
-    title: `${data.title} - Prelogue`,
+    title: `${data.title} - Prelogue Studio`,
     description,
     openGraph: {
       title: data.title as string,
@@ -90,7 +90,7 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
           ← Discover
         </Link>
         <ShareButton
-          title={`${(script as Script).title} — Prelogue`}
+          title={`${(script as Script).title} - Prelogue Studio`}
           url={`https://prelogue.studio/script/${(script as Script).slug ?? (script as Script).id}`}
         />
       </div>

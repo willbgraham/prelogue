@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { SiteHeader } from "@/components/SiteHeader";
 
 export const metadata: Metadata = {
-  title: "Leaderboard - Prelogue",
+  title: "Leaderboard - Prelogue Studio",
   description: "Top actors on Prelogue by Writer's Choice and Audience Favorite.",
 };
 

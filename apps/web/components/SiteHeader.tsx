@@ -35,13 +35,13 @@ export async function SiteHeader() {
       <Link href="/" className="flex items-center gap-3">
         <Image
           src="/app-icon.png"
-          alt="Prelogue"
+          alt="Prelogue Studio"
           width={40}
           height={40}
           priority
           className="h-10 w-10 rounded-[10px] border border-tan"
         />
-        <span className="font-slab text-xl">Prelogue</span>
+        <span className="font-slab text-xl">Prelogue Studio</span>
       </Link>
       <HeaderNav user={navUser} />
     </header>

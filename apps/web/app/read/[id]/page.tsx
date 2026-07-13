@@ -27,8 +27,8 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
     .single();
   const s = data?.scripts as unknown as { title: string; logline: string } | { title: string; logline: string }[] | null;
   const script = Array.isArray(s) ? s[0] : s;
-  if (!script) return { title: "Prelogue" };
-  return { title: `${script.title} - a table read on Prelogue`, description: script.logline };
+  if (!script) return { title: "Prelogue Studio" };
+  return { title: `${script.title} - a table read on Prelogue Studio`, description: script.logline };
 }
 
 export default async function ReadPage({ params }: { params: Promise<{ id: string }> }) {

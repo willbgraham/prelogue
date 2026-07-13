@@ -4,7 +4,7 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { VideoIcon } from "@/components/icons";
 
 export const metadata: Metadata = {
-  title: "How it works - Prelogue",
+  title: "How it works - Prelogue Studio",
   description:
     "For writers: upload a screenplay, cast AI voices, hear it performed, and host live readings. For actors: read a role by webcam and get cast.",
 };

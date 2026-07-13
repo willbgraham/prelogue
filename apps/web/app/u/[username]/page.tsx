@@ -34,9 +34,9 @@ export async function generateMetadata({ params }: { params: Promise<{ username:
     .select("display_name, bio")
     .eq("username", username)
     .single();
-  if (!data) return { title: "Prelogue" };
+  if (!data) return { title: "Prelogue Studio" };
   return {
-    title: `${data.display_name || username} - Prelogue`,
+    title: `${data.display_name || username} - Prelogue Studio`,
     description: data.bio ?? undefined,
   };
 }
