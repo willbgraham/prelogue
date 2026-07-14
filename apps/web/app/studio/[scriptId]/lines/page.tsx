@@ -11,6 +11,7 @@ import type { ParsedScript, SceneElement } from "@/lib/shared";
 const MERGE_CAP = 2500;
 const ACTION = "__action__";
 const PAREN = "__paren__";
+const ADD_CHARACTER = "__add_character__";
 
 type RowType = Exclude<SceneElement["type"], "character">; // dialogue | action | parenthetical
 
@@ -157,7 +158,28 @@ export default function EditLinesPage() {
   const setRole = (key: string, role: string) => {
     if (role === ACTION) patchRow(key, { type: "action", character_name: undefined });
     else if (role === PAREN) patchRow(key, { type: "parenthetical", character_name: undefined });
+    else if (role === ADD_CHARACTER) addCharacter(key);
     else patchRow(key, { type: "dialogue", character_name: role });
+  };
+
+  // The parser can miss a character (odd formatting, one-off speaker). Let the
+  // writer create one here so every line stays attributable — registered in the
+  // characters table too, so casting and "Read for this role" pick it up.
+  const addCharacter = async (key: string) => {
+    const raw = window.prompt("Character name, as it should appear (e.g. BARTENDER):");
+    const name = (raw ?? "").trim().toUpperCase().slice(0, 40);
+    if (!name) return;
+    if (!roleOptions.includes(name)) {
+      const { error: insErr } = await supabase
+        .from("characters")
+        .insert({ script_id: scriptId, name, line_count: 1 });
+      if (insErr && !/duplicate/i.test(insErr.message)) {
+        setError(`Couldn't add the character: ${insErr.message}`);
+        return;
+      }
+      setRoleOptions((prev) => (prev.includes(name) ? prev : [...prev, name].sort()));
+    }
+    patchRow(key, { type: "dialogue", character_name: name });
   };
 
   const deleteRow = (key: string) => {
@@ -333,6 +355,8 @@ export default function EditLinesPage() {
                           {n}
                         </option>
                       ))}
+                      <option disabled>──────────</option>
+                      <option value={ADD_CHARACTER}>＋ Add character…</option>
                     </select>
                   </div>
                   <textarea
