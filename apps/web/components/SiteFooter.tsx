@@ -10,7 +10,7 @@ export function SiteFooter() {
           <div>
             <h3 className="font-slab text-lg leading-tight">Get new script releases &amp; news</h3>
             <p className="mt-0.5 text-sm text-taupe">
-              Fresh table reads and Prelogue updates — no spam, unsubscribe anytime.
+              Fresh table reads and Prelogue updates - no spam, unsubscribe anytime.
             </p>
           </div>
           <NewsletterSignup />

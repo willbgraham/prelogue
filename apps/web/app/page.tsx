@@ -39,16 +39,16 @@ export default async function Home() {
             Hear your screenplay performed.
           </h1>
           <p className="mt-4 max-w-xl text-lg text-taupe">
-            Upload a script — <span className="text-ink">private, visible only to you</span> — and
-            it reads itself aloud: cast from 900+ AI voices, direct any single
-            line&rsquo;s emotion, add scene music, and export the finished read.
+            Upload a script - <span className="text-ink">private, visible only to you</span>
+            {" - "}and it reads itself aloud: cast from 900+ AI voices, direct any
+            single line&rsquo;s emotion, add scene music, and export the finished read.
           </p>
           <div className="mt-7 flex flex-wrap items-center gap-3">
             <Link
               href={`/script/${DEMO_SCRIPT_SLUG}`}
               className="inline-flex items-center gap-2 rounded-xl bg-brick px-5 py-3 font-medium text-white"
             >
-              ▶ Try the demo — no account
+              ▶ Try the demo - no account
             </Link>
             <Link
               href="/studio/upload"
@@ -81,7 +81,7 @@ export default async function Home() {
               <span className="font-slab text-xl">900+ voices</span>
             </div>
             <p className="mt-2 text-sm leading-relaxed text-taupe">
-              Cast every character from a searchable voice library — filter by
+              Cast every character from a searchable voice library - filter by
               gender, age, and accent, preview instantly, and swap any role in
               seconds.
             </p>
@@ -110,7 +110,7 @@ export default async function Home() {
               <span className="font-slab text-xl">Direct every line</span>
             </div>
             <p className="mt-2 text-sm leading-relaxed text-taupe">
-              Tune speed and delivery per role — or per single line. Tag a line
+              Tune speed and delivery per role - or per single line. Tag a line
               with an emotion and it&rsquo;s acted, not just read.
             </p>
             <div className="mt-4 flex flex-wrap gap-x-3 gap-y-1.5 font-mono text-sm text-brick">
@@ -160,7 +160,7 @@ export default async function Home() {
               <span className="font-slab text-xl">Live table reads</span>
             </div>
             <p className="mt-2 text-sm leading-relaxed text-taupe">
-              Schedule a live Zoom reading — actors sign up, you choose the
+              Schedule a live Zoom reading - actors sign up, you choose the
               cast, everyone performs together in real time.
             </p>
             <div className="mt-4 rounded-lg border border-tan bg-elevated px-3 py-2.5 font-mono text-xs text-taupe">
@@ -225,7 +225,7 @@ export default async function Home() {
           Your script deserves to be heard before it&rsquo;s shot.
         </h2>
         <p className="mx-auto mt-3 max-w-md text-taupe">
-          Upload a PDF and hear the opening free — your script stays private
+          Upload a PDF and hear the opening free - your script stays private
           unless you decide otherwise. One payment of $19 unlocks the complete
           read and MP4 export; replays are free forever.
         </p>

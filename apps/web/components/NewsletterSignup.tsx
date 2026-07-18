@@ -23,11 +23,11 @@ export function NewsletterSignup() {
     // 23505 = already subscribed → still a success from the reader's point of view.
     if (error && error.code !== "23505") {
       setStatus("error");
-      setMsg("Something went wrong — please try again.");
+      setMsg("Something went wrong - please try again.");
       return;
     }
     setStatus("done");
-    setMsg(error?.code === "23505" ? "You're already on the list — thanks!" : "You're on the list! 🎬");
+    setMsg(error?.code === "23505" ? "You're already on the list - thanks!" : "You're on the list! 🎬");
     setEmail("");
   }
 

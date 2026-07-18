@@ -18,12 +18,12 @@ type DemoLine =
 const LINES: DemoLine[] = [
   { kind: "slug", text: "INT. THE BLUE HOUR DINER - 2:14 A.M." },
   { kind: "action", text: "Rain needles the window. A neon sign stutters pink." },
-  { kind: "cue", who: "DANNY", text: "I want out.", note: "AI voice — one of 900+" },
+  { kind: "cue", who: "DANNY", text: "I want out.", note: "AI voice - one of 900+" },
   {
     kind: "cue",
     who: "VERA",
     text: "Mm. And people in hell want ice water.",
-    note: "Read by Ceecee — a real actor",
+    note: "Read by Ceecee - a real actor",
   },
   {
     kind: "cue",
@@ -85,7 +85,7 @@ export function HeroScriptDemo() {
       <div className="rounded-xl border border-tan bg-[#faf7ef] shadow-[0_2px_24px_rgba(42,36,32,0.10)]">
         {/* Page header, like the top of a shooting draft */}
         <div className="flex items-center justify-between border-b border-tan/60 px-5 py-2.5 font-mono text-[10px] uppercase tracking-widest text-muted">
-          <span>Booth Nine — demo scene</span>
+          <span>Booth Nine - demo scene</span>
           <span>Page 1</span>
         </div>
 
@@ -140,7 +140,7 @@ export function HeroScriptDemo() {
               done ? "opacity-100" : "opacity-0"
             }`}
           >
-            ▶ Play the full scene — hear it out loud
+            ▶ Play the full scene - hear it out loud
           </Link>
         </div>
       </div>
