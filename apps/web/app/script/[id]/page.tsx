@@ -193,7 +193,6 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
           <OwnerPanel
             scriptId={s.id}
             initialVisibility={(s.visibility ?? "public") as "public" | "hidden" | "private"}
-            unlocked={!!s.full_read_unlocked}
           />
           <div className="mt-4 flex justify-end">
             <DeleteScriptButton scriptId={s.id} title={s.title} />

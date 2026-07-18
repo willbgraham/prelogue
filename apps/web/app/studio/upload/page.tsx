@@ -62,6 +62,9 @@ export default function UploadPage() {
         logline: logline.trim(),
         file_url: path,
         status: "open",
+        // Tool first: every upload starts private. Publishing is an explicit
+        // choice the writer makes later from the script's Sharing panel.
+        visibility: "private",
         submission_deadline: "2099-12-31",
         ...(details.cover_image_url ? { cover_image_url: details.cover_image_url } : {}),
         ...(details.synopsis?.trim() ? { synopsis: details.synopsis.trim() } : {}),
@@ -176,6 +179,10 @@ export default function UploadPage() {
         >
           {busy ? status || "Working…" : "Upload & parse"}
         </button>
+        <p className="text-center text-xs leading-relaxed text-muted">
+          Your upload is <span className="font-medium text-taupe">private</span> — only you can see
+          it until you choose to share. You keep all rights, and you can delete it anytime.
+        </p>
       </form>
     </main>
   );

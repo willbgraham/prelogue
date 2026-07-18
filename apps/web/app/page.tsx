@@ -39,9 +39,9 @@ export default async function Home() {
             Hear your screenplay performed.
           </h1>
           <p className="mt-4 max-w-xl text-lg text-taupe">
-            Upload a script and it reads itself aloud — cast from 900+ AI voices,
-            direct any single line&rsquo;s emotion, and let real actors audition
-            for your roles.
+            Upload a script — <span className="text-ink">private, visible only to you</span> — and
+            it reads itself aloud: cast from 900+ AI voices, direct any single
+            line&rsquo;s emotion, add scene music, and export the finished read.
           </p>
           <div className="mt-7 flex flex-wrap items-center gap-3">
             <Link
@@ -58,7 +58,7 @@ export default async function Home() {
             </Link>
           </div>
           <p className="mt-4 font-mono text-[11px] uppercase tracking-wider text-muted">
-            Free preview · $19 unlocks the full read · no subscription
+            Private by default · you keep all rights · $19 one-time · no subscription
           </p>
         </div>
 
@@ -225,8 +225,9 @@ export default async function Home() {
           Your script deserves to be heard before it&rsquo;s shot.
         </h2>
         <p className="mx-auto mt-3 max-w-md text-taupe">
-          Upload a PDF and hear the opening free. One payment of $19 unlocks the
-          complete read — replays are free forever.
+          Upload a PDF and hear the opening free — your script stays private
+          unless you decide otherwise. One payment of $19 unlocks the complete
+          read and MP4 export; replays are free forever.
         </p>
         <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
           <Link

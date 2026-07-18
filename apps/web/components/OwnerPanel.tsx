@@ -15,11 +15,9 @@ const OPTS: { key: Vis; label: string; hint: string }[] = [
 export function OwnerPanel({
   scriptId,
   initialVisibility,
-  unlocked,
 }: {
   scriptId: string;
   initialVisibility: Vis;
-  unlocked: boolean;
 }) {
   const supabase = getBrowserClient();
   const [visibility, setVisibility] = useState<Vis>(initialVisibility);
@@ -44,10 +42,7 @@ export function OwnerPanel({
 
   async function changeVisibility(next: Vis) {
     if (next === visibility) return;
-    if (next === "private" && !unlocked) {
-      setError("Unlock the full read ($19) to make this script invite-only.");
-      return;
-    }
+    // Privacy is free — tool first. The $19 unlock buys the full read + export.
     setBusy(true);
     setError(null);
     const { error } = await supabase.from("scripts").update({ visibility: next }).eq("id", scriptId);
@@ -101,7 +96,6 @@ export function OwnerPanel({
       <div className="mt-3 flex gap-2">
         {OPTS.map((o) => {
           const active = visibility === o.key;
-          const locked = o.key === "private" && !unlocked;
           return (
             <button
               key={o.key}
@@ -111,10 +105,9 @@ export function OwnerPanel({
                 active
                   ? "border-brick bg-brick text-white"
                   : "border-tan text-taupe hover:bg-elevated"
-              } ${locked ? "opacity-60" : ""}`}
+              }`}
             >
               {o.label}
-              {locked ? " 🔒" : ""}
             </button>
           );
         })}

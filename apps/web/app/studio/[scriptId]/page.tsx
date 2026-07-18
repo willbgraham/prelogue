@@ -9,6 +9,7 @@ import { VoicePicker } from "@/components/VoicePicker";
 import { VoiceDesigner } from "@/components/VoiceDesigner";
 import { ClipReel } from "@/components/ClipReel";
 import { AmbienceManager } from "@/components/AmbienceManager";
+import { ExportReadCard } from "@/components/ExportReadCard";
 import type { AmbienceConfig, ParsedScript, VoiceConfig } from "@/lib/shared";
 
 type Sub = {
@@ -33,6 +34,8 @@ export default function CastingPage() {
   const [parsed, setParsed] = useState<ParsedScript | null>(null);
   const [genre, setGenre] = useState<string | null>(null);
   const [ambience, setAmbience] = useState<AmbienceConfig | null>(null);
+  const [unlocked, setUnlocked] = useState(false);
+  const [pageCount, setPageCount] = useState<number | null>(null);
   const [voiceNames, setVoiceNames] = useState<Record<string, string>>({});
   const [showPicker, setShowPicker] = useState(false);
   const [showDesigner, setShowDesigner] = useState(false);
@@ -51,7 +54,7 @@ export default function CastingPage() {
     }
     const { data: script } = await supabase
       .from("scripts")
-      .select("title, writer_id, voice_config, parsed_json, ambience_config, genre")
+      .select("title, writer_id, voice_config, parsed_json, ambience_config, genre, full_read_unlocked, page_count")
       .eq("id", scriptId)
       .single();
     if (!script || script.writer_id !== user.id) {
@@ -63,6 +66,8 @@ export default function CastingPage() {
     setParsed((script.parsed_json as ParsedScript) ?? null);
     setGenre((script.genre as string) ?? null);
     setAmbience((script.ambience_config as AmbienceConfig) ?? null);
+    setUnlocked(!!script.full_read_unlocked);
+    setPageCount((script.page_count as number) ?? null);
     const { data: chars } = await supabase
       .from("characters")
       .select(
@@ -250,6 +255,9 @@ export default function CastingPage() {
 
       {/* Music & ambience */}
       <AmbienceManager scriptId={scriptId} parsed={parsed} genre={genre} initial={ambience} />
+
+      {/* Export MP4 */}
+      <ExportReadCard scriptId={scriptId} title={title} unlocked={unlocked} pageCount={pageCount} />
 
       {/* Publish */}
       <section className="mt-8 rounded-xl border border-tan bg-ivory p-5">
