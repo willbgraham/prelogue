@@ -19,6 +19,8 @@ type Render = {
   fps: number | null;
   error: string | null;
   created_at: string;
+  /** Joined from scripts — Claude writes a logline with every daily scene. */
+  script?: { logline: string | null } | null;
 };
 
 const badge: Record<Render["status"], string> = {
@@ -60,7 +62,7 @@ export default function AdminRendersPage() {
     setAllowed(true);
     const { data } = await supabase
       .from("daily_renders")
-      .select("*")
+      .select("*, script:scripts(logline)")
       .order("created_at", { ascending: false });
     const rows = (data as Render[]) ?? [];
     setRenders(rows);
@@ -242,6 +244,9 @@ export default function AdminRendersPage() {
                     <span className="text-xs text-muted">{(r.duration_frames / r.fps).toFixed(0)}s</span>
                   ) : null}
                 </div>
+                {r.script?.logline && (
+                  <p className="mt-1 text-sm leading-snug text-taupe">{r.script.logline}</p>
+                )}
                 {r.error && <p className="mt-1 text-xs text-brick">{r.error}</p>}
                 <textarea
                   defaultValue={r.caption ?? ""}
