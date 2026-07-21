@@ -73,6 +73,9 @@ export default function EditLinesPage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Admin editing a script they don't own (daily renders) — back-links go to
+  // Admin renders instead of the writer-gated casting page.
+  const [adminView, setAdminView] = useState(false);
 
   const parsedRef = useRef<Record<string, unknown>>({});
   const voiceConfigRef = useRef<VoiceConfig | null>(null);
@@ -103,6 +106,8 @@ export default function EditLinesPage() {
         router.push("/studio"); // not the owner
         return;
       }
+      // Came from Admin renders, not their own studio — route back accordingly.
+      setAdminView(true);
     }
     setTitle(script.title ?? "");
     const parsed = (script.parsed_json as ParsedScript | null) ?? { scenes: [], characters: [] };
@@ -376,8 +381,11 @@ export default function EditLinesPage() {
   return (
     <main className="mx-auto w-full max-w-3xl px-6 py-10">
       <div className="flex items-center justify-between gap-3">
-        <Link href={`/studio/${scriptId}`} className="text-sm text-taupe hover:text-ink">
-          ← Casting
+        <Link
+          href={adminView ? "/admin/renders" : `/studio/${scriptId}`}
+          className="text-sm text-taupe hover:text-ink"
+        >
+          {adminView ? "← Admin renders" : "← Casting"}
         </Link>
         <div className="flex items-center gap-3">
           {saved && !dirty && <span className="text-sm text-green-700">Saved ✓</span>}
@@ -541,8 +549,13 @@ export default function EditLinesPage() {
       </div>
 
       {rows.length > 0 && (
-        <div className="mt-8 flex items-center justify-end gap-3 border-t border-tan pt-5">
+        <div className="mt-8 flex flex-wrap items-center justify-end gap-3 border-t border-tan pt-5">
           {dirty && <span className="text-sm text-taupe">Unsaved changes</span>}
+          {adminView && saved && !dirty && (
+            <span className="text-sm text-muted">
+              Saved — re-render to update the video.
+            </span>
+          )}
           <button
             onClick={save}
             disabled={!dirty || saving}
@@ -550,6 +563,14 @@ export default function EditLinesPage() {
           >
             {saving ? "Saving…" : "Save changes"}
           </button>
+          {adminView && (
+            <Link
+              href="/admin/renders"
+              className="rounded-lg border border-tan px-4 py-2.5 text-sm font-medium text-taupe hover:bg-elevated"
+            >
+              Admin renders →
+            </Link>
+          )}
         </div>
       )}
     </main>
