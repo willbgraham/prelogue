@@ -8,7 +8,8 @@ import { getBrowserClient } from "@/lib/supabase/client";
 
 // Emotional delivery for a single line — rendered as an ElevenLabs v3 audio tag
 // ("[sad] …"). Value = the tag word sent to the model; label = what the UI shows.
-const EMOTIONS: { value: string; label: string }[] = [
+// Exported: the lines editor offers the same per-line emotions.
+export const EMOTIONS: { value: string; label: string }[] = [
   { value: "sad", label: "Sad" },
   { value: "angry", label: "Angry" },
   { value: "scared", label: "Scared" },

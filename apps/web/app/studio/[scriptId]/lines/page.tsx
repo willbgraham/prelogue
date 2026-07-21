@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { getBrowserClient } from "@/lib/supabase/client";
-import type { ParsedScript, SceneElement } from "@/lib/shared";
+import { EMOTIONS } from "@/components/VoicePicker";
+import type { ParsedScript, SceneElement, VoiceConfig, VoiceSettings } from "@/lib/shared";
 
 // Keep in step with parse-script / the mobile editor: consecutive same-speaker
 // runs are re-merged on save, capped so no single element grows unbounded.
@@ -21,6 +22,9 @@ type Row = {
   type: RowType;
   character_name?: string;
   text: string;
+  /** Per-line voice direction (emotion etc.) — travels with the row through
+   *  edits and is re-keyed to the new element indices on save. */
+  line_settings?: VoiceSettings;
 };
 
 // Shape written back into parsed_json.scenes[].elements[].
@@ -71,6 +75,7 @@ export default function EditLinesPage() {
   const [error, setError] = useState<string | null>(null);
 
   const parsedRef = useRef<Record<string, unknown>>({});
+  const voiceConfigRef = useRef<VoiceConfig | null>(null);
   const keyCounter = useRef(0);
   const nextKey = () => String(keyCounter.current++);
 
@@ -84,7 +89,7 @@ export default function EditLinesPage() {
     }
     const { data: script } = await supabase
       .from("scripts")
-      .select("title, writer_id, parsed_json")
+      .select("title, writer_id, parsed_json, voice_config")
       .eq("id", scriptId)
       .single();
     if (!script) {
@@ -102,13 +107,19 @@ export default function EditLinesPage() {
     setTitle(script.title ?? "");
     const parsed = (script.parsed_json as ParsedScript | null) ?? { scenes: [], characters: [] };
     parsedRef.current = parsed as unknown as Record<string, unknown>;
+    voiceConfigRef.current = (script.voice_config as VoiceConfig | null) ?? null;
+    // Per-line direction is keyed by GLOBAL element index (every element counts,
+    // including "character" labels) — walk with the same numbering to attach it.
+    const lineSettings = voiceConfigRef.current?.line_settings ?? {};
 
     const rws: Row[] = [];
     const hs: Record<number, string> = {};
     const names = new Set<string>();
+    let globalIdx = 0;
     for (const scene of parsed.scenes ?? []) {
       hs[scene.scene_index] = scene.heading ?? "";
       for (const el of scene.elements ?? []) {
+        const idx = globalIdx++;
         if (el.type === "character") continue; // redundant speaker label
         if (el.type === "dialogue" && el.character_name) names.add(el.character_name);
         rws.push({
@@ -117,6 +128,8 @@ export default function EditLinesPage() {
           type: el.type as RowType,
           character_name: el.character_name,
           text: el.text,
+          line_settings:
+            el.type === "dialogue" ? (lineSettings[String(idx)] as VoiceSettings | undefined) : undefined,
         });
       }
     }
@@ -182,6 +195,34 @@ export default function EditLinesPage() {
     patchRow(key, { type: "dialogue", character_name: name });
   };
 
+  // Per-line emotion (v3 audio tag) — the same direction the Choose Cast
+  // picker offers, editable right where the lines are.
+  const setRowEmotion = (key: string, emotion: string) => {
+    setRows((prev) =>
+      prev.map((r) => {
+        if (r.key !== key) return r;
+        if (!emotion) {
+          if (!r.line_settings) return r;
+          const rest = { ...r.line_settings };
+          delete rest.emotion;
+          return { ...r, line_settings: Object.keys(rest).length ? rest : undefined };
+        }
+        return {
+          ...r,
+          line_settings: {
+            stability: 0.5,
+            similarity_boost: 0.75,
+            style: 0,
+            speed: 1.0,
+            ...(r.line_settings ?? {}),
+            emotion,
+          },
+        };
+      })
+    );
+    touch();
+  };
+
   const deleteRow = (key: string) => {
     setRows((prev) => prev.filter((r) => r.key !== key));
     if (editingKey === key) setEditingKey(null);
@@ -229,6 +270,7 @@ export default function EditLinesPage() {
         type: r.type,
         character_name: r.character_name,
         text: t,
+        line_settings: r.line_settings, // the whole speech keeps its direction
       }));
       const next = [...prev];
       next.splice(idx, 1, ...pieces);
@@ -246,43 +288,76 @@ export default function EditLinesPage() {
       const seen = new Set<number>();
       for (const r of rows) if (!seen.has(r.sceneIndex)) (seen.add(r.sceneIndex), order.push(r.sceneIndex));
 
-      let scenes: OutScene[] = order.map((si) => ({
+      // Build per-scene elements, carrying each row's per-line direction along.
+      type Tmp = { el: OutEl; ls?: VoiceSettings };
+      let scenes: { heading: string; scene_index: number; elements: Tmp[] }[] = order.map((si) => ({
         heading: headings[si] ?? "",
         scene_index: si,
         elements: rows
           .filter((r) => r.sceneIndex === si)
-          .map((r): OutEl => {
+          .map((r): Tmp => {
             const text = r.text.trim();
-            return r.type === "dialogue" && r.character_name
-              ? { type: r.type, character_name: r.character_name, text }
-              : { type: r.type, text };
+            return {
+              el:
+                r.type === "dialogue" && r.character_name
+                  ? { type: r.type, character_name: r.character_name, text }
+                  : { type: r.type, text },
+              ls: r.type === "dialogue" ? r.line_settings : undefined,
+            };
           })
-          .filter((el) => el.text.length > 0),
+          .filter((t) => t.el.text.length > 0),
       }));
 
-      // Re-merge consecutive same-speaker runs (matches parse-script).
+      // Re-merge consecutive same-speaker runs (matches parse-script). A
+      // difference in per-line direction breaks the run, so a [scared] line
+      // keeps its own delivery instead of dissolving into a neutral neighbor.
       scenes = scenes.map((sc) => {
-        const merged: OutEl[] = [];
-        for (const el of sc.elements) {
+        const merged: Tmp[] = [];
+        for (const t of sc.elements) {
           const last = merged[merged.length - 1];
           const sameRun =
             !!last &&
-            last.type === el.type &&
-            (el.type === "action" ||
-              (el.type === "dialogue" && last.character_name === (el as { character_name?: string }).character_name));
-          if (sameRun && last.text.length + el.text.length + 1 <= MERGE_CAP) {
-            last.text = `${last.text} ${el.text}`;
+            last.el.type === t.el.type &&
+            (t.el.type === "action" ||
+              (t.el.type === "dialogue" &&
+                last.el.character_name === t.el.character_name &&
+                JSON.stringify(last.ls ?? null) === JSON.stringify(t.ls ?? null)));
+          if (sameRun && last.el.text.length + t.el.text.length + 1 <= MERGE_CAP) {
+            last.el.text = `${last.el.text} ${t.el.text}`;
           } else {
-            merged.push({ ...el });
+            merged.push({ el: { ...t.el }, ls: t.ls });
           }
         }
         return { ...sc, elements: merged };
       });
 
-      const next = { ...(parsedRef.current ?? {}), scenes };
-      const { error: upErr } = await supabase.from("scripts").update({ parsed_json: next }).eq("id", scriptId);
+      // Element indices shift on every edit — re-key the per-line direction to
+      // the rebuilt stream so emotions stay attached to their lines.
+      const newLineSettings: Record<string, VoiceSettings> = {};
+      let idx = 0;
+      for (const sc of scenes) {
+        for (const t of sc.elements) {
+          if (t.ls && t.el.type === "dialogue") newLineSettings[String(idx)] = t.ls;
+          idx++;
+        }
+      }
+
+      const outScenes: OutScene[] = scenes.map((sc) => ({
+        heading: sc.heading,
+        scene_index: sc.scene_index,
+        elements: sc.elements.map((t) => t.el),
+      }));
+
+      const next = { ...(parsedRef.current ?? {}), scenes: outScenes };
+      const baseCfg: VoiceConfig = voiceConfigRef.current ?? { mode: "per_character" };
+      const nextCfg: VoiceConfig = { ...baseCfg, line_settings: newLineSettings };
+      const { error: upErr } = await supabase
+        .from("scripts")
+        .update({ parsed_json: next, voice_config: nextCfg })
+        .eq("id", scriptId);
       if (upErr) throw upErr;
       parsedRef.current = next;
+      voiceConfigRef.current = nextCfg;
       setDirty(false);
       setSaved(true);
     } catch (e) {
@@ -358,6 +433,26 @@ export default function EditLinesPage() {
                       <option disabled>──────────</option>
                       <option value={ADD_CHARACTER}>＋ Add character…</option>
                     </select>
+                    {r.type === "dialogue" && (
+                      <>
+                        <span className="ml-2 text-xs font-medium uppercase tracking-wide text-muted">
+                          Emotion
+                        </span>
+                        <select
+                          value={r.line_settings?.emotion ?? ""}
+                          onChange={(e) => setRowEmotion(r.key, e.target.value)}
+                          title="Acted delivery for this line (uses the expressive v3 voice model)"
+                          className="rounded-lg border border-tan bg-elevated px-2 py-1.5 text-sm outline-none focus:border-brick"
+                        >
+                          <option value="">None</option>
+                          {EMOTIONS.map((e) => (
+                            <option key={e.value} value={e.value}>
+                              {e.label}
+                            </option>
+                          ))}
+                        </select>
+                      </>
+                    )}
                   </div>
                   <textarea
                     autoFocus
@@ -415,6 +510,11 @@ export default function EditLinesPage() {
                     onClick={() => setEditingKey(r.key)}
                     role="button"
                   >
+                    {r.line_settings?.emotion && (
+                      <span className="mr-1.5 font-mono text-xs text-brick">
+                        [{r.line_settings.emotion}]
+                      </span>
+                    )}
                     {r.text || <span className="text-muted">(empty)</span>}
                   </p>
                   <button
