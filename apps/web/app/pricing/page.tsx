@@ -1,11 +1,13 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { SiteHeader } from "@/components/SiteHeader";
+import { SubscribeButton } from "@/components/SubscribeButton";
+import { PLANS, PLAN_ORDER, PLAN_FEATURES, dollars } from "@/lib/shared/plans";
 
 export const metadata: Metadata = {
   title: "Pricing - Prelogue Studio",
   description:
-    "Free to browse and listen. Unlock a full AI table read of your script for $19 one-time — no subscription.",
+    "Plans from $19/mo by pages per month, or unlock a single script for $19 one-time. Listening is always free.",
 };
 
 const DEMO_SCRIPT_SLUG = "booth-nine";
@@ -17,35 +19,86 @@ const FREE = [
   "Record your own reads as an actor by webcam",
 ];
 
-const UNLOCK = [
-  "The complete AI table read — every line of dialogue and narration",
-  "Private, invite-only sharing — only people you invite can view",
-  "Free replays forever once it's generated",
-  "No subscription — pay once per script",
-];
-
 export default function Pricing() {
   return (
-    <main className="mx-auto w-full max-w-5xl px-6 py-10">
+    <main className="mx-auto w-full max-w-6xl px-6 py-10">
       <SiteHeader />
 
       <section className="mt-12 max-w-2xl">
         <h1 className="font-slab text-4xl leading-tight sm:text-5xl">
-          Simple, one-time pricing
+          Pricing that scales with your writing
         </h1>
         <p className="mt-4 text-taupe">
-          Listening is free. Pay once — only for the scripts you want performed
-          in full. No subscriptions, no per-minute charges.
+          Listening is free. Pick a monthly plan and unlock as many scripts as your pages allow, or
+          pay once for a single script. Every plan includes the whole studio: 900+ voices, per-line
+          emotion, scene music, and MP4 export.
         </p>
       </section>
 
-      <section className="mt-12 grid gap-5 lg:grid-cols-2">
-        {/* Free */}
+      {/* Subscription tiers */}
+      <section className="mt-10 grid gap-5 lg:grid-cols-3">
+        {PLAN_ORDER.map((id) => {
+          const p = PLANS[id];
+          return (
+            <div
+              key={id}
+              className={`relative rounded-2xl border bg-ivory p-8 ${
+                p.highlight ? "border-2 border-brick bg-elevated" : "border-tan"
+              }`}
+            >
+              {p.highlight && (
+                <span className="absolute -top-3 left-8 rounded-full bg-brick px-3 py-1 text-xs font-medium text-white">
+                  Most popular
+                </span>
+              )}
+              <div className="font-mono text-xs uppercase tracking-wider text-muted">{p.label}</div>
+              <div className="mt-2 flex items-baseline gap-1">
+                <span className="font-slab text-4xl">{dollars(p.price_cents)}</span>
+                <span className="text-sm text-muted">/mo</span>
+              </div>
+              <div className="mt-1 text-sm font-medium text-brick">
+                {p.pages} pages / month
+              </div>
+              <p className="mt-3 text-sm text-taupe">{p.blurb}</p>
+              <SubscribeButton
+                plan={id}
+                label={`Choose ${p.label}`}
+                className={`mt-6 w-full rounded-xl px-5 py-3 font-medium ${
+                  p.highlight
+                    ? "bg-brick text-white"
+                    : "border border-brick text-brick hover:bg-brick/5"
+                }`}
+              />
+            </div>
+          );
+        })}
+      </section>
+
+      <section className="mt-6 rounded-2xl border border-tan bg-ivory p-6">
+        <div className="font-mono text-xs uppercase tracking-wider text-muted">
+          Every plan includes
+        </div>
+        <ul className="mt-4 grid gap-3 sm:grid-cols-2">
+          {PLAN_FEATURES.map((f) => (
+            <li key={f} className="flex gap-3 text-sm text-taupe">
+              <span className="text-forest">✓</span>
+              <span>{f}</span>
+            </li>
+          ))}
+        </ul>
+        <p className="mt-4 text-xs text-muted">
+          Pages are how many pages of scripts you can unlock each month. Unlocking is permanent, so
+          replays, edits, re-casts, and MP4 exports never cost extra pages. Your budget resets every
+          billing cycle.
+        </p>
+      </section>
+
+      {/* Free + one-time */}
+      <h2 className="mt-14 font-slab text-2xl">Not ready for a plan?</h2>
+      <section className="mt-5 grid gap-5 lg:grid-cols-2">
         <div className="rounded-2xl border border-tan bg-ivory p-8">
-          <div className="font-mono text-xs uppercase tracking-wider text-muted">
-            For everyone
-          </div>
-          <h2 className="mt-2 font-slab text-2xl">Free</h2>
+          <div className="font-mono text-xs uppercase tracking-wider text-muted">For everyone</div>
+          <h3 className="mt-2 font-slab text-2xl">Free</h3>
           <div className="mt-1 font-slab text-4xl">$0</div>
           <ul className="mt-6 space-y-3">
             {FREE.map((f) => (
@@ -63,24 +116,19 @@ export default function Pricing() {
           </Link>
         </div>
 
-        {/* Full Script Unlock */}
-        <div className="rounded-2xl border-2 border-brick bg-elevated p-8">
-          <div className="font-mono text-xs uppercase tracking-wider text-brick">
-            For writers
+        <div className="rounded-2xl border border-tan bg-ivory p-8">
+          <div className="font-mono text-xs uppercase tracking-wider text-muted">
+            One script only
           </div>
-          <h2 className="mt-2 font-slab text-2xl">Full Script Unlock</h2>
+          <h3 className="mt-2 font-slab text-2xl">Single unlock</h3>
           <div className="mt-1 flex items-baseline gap-2">
             <span className="font-slab text-4xl">$19</span>
             <span className="text-sm text-muted">one-time, per script</span>
           </div>
-          <ul className="mt-6 space-y-3">
-            {UNLOCK.map((f) => (
-              <li key={f} className="flex gap-3 text-sm text-ink">
-                <span className="text-brick">✓</span>
-                <span>{f}</span>
-              </li>
-            ))}
-          </ul>
+          <p className="mt-4 text-sm text-taupe">
+            Just one script to perform? Unlock its full read once and keep it forever, with no
+            subscription. Includes private, invite-only sharing and free replays.
+          </p>
           <Link
             href="/studio/upload"
             className="mt-7 inline-flex rounded-xl bg-brick px-5 py-3 font-medium text-white"
@@ -91,8 +139,8 @@ export default function Pricing() {
       </section>
 
       <p className="mt-8 text-center text-sm text-muted">
-        Prices in USD. The unlock covers one script and is a one-time payment —
-        replays never cost extra.
+        Prices in USD. Cancel anytime from your billing settings. One-time unlocks are permanent and
+        never count against a plan.
       </p>
     </main>
   );

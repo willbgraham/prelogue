@@ -45,6 +45,9 @@ export function HeaderNav({ user }: { user: NavUser }) {
             <Link href="/studio" className="text-sm font-medium hover:text-brick">
               Studio
             </Link>
+            <Link href="/settings/billing" className="text-sm text-taupe hover:text-brick">
+              Billing
+            </Link>
             {user.username ? (
               <Link href={`/u/${user.username}`} className="text-sm text-taupe hover:text-brick">
                 {user.name}
@@ -109,6 +112,13 @@ export function HeaderNav({ user }: { user: NavUser }) {
                   className="block px-4 py-2.5 text-sm font-medium hover:bg-elevated"
                 >
                   Studio
+                </Link>
+                <Link
+                  href="/settings/billing"
+                  onClick={() => setOpen(false)}
+                  className="block px-4 py-2.5 text-sm text-taupe hover:bg-elevated"
+                >
+                  Billing
                 </Link>
                 {user.username && (
                   <Link

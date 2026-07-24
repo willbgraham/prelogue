@@ -16,6 +16,13 @@ const admin = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
 );
 
+// Subscription tiers. KEEP IN SYNC with apps/web/lib/shared/plans.ts.
+const PLANS: Record<string, { price_cents: number; pages: number }> = {
+  growth: { price_cents: 1900, pages: 150 },
+  pro: { price_cents: 3900, pages: 400 },
+  studio: { price_cents: 5900, pages: 800 },
+};
+
 /** Mark a script's full read as unlocked (idempotent). */
 async function unlockScript(scriptId: string) {
   if (!scriptId) return;
@@ -23,6 +30,50 @@ async function unlockScript(scriptId: string) {
     .from("scripts")
     .update({ full_read_unlocked: true, unlocked_at: new Date().toISOString() })
     .eq("id", scriptId);
+}
+
+/** Resolve our user id from a subscription/invoice: prefer stashed metadata,
+ *  fall back to the Stripe customer id we saved on the user row. */
+async function findUserId(
+  metaUserId: string | undefined | null,
+  customer: string | Stripe.Customer | Stripe.DeletedCustomer | null
+): Promise<string | null> {
+  if (metaUserId) return metaUserId;
+  const custId = typeof customer === "string" ? customer : customer?.id;
+  if (!custId) return null;
+  const { data } = await admin
+    .from("users")
+    .select("id")
+    .eq("stripe_customer_id", custId)
+    .single();
+  return data?.id ?? null;
+}
+
+/** Which tier is this subscription — from metadata, else matched by price. */
+function planFromSub(sub: Stripe.Subscription): string | null {
+  const m = sub.metadata?.plan;
+  if (m && PLANS[m]) return m;
+  const amt = sub.items?.data?.[0]?.price?.unit_amount ?? null;
+  const hit = Object.entries(PLANS).find(([, p]) => p.price_cents === amt);
+  return hit ? hit[0] : null;
+}
+
+/** Sync a subscription onto the user row. resetUsage=true on a fresh period
+ *  (creation / renewal) so the monthly page budget starts clean. */
+async function applySubscription(sub: Stripe.Subscription, resetUsage: boolean) {
+  const userId = await findUserId(sub.metadata?.user_id, sub.customer);
+  if (!userId) return;
+  const planId = planFromSub(sub);
+  const patch: Record<string, unknown> = {
+    plan: planId ?? "free",
+    plan_status: sub.status,
+    stripe_subscription_id: sub.id,
+    plan_renews_at: sub.current_period_end
+      ? new Date(sub.current_period_end * 1000).toISOString()
+      : null,
+  };
+  if (resetUsage) patch.plan_pages_used = 0;
+  await admin.from("users").update(patch).eq("id", userId);
 }
 
 Deno.serve(async (req) => {
@@ -40,21 +91,64 @@ Deno.serve(async (req) => {
 
   try {
     switch (event.type) {
-      // One-time per-script unlock. Honor only fully-paid sessions.
+      // One-time per-script unlock. Subscription checkouts also fire this event
+      // but carry no script_id, so they're ignored here (handled below).
       case "checkout.session.completed": {
         const s = event.data.object as Stripe.Checkout.Session;
+        if (s.mode === "subscription") break;
         const scriptId = s.metadata?.script_id as string | undefined;
         if (scriptId && (s.payment_status === "paid" || s.payment_status === "no_payment_required")) {
           await unlockScript(scriptId);
         }
         break;
       }
-      // Belt-and-suspenders: also unlock when the payment intent succeeds
-      // (covers async payment methods that settle after checkout).
+      // Belt-and-suspenders for async one-time payment methods.
       case "payment_intent.succeeded": {
         const pi = event.data.object as Stripe.PaymentIntent;
         const scriptId = pi.metadata?.script_id as string | undefined;
         if (scriptId) await unlockScript(scriptId);
+        break;
+      }
+
+      // Subscription lifecycle → users.plan / plan_status / budget.
+      case "customer.subscription.created":
+        await applySubscription(event.data.object as Stripe.Subscription, true);
+        break;
+      case "customer.subscription.updated":
+        // Status / tier / renewal-date change; don't wipe mid-cycle usage.
+        await applySubscription(event.data.object as Stripe.Subscription, false);
+        break;
+      case "customer.subscription.deleted": {
+        const sub = event.data.object as Stripe.Subscription;
+        const userId = await findUserId(sub.metadata?.user_id, sub.customer);
+        if (userId) {
+          await admin
+            .from("users")
+            .update({ plan: "free", plan_status: "canceled", stripe_subscription_id: null })
+            .eq("id", userId);
+        }
+        break;
+      }
+      // Renewal (and first) payment → reset the monthly page budget.
+      case "invoice.paid": {
+        const inv = event.data.object as Stripe.Invoice;
+        // `invoice.subscription` on API 2024-06-20; newer versions nest it under
+        // `parent.subscription_details.subscription`. Handle both.
+        const rawSub =
+          (inv as any).subscription ??
+          (inv as any).parent?.subscription_details?.subscription ??
+          null;
+        const subId = typeof rawSub === "string" ? rawSub : rawSub?.id;
+        if (subId) {
+          const sub = await stripe.subscriptions.retrieve(subId);
+          await applySubscription(sub, true);
+        }
+        break;
+      }
+      case "invoice.payment_failed": {
+        const inv = event.data.object as Stripe.Invoice;
+        const userId = await findUserId(undefined, inv.customer);
+        if (userId) await admin.from("users").update({ plan_status: "past_due" }).eq("id", userId);
         break;
       }
       default:

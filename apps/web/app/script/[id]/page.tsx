@@ -189,7 +189,11 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
               Live readings →
             </Link>
           </div>
-          <OwnerUnlock scriptId={s.id} unlocked={!!s.full_read_unlocked} />
+          <OwnerUnlock
+            scriptId={s.id}
+            unlocked={!!s.full_read_unlocked}
+            pageCount={s.page_count}
+          />
           <OwnerPanel
             scriptId={s.id}
             initialVisibility={(s.visibility ?? "public") as "public" | "hidden" | "private"}
