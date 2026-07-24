@@ -38,6 +38,10 @@ export function DailyScene({ segments }: DailySceneProps) {
           </Sequence>
         ) : null
       )}
+
+      {/* NOTE: scene ambience beds are NOT rendered here — Remotion 4.0.485's
+          asset mixing mangles their levels, so the worker post-mixes them with
+          ffmpeg after the render (see renderScene.js postMixAmbience). */}
     </AbsoluteFill>
   );
 }

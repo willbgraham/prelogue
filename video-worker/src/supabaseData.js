@@ -19,7 +19,7 @@ function makeClient(url, serviceKey) {
 async function fetchScript(supabase, scriptId) {
   const { data, error } = await supabase
     .from("scripts")
-    .select("id, title, parsed_json, voice_config, full_read_unlocked")
+    .select("id, title, parsed_json, voice_config, ambience_config, full_read_unlocked")
     .eq("id", scriptId)
     .single();
   if (error) throw error;

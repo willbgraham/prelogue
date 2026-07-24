@@ -85,8 +85,17 @@ Deno.serve(async (req) => {
       .eq("id", script_id)
       .single();
     if (scriptErr || !script) return json({ error: "Script not found" }, 404);
-    if (!callerId || callerId !== script.writer_id) {
-      return json({ error: "Only the writer can generate scene music" }, 403);
+    if (!callerId) return json({ error: "Only the writer can generate scene music" }, 403);
+    if (callerId !== script.writer_id) {
+      // Admins manage the house scripts behind the daily renders.
+      const { data: me } = await supabase
+        .from("users")
+        .select("is_admin")
+        .eq("id", callerId)
+        .single();
+      if (!me?.is_admin) {
+        return json({ error: "Only the writer can generate scene music" }, 403);
+      }
     }
 
     const cleanPrompt = prompt.trim().replace(/\s+/g, " ");

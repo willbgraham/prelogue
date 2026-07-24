@@ -13,7 +13,9 @@ function buildRows(parsed, opts = {}) {
   const actorUpper = opts.actorName ? opts.actorName.toUpperCase() : null;
   const rows = [];
   let g = 0;
+  let sceneIdx = -1;
   for (const scene of parsed.scenes) {
+    sceneIdx++;
     const heading = scene.heading ? scene.heading.trim() : "";
     let headingPending = !!heading;
     for (const el of scene.elements || []) {
@@ -30,9 +32,9 @@ function buildRows(parsed, opts = {}) {
             ? "actor"
             : "cue"
           : "line";
-        rows.push({ elementIndex: idx, kind, character: el.character_name, text: el.text, sceneHeading: rowHeading });
+        rows.push({ elementIndex: idx, sceneIndex: sceneIdx, kind, character: el.character_name, text: el.text, sceneHeading: rowHeading });
       } else if (el.type === "action") {
-        rows.push({ elementIndex: idx, kind: "narrator", text: el.text, sceneHeading: rowHeading });
+        rows.push({ elementIndex: idx, sceneIndex: sceneIdx, kind: "narrator", text: el.text, sceneHeading: rowHeading });
       }
       // character / parenthetical consume an index but produce no row.
     }
@@ -69,6 +71,7 @@ function buildTimeline(rows, { manifestByIdx, clipsByIdx = new Map(), durationBy
     const durationFrames = Math.max(1, Math.ceil(durSec * FPS));
     segments.push({
       elementIndex: idx,
+      sceneIndex: row.sceneIndex,
       startFrame: cursor,
       durationFrames,
       kind: row.kind,

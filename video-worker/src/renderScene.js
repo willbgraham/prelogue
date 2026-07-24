@@ -43,7 +43,79 @@ async function buildProps({ supabase, supabaseUrl, serviceKey, scriptId, variant
   ]);
 
   const { fps, segments } = buildTimeline(rows, { manifestByIdx, clipsByIdx, durationByKey, signedByKey });
-  return { script, props: { fps, variant, script: { id: script.id, title: script.title }, segments } };
+
+  // Scene background beds (scripts.ambience_config) — the same beds the web
+  // player loops. NOT passed to Remotion (its 4.0.485 asset mixer mangles
+  // their levels); the worker post-mixes them with ffmpeg after the render.
+  const ambience = [];
+  const amb = script.ambience_config;
+  if (amb && amb.enabled !== false && amb.scenes && typeof amb.scenes === "object") {
+    const bedPaths = Object.values(amb.scenes)
+      .map((s) => s && s.path)
+      .filter(Boolean);
+    if (bedPaths.length) {
+      const bedSigned = await signPaths(supabase, "scripts", bedPaths);
+      const ranges = new Map(); // sceneIndex → { start, end } in frames
+      for (const s of segments) {
+        const r = ranges.get(s.sceneIndex) || { start: s.startFrame, end: s.startFrame + s.durationFrames };
+        r.start = Math.min(r.start, s.startFrame);
+        r.end = Math.max(r.end, s.startFrame + s.durationFrames);
+        ranges.set(s.sceneIndex, r);
+      }
+      const vol = Math.min(0.4, Math.max(0, amb.volume != null ? amb.volume : 0.15));
+      for (const [key, sc] of Object.entries(amb.scenes)) {
+        const r = ranges.get(Number(key));
+        const url = sc && sc.path ? bedSigned.get(sc.path) : null;
+        if (r && url) {
+          ambience.push({
+            sceneIndex: Number(key),
+            src: url,
+            volume: vol,
+            startFrame: r.start,
+            durationFrames: r.end - r.start,
+          });
+        }
+      }
+    }
+  }
+
+  return {
+    script,
+    ambience,
+    props: { fps, variant, script: { id: script.id, title: script.title }, segments },
+  };
+}
+
+// Mix the scene beds under the rendered video's audio with ffmpeg: each bed
+// loops for its scene's duration, delayed to the scene's start, at the
+// writer's volume. Video stream is copied untouched. Returns the mixed path.
+function postMixAmbience(inPath, outPath, ambience, fps) {
+  const { execFileSync } = require("child_process");
+  const args = ["-y", "-i", inPath];
+  const filters = [];
+  const mixIns = ["[0:a]"];
+  ambience.forEach((a, i) => {
+    args.push("-i", a.src);
+    const delayMs = Math.round((a.startFrame / fps) * 1000);
+    const durSec = (a.durationFrames / fps).toFixed(3);
+    filters.push(
+      `[${i + 1}:a]aloop=loop=-1:size=2147483647,atrim=0:${durSec},` +
+        `adelay=${delayMs}|${delayMs},volume=${a.volume}[bed${i}]`
+    );
+    mixIns.push(`[bed${i}]`);
+  });
+  filters.push(
+    `${mixIns.join("")}amix=inputs=${mixIns.length}:duration=first:dropout_transition=0:normalize=0[aout]`
+  );
+  args.push(
+    "-filter_complex", filters.join(";"),
+    "-map", "0:v", "-map", "[aout]",
+    "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+    "-movflags", "+faststart",
+    outPath
+  );
+  execFileSync("ffmpeg", args, { stdio: ["ignore", "ignore", "pipe"] });
+  return outPath;
 }
 
 // Render a script → MP4 → private daily-renders bucket → daily_renders row.
@@ -52,10 +124,10 @@ async function renderScene({ supabase, supabaseUrl, serviceKey, scriptId, varian
   await supabase.from("daily_renders").insert({ id: renderId, script_id: scriptId, variant, status: "processing" });
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "render-"));
   try {
-    const { script, props } = await buildProps({ supabase, supabaseUrl, serviceKey, scriptId, variant, submissionIds });
+    const { script, ambience, props } = await buildProps({ supabase, supabaseUrl, serviceKey, scriptId, variant, submissionIds });
     const serveUrl = await getBundle();
     const composition = await selectComposition({ serveUrl, id: "DailyScene", inputProps: props });
-    const outPath = path.join(tmp, "out.mp4");
+    let outPath = path.join(tmp, "out.mp4");
     await renderMedia({
       serveUrl,
       composition,
@@ -65,6 +137,17 @@ async function renderScene({ supabase, supabaseUrl, serviceKey, scriptId, varian
       concurrency: Math.min(os.cpus().length, 4),
       chromiumOptions: { gl: "swiftshader", headless: true },
     });
+
+    // Scene beds (music/ambience) mix in AFTER the render — a plain ffmpeg
+    // pass we fully control. A bed failure shouldn't kill the render.
+    if (ambience.length) {
+      try {
+        outPath = postMixAmbience(outPath, path.join(tmp, "out-mixed.mp4"), ambience, props.fps);
+        console.log(`ambience mixed: ${ambience.length} bed(s)`);
+      } catch (e) {
+        console.error("ambience post-mix failed (rendering without beds):", e.message);
+      }
+    }
 
     const storagePath = `${scriptId}/${variant}/${renderId}.mp4`;
     const { error: upErr } = await supabase.storage
@@ -117,4 +200,4 @@ async function renderScene({ supabase, supabaseUrl, serviceKey, scriptId, varian
   }
 }
 
-module.exports = { renderScene, buildProps, getBundle };
+module.exports = { renderScene, buildProps, getBundle, postMixAmbience };

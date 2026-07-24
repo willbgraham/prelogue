@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { getBrowserClient } from "@/lib/supabase/client";
 import { VoicePicker } from "@/components/VoicePicker";
-import type { VoiceConfig } from "@/lib/shared";
+import { AmbienceManager } from "@/components/AmbienceManager";
+import type { AmbienceConfig, ParsedScript, VoiceConfig } from "@/lib/shared";
 
 type Render = {
   id: string;
@@ -40,6 +41,12 @@ export default function AdminRendersPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [voiceEdit, setVoiceEdit] = useState<{ render: Render; characters: string[]; config: VoiceConfig } | null>(null);
+  const [musicEdit, setMusicEdit] = useState<{
+    render: Render;
+    parsed: ParsedScript | null;
+    genre: string | null;
+    initial: AmbienceConfig | null;
+  } | null>(null);
   // scriptId -> the render id that was newest when we kicked off a re-render.
   // While present, that scene shows "rendering…"; cleared once a newer render lands.
   const [pending, setPending] = useState<Record<string, string | null>>({});
@@ -175,6 +182,26 @@ export default function AdminRendersPage() {
     );
   }
 
+  // Scene music/ambience for a render's script — same manager as the studio.
+  // Beds save to ambience_config; the next re-render mixes them into the MP4.
+  async function openMusic(r: Render) {
+    setBusy(`${r.id}:music`);
+    setNote(null);
+    const { data: script } = await supabase
+      .from("scripts")
+      .select("parsed_json, genre, ambience_config")
+      .eq("id", r.script_id)
+      .single();
+    setBusy(null);
+    if (!script) return;
+    setMusicEdit({
+      render: r,
+      parsed: (script.parsed_json as ParsedScript) ?? null,
+      genre: (script.genre as string) ?? null,
+      initial: (script.ambience_config as AmbienceConfig) ?? null,
+    });
+  }
+
   async function markPosted(r: Render) {
     await supabase.from("daily_renders").update({ status: "posted" }).eq("id", r.id);
     load();
@@ -274,6 +301,9 @@ export default function AdminRendersPage() {
                   <button onClick={() => openVoices(r)} disabled={rendering || busy === `${r.id}:voices`} className="rounded-lg border border-tan px-3 py-1.5 text-xs font-medium text-taupe hover:bg-elevated disabled:opacity-60">
                     {busy === `${r.id}:voices` ? "…" : "🎙 Change voices"}
                   </button>
+                  <button onClick={() => openMusic(r)} disabled={busy === `${r.id}:music`} className="rounded-lg border border-tan px-3 py-1.5 text-xs font-medium text-taupe hover:bg-elevated disabled:opacity-60">
+                    {busy === `${r.id}:music` ? "…" : "♪ Music"}
+                  </button>
                   {r.status !== "posted" && !rendering && (
                     <button onClick={() => markPosted(r)} className="rounded-lg border border-tan px-3 py-1.5 text-xs font-medium text-taupe hover:bg-elevated">
                       Mark posted
@@ -300,6 +330,39 @@ export default function AdminRendersPage() {
           onApply={(cfg) => applyVoices(cfg)}
           onClose={() => setVoiceEdit(null)}
         />
+      )}
+
+      {musicEdit && (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4"
+          onClick={() => setMusicEdit(null)}
+        >
+          <div className="w-full max-w-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between rounded-t-2xl border border-b-0 border-tan bg-ivory px-5 py-3">
+              <span className="font-slab text-lg">
+                {musicEdit.render.title || "Scene"} — music
+              </span>
+              <button
+                onClick={() => setMusicEdit(null)}
+                className="text-sm text-taupe hover:text-ink"
+              >
+                Close
+              </button>
+            </div>
+            <div className="[&>section]:mt-0 [&>section]:rounded-t-none">
+              <AmbienceManager
+                scriptId={musicEdit.render.script_id}
+                parsed={musicEdit.parsed}
+                genre={musicEdit.genre}
+                initial={musicEdit.initial}
+              />
+            </div>
+            <p className="mt-2 rounded-lg bg-ivory/90 px-4 py-2 text-center text-xs text-muted">
+              Beds save instantly and play on the site right away — hit ↻ Re-render to bake them
+              into the video.
+            </p>
+          </div>
+        </div>
       )}
     </main>
   );
