@@ -1,8 +1,6 @@
 name: Daily social scene
 
 on:
-  schedule:
-    - cron: "0 14 * * *"   # 14:00 UTC daily (~9am ET)
   workflow_dispatch: {}     # on-demand "Run workflow" button
 
 jobs:
