@@ -41,6 +41,13 @@ export interface PrepareVoiceCuesOptions {
    * Requires the additive backend tweak that reads body.voice_config.
    */
   voiceConfig?: VoiceConfig | null;
+  /**
+   * Fires once after generation settles, with the final counts. When
+   * `failed + remaining > 0`, some lines couldn't be voiced (e.g. the voice
+   * provider is out of credits), so the caller can surface a retry instead of
+   * silently skipping those lines in playback.
+   */
+  onResult?: (r: { failed: number; remaining: number; total: number; locked: boolean }) => void;
 }
 
 /**
@@ -54,9 +61,10 @@ export async function prepareVoiceCues(
   scriptId: string,
   opts: PrepareVoiceCuesOptions = {}
 ): Promise<Map<number, VoiceCueEntry>> {
-  const { onProgress, shouldCancel, voiceConfig } = opts;
+  const { onProgress, shouldCancel, voiceConfig, onResult } = opts;
   let manifestPath: string | null = null;
   let initialMisses = 0;
+  let finalStats = { failed: 0, remaining: 0, total: 0, locked: false };
 
   for (let round = 0; round < MAX_ROUNDS; round++) {
     if (shouldCancel?.()) return new Map();
@@ -79,8 +87,20 @@ export async function prepareVoiceCues(
         initialMisses <= 0 ? 1 : Math.min(0.99, (initialMisses - remaining) / initialMisses)
       );
     }
+    finalStats = {
+      failed,
+      remaining,
+      total: Number((data as any)?.total_lines ?? 0),
+      locked: !!(data as any)?.locked,
+    };
     if ((data as any)?.done) break;
+    // No progress this round — every attempt failed (the voice provider is
+    // erroring or out of credits). Stop retrying the same lines and let the
+    // caller surface the failure instead of silently looping to MAX_ROUNDS.
+    if (generated === 0 && failed > 0) break;
   }
+
+  onResult?.(finalStats);
 
   if (shouldCancel?.()) return new Map();
 

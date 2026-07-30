@@ -130,6 +130,9 @@ export function TableReadPlayer({
   const [reveal, setReveal] = useState(0);
   const [needsTap, setNeedsTap] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Lines the voice provider couldn't generate (e.g. out of credits). Surfaced
+  // as a retryable banner instead of the read silently skipping those lines.
+  const [genWarn, setGenWarn] = useState<{ missing: number } | null>(null);
   const [showPicker, setShowPicker] = useState(false);
   const [changesUsed, setChangesUsed] = useState(0);
   const [showVideo, setShowVideo] = useState(false);
@@ -487,11 +490,16 @@ export function TableReadPlayer({
     }
     setPreparing(true);
     setError(null);
+    setGenWarn(null);
     try {
       const client = getBrowserClient();
       const m = await prepareVoiceCues(client, scriptId, {
         onProgress: setProgress,
         voiceConfig: overrideRef.current ?? undefined,
+        onResult: (r) => {
+          const missing = r.failed + r.remaining;
+          setGenWarn(missing > 0 ? { missing } : null);
+        },
       });
       manifestRef.current = m;
       preparedKeyRef.current = key;
@@ -742,6 +750,24 @@ export function TableReadPlayer({
         </div>
       )}
       {error && <div className="px-4 py-2 text-sm text-brick">{error}</div>}
+      {genWarn && (
+        <div className="flex flex-wrap items-center gap-2 border-t border-tan/40 bg-brick/5 px-4 py-2 text-sm text-brick">
+          <span>
+            {genWarn.missing} {genWarn.missing === 1 ? "line" : "lines"} couldn&rsquo;t be voiced just
+            now — the studio may be temporarily out of voice credits.
+          </span>
+          <button
+            onClick={() => {
+              preparedKeyRef.current = null;
+              setGenWarn(null);
+              ensureReady();
+            }}
+            className="rounded-md border border-brick px-2 py-0.5 text-xs font-medium hover:bg-brick/10"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* SCRIPT — full text; the active line is highlighted and auto-scrolls. */}
       <div
