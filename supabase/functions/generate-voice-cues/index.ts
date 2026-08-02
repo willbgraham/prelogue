@@ -49,6 +49,14 @@ function normalizeText(t: string): string {
   return (t || "").replace(/\s+/g, " ").trim();
 }
 
+// Screenplay speaker extensions — "(V.O.)", "(O.S.)", "(CONT'D)", etc. — aren't
+// part of a character's identity. Strip trailing parentheticals so "MARSH (V.O.)"
+// resolves to the same voice/settings as "MARSH" (which is how the casting picker
+// and the characters table list them). Display still uses the full name.
+function baseCharName(name?: string): string {
+  return (name || "").replace(/(\s*\([^)]*\))+\s*$/g, "").trim();
+}
+
 async function sha1(text: string): Promise<string> {
   const buf = await crypto.subtle.digest("SHA-1", new TextEncoder().encode(text));
   return Array.from(new Uint8Array(buf))
@@ -304,7 +312,7 @@ Deno.serve(async (req) => {
     };
 
     const characterVoice = (name?: string): string => {
-      const key = (name || "").toUpperCase();
+      const key = baseCharName(name).toUpperCase();
       return charMap[key] || fallbackVoiceForName(key);
     };
 
@@ -337,9 +345,10 @@ Deno.serve(async (req) => {
         const myIndex = globalIdx++;
         const norm = normalizeText(el.text);
         if (el.type === "dialogue" && norm) {
-          const roleKey = mode === "single" ? SINGLE_KEY : (el.character_name || "").toUpperCase();
+          const baseName = baseCharName(el.character_name).toUpperCase();
+          const roleKey = mode === "single" ? SINGLE_KEY : baseName;
           const voiceId = mode === "single" ? singleVoiceId : characterVoice(el.character_name);
-          effChars[(el.character_name || "").toUpperCase()] = voiceId;
+          effChars[baseName] = voiceId;
           const { body, tag, model, ttsPrefix } = resolveFor(roleKey, myIndex);
           if (lineSettingsCfg[String(myIndex)]) effTags[`#${myIndex}`] = tag || "default";
           else if (tag) effTags[roleKey] = tag;

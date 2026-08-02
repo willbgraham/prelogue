@@ -61,6 +61,12 @@ function fallbackVoiceForName(name: string): string {
   return FALLBACK_VOICES[h % FALLBACK_VOICES.length];
 }
 
+// Strip screenplay speaker extensions — "(V.O.)", "(O.S.)", "(CONT'D)" — so a
+// character's voice resolves the same regardless (matches generate-voice-cues).
+function baseCharName(name?: string): string {
+  return (name || "").replace(/(\s*\([^)]*\))+\s*$/g, "").trim();
+}
+
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
     status,
@@ -146,7 +152,7 @@ Deno.serve(async (req) => {
       } else if (target.type === "action") {
         vid = cfg.narrator_voice_id || DEFAULT_NARRATOR;
       } else {
-        const key = (target.character || "").toUpperCase();
+        const key = baseCharName(target.character).toUpperCase();
         vid = (cfg.characters || {})[key] || fallbackVoiceForName(key);
       }
     }
