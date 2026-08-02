@@ -131,7 +131,7 @@ export function OwnerUnlock({
   );
 
   return (
-    <div className="mt-8 rounded-xl border border-tan bg-ivory p-5">
+    <div id="owner-unlock" className="mt-8 rounded-xl border border-tan bg-ivory p-5">
       <div className="font-slab text-lg">Unlock the full read</div>
 
       {canPlanUnlock ? (

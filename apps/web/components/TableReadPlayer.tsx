@@ -121,6 +121,10 @@ export function TableReadPlayer({
   const scriptScrollRef = useRef<HTMLDivElement | null>(null);
   const overrideRef = useRef<VoiceConfig | null>(null);
   const preparedKeyRef = useRef<string | null>(null);
+  // Paywall preview: is this read locked, and the highest voiced element index
+  // (anything past it on a locked script is behind the unlock).
+  const lockedRef = useRef(false);
+  const previewMaxIdxRef = useRef(Infinity);
 
   const [ready, setReady] = useState(false);
   const [preparing, setPreparing] = useState(false);
@@ -133,6 +137,9 @@ export function TableReadPlayer({
   // Lines the voice provider couldn't generate (e.g. out of credits). Surfaced
   // as a retryable banner instead of the read silently skipping those lines.
   const [genWarn, setGenWarn] = useState<{ missing: number } | null>(null);
+  // Playback reached the paywall preview boundary on a locked script → show an
+  // "unlock to continue" card instead of silently skipping the rest.
+  const [previewStop, setPreviewStop] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
   const [changesUsed, setChangesUsed] = useState(0);
   const [showVideo, setShowVideo] = useState(false);
@@ -392,6 +399,7 @@ export function TableReadPlayer({
       setActive(pos);
       setReveal(0);
       setNeedsTap(false);
+      setPreviewStop(false);
 
       const row = rows[pos];
       syncAmbience(row.sceneIndex);
@@ -424,9 +432,18 @@ export function TableReadPlayer({
       video?.pause();
       const cue = manifestRef.current.get(row.elementIndex);
 
-      // No audio for this line (e.g. preview limit reached): show it, move on.
+      // No audio for this line. If we've crossed the paywall preview boundary on
+      // a locked script, stop with an "unlock to continue" card instead of
+      // silently walking the rest of the (unvoiced) script.
       if (!audio || !cue?.signedUrl) {
         setReveal(row.text.length);
+        if (lockedRef.current && row.elementIndex > previewMaxIdxRef.current) {
+          playingRef.current = false;
+          setPlaying(false);
+          setPreviewStop(true);
+          return;
+        }
+        // A one-off gap (e.g. a single line that failed to generate): move on.
         window.setTimeout(() => {
           if (playingRef.current) playRow(pos + 1);
         }, 800);
@@ -491,17 +508,23 @@ export function TableReadPlayer({
     setPreparing(true);
     setError(null);
     setGenWarn(null);
+    setPreviewStop(false);
     try {
       const client = getBrowserClient();
       const m = await prepareVoiceCues(client, scriptId, {
         onProgress: setProgress,
         voiceConfig: overrideRef.current ?? undefined,
         onResult: (r) => {
+          lockedRef.current = r.locked;
           const missing = r.failed + r.remaining;
           setGenWarn(missing > 0 ? { missing } : null);
         },
       });
       manifestRef.current = m;
+      // Highest voiced element index; past it on a locked script is the paywall.
+      let maxIdx = -1;
+      for (const k of m.keys()) if (k > maxIdx) maxIdx = k;
+      previewMaxIdxRef.current = m.size > 0 ? maxIdx : Infinity;
       preparedKeyRef.current = key;
       setReady(true);
       setPreparing(false);
@@ -819,6 +842,27 @@ export function TableReadPlayer({
           );
         })}
       </div>
+
+      {previewStop && (
+        <div className="border-t border-tan bg-brick/5 px-4 py-5 text-center">
+          <div className="font-slab text-base">🔒 That&rsquo;s the free preview</div>
+          <p className="mx-auto mt-1 max-w-md text-sm text-taupe">
+            You&rsquo;ve heard the opening. Unlock the full read to hear the rest of the script.
+          </p>
+          {isOwner && (
+            <button
+              onClick={() =>
+                document
+                  .getElementById("owner-unlock")
+                  ?.scrollIntoView({ behavior: "smooth", block: "center" })
+              }
+              className="mt-3 rounded-lg bg-brick px-5 py-2 text-sm font-medium text-white"
+            >
+              Unlock the full read →
+            </button>
+          )}
+        </div>
+      )}
 
       {needsTap && (
         <button
