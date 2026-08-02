@@ -166,9 +166,8 @@ export default function BillingPage() {
           <div className="font-mono text-xs uppercase tracking-wider text-muted">Current plan</div>
           <div className="mt-1 font-slab text-2xl">Free</div>
           <p className="mt-2 text-sm text-taupe">
-            You&rsquo;re on the free plan: listen to public reads and hear the opening scene of any
-            script. Subscribe to unlock full table reads by the month, or unlock a single script for
-            $19.
+            You&rsquo;re on the free plan: browse public reads and play the demo scene. Subscribe to
+            unlock full table reads of your scripts by the month, or unlock a single script for $19.
           </p>
           <div className="mt-5 flex flex-wrap gap-3">
             <Link

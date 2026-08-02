@@ -14,7 +14,7 @@ const DEMO_SCRIPT_SLUG = "booth-nine";
 
 const FREE = [
   "Browse and listen to public table reads",
-  "Hear the opening scene of any script with AI voices",
+  "Play the full demo scene and try voices, emotions, and casting",
   "Pick voices from the full library and preview them",
   "Record your own reads as an actor by webcam",
 ];

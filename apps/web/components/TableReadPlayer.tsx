@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { buildRows, prepareVoiceCues, DEFAULT_AMBIENCE_VOLUME } from "@/lib/shared";
 import type { AmbienceConfig, ParsedScript, VoiceCueEntry, VoiceConfig } from "@/lib/shared";
 import { getBrowserClient } from "@/lib/supabase/client";
@@ -522,9 +523,11 @@ export function TableReadPlayer({
       });
       manifestRef.current = m;
       // Highest voiced element index; past it on a locked script is the paywall.
+      // A locked script now voices NOTHING (no free preview), so an empty
+      // manifest on a locked script gates from the very first row (-1).
       let maxIdx = -1;
       for (const k of m.keys()) if (k > maxIdx) maxIdx = k;
-      previewMaxIdxRef.current = m.size > 0 ? maxIdx : Infinity;
+      previewMaxIdxRef.current = m.size > 0 ? maxIdx : lockedRef.current ? -1 : Infinity;
       preparedKeyRef.current = key;
       setReady(true);
       setPreparing(false);
@@ -845,11 +848,24 @@ export function TableReadPlayer({
 
       {previewStop && (
         <div className="border-t border-tan bg-brick/5 px-4 py-5 text-center">
-          <div className="font-slab text-base">🔒 That&rsquo;s the free preview</div>
-          <p className="mx-auto mt-1 max-w-md text-sm text-taupe">
-            You&rsquo;ve heard the opening. Unlock the full read to hear the rest of the script.
-          </p>
-          {isOwner && (
+          {manifestRef.current.size === 0 ? (
+            <>
+              <div className="font-slab text-base">🔒 This read is locked</div>
+              <p className="mx-auto mt-1 max-w-md text-sm text-taupe">
+                {isOwner
+                  ? "Unlock the full read to hear your script performed — every line, every voice."
+                  : "The writer hasn't unlocked this read yet. Want to hear Prelogue in action?"}
+              </p>
+            </>
+          ) : (
+            <>
+              <div className="font-slab text-base">🔒 That&rsquo;s the free preview</div>
+              <p className="mx-auto mt-1 max-w-md text-sm text-taupe">
+                You&rsquo;ve heard the opening. Unlock the full read to hear the rest of the script.
+              </p>
+            </>
+          )}
+          {isOwner ? (
             <button
               onClick={() =>
                 document
@@ -860,6 +876,13 @@ export function TableReadPlayer({
             >
               Unlock the full read →
             </button>
+          ) : (
+            <Link
+              href="/script/booth-nine"
+              className="mt-3 inline-flex rounded-lg border border-brick px-5 py-2 text-sm font-medium text-brick hover:bg-brick/10"
+            >
+              ▶ Play the free demo scene
+            </Link>
           )}
         </div>
       )}

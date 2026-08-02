@@ -19,6 +19,29 @@ type Actor = {
   writers_choice_count: number;
 };
 
+// Request-to-listen showcase card (public projection of a gated script).
+type Listing = {
+  id: string;
+  slug: string | null;
+  title: string;
+  genre: string;
+  logline: string;
+  cover_image_url: string | null;
+  page_count: number | null;
+  format: string | null;
+  listing_status: string | null;
+  writer_id: string;
+  writer_name: string;
+  writer_username: string | null;
+  writer_avatar: string | null;
+  created_at: string;
+};
+
+// Discover lists real writers only: the automated house account's daily scenes
+// and the Booth Nine demo stay reachable by link but aren't showcased here.
+const HOUSE_ID = "e13e3e11-e65a-4318-a96a-384b442f113a";
+const DEMO_ID = "b0078900-0000-4000-8000-000000000009";
+
 type LiveRow = {
   id: string;
   title: string;
@@ -30,13 +53,14 @@ type LiveRow = {
 
 export default async function DiscoverPage() {
   const supabase = await createClient();
-  const [{ data: scriptRows }, { data: actorRows }, { data: readRows }, { data: liveRows }] = await Promise.all([
+  const [{ data: scriptRows }, { data: listingRows }, { data: actorRows }, { data: readRows }, { data: liveRows }] = await Promise.all([
     supabase
       .from("scripts")
-      .select("id, slug, title, logline, genre, visibility, cover_image_url, listing_status, rating_avg, rating_count")
+      .select("id, slug, title, logline, genre, visibility, writer_id, cover_image_url, listing_status, rating_avg, rating_count")
       .eq("status", "open")
       .order("created_at", { ascending: false })
       .limit(60),
+    supabase.rpc("get_discover_listings"),
     supabase
       .from("users")
       .select("id, username, display_name, avatar_url, writers_choice_count")
@@ -44,7 +68,7 @@ export default async function DiscoverPage() {
       .limit(10),
     supabase
       .from("assembled_reads")
-      .select("id, scripts(title, genre)")
+      .select("id, scripts(title, genre, writer_id)")
       .eq("status", "ready")
       .order("created_at", { ascending: false })
       .limit(12),
@@ -57,15 +81,24 @@ export default async function DiscoverPage() {
       .limit(8),
   ]);
 
-  const reads = ((readRows as { id: string; scripts: { title: string; genre: string } | { title: string; genre: string }[] | null }[] | null) ?? [])
+  type ReadScript = { title: string; genre: string; writer_id?: string };
+  const reads = ((readRows as { id: string; scripts: ReadScript | ReadScript[] | null }[] | null) ?? [])
     .map((r) => {
       const sc = Array.isArray(r.scripts) ? r.scripts[0] : r.scripts;
-      return { id: r.id, title: sc?.title, genre: sc?.genre };
+      return { id: r.id, title: sc?.title, genre: sc?.genre, writer_id: sc?.writer_id };
     })
-    .filter((r) => r.title);
+    .filter((r) => r.title && r.writer_id !== HOUSE_ID);
 
-  const scripts = ((scriptRows as Script[] | null) ?? []).filter(
-    (s) => (s.visibility ?? "public") === "public"
+  // Request-to-listen showcases (gated scripts; the RPC exposes card fields only).
+  const listings = ((listingRows as Listing[] | null) ?? []).filter(
+    (l) => l.writer_id !== HOUSE_ID
+  );
+
+  const scripts = ((scriptRows as (Script & { writer_id: string })[] | null) ?? []).filter(
+    (s) =>
+      (s.visibility ?? "public") === "public" &&
+      s.writer_id !== HOUSE_ID &&
+      s.id !== DEMO_ID
   );
   const actors = ((actorRows as Actor[] | null) ?? []).filter(
     (a) => a.writers_choice_count > 0
@@ -144,6 +177,55 @@ export default async function DiscoverPage() {
         <section>
           <h2 className="font-slab text-lg">Open scripts</h2>
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            {listings.map((l) => {
+              const statusLabel = labelOf(LISTING_STATUSES, l.listing_status);
+              return (
+                <Link
+                  key={l.id}
+                  href={`/script/${l.slug ?? l.id}`}
+                  className="flex gap-4 rounded-xl border border-tan bg-ivory p-4 transition-colors hover:bg-elevated"
+                >
+                  {l.cover_image_url && (
+                    <div className="relative h-32 w-[5.5rem] shrink-0 overflow-hidden rounded-lg border border-tan bg-elevated">
+                      <Image src={l.cover_image_url} alt="" fill sizes="88px" className="object-cover" />
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-xs font-medium text-brick">{l.genre}</span>
+                      <span className="rounded-full border border-brick/25 bg-brick/5 px-2 py-0.5 text-[10px] font-medium text-brick">
+                        🔒 Request to listen
+                      </span>
+                      {statusLabel && (
+                        <span className="rounded-full border border-tan px-2 py-0.5 text-[10px] font-medium text-muted">
+                          {statusLabel}
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-1 font-slab text-xl leading-tight">{l.title}</div>
+                    <p className="mt-1 line-clamp-2 text-sm text-taupe">{l.logline}</p>
+                    <div className="mt-2 flex items-center gap-2">
+                      <span className="h-6 w-6 overflow-hidden rounded-full border border-tan bg-elevated">
+                        {l.writer_avatar ? (
+                          <Image
+                            src={l.writer_avatar}
+                            alt={l.writer_name}
+                            width={24}
+                            height={24}
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <span className="flex h-full w-full items-center justify-center text-[10px] text-taupe">
+                            {(l.writer_name || "?").charAt(0).toUpperCase()}
+                          </span>
+                        )}
+                      </span>
+                      <span className="truncate text-xs text-taupe">{l.writer_name}</span>
+                    </div>
+                  </div>
+                </Link>
+              );
+            })}
             {scripts.map((s) => {
               const statusLabel = labelOf(LISTING_STATUSES, s.listing_status);
               return (
@@ -175,7 +257,7 @@ export default async function DiscoverPage() {
                 </Link>
               );
             })}
-            {scripts.length === 0 && (
+            {scripts.length === 0 && listings.length === 0 && (
               <p className="text-muted">No open scripts yet — check back soon.</p>
             )}
           </div>

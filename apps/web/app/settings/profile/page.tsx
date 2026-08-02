@@ -21,6 +21,7 @@ type Form = {
   tiktok: string;
   youtube: string;
   imdb: string;
+  linkedin: string;
 };
 
 const EMPTY: Form = {
@@ -34,6 +35,7 @@ const EMPTY: Form = {
   tiktok: "",
   youtube: "",
   imdb: "",
+  linkedin: "",
 };
 
 const ROLE_OPTIONS: { key: string; label: string }[] = [
@@ -92,6 +94,7 @@ export default function EditProfilePage() {
           tiktok: links.tiktok ?? "",
           youtube: links.youtube ?? "",
           imdb: links.imdb ?? "",
+          linkedin: links.linkedin ?? "",
         });
         setRoles(((data.roles as string[]) ?? []).filter(Boolean));
         setActiveRole((data.role as string) ?? null);
@@ -188,6 +191,7 @@ export default function EditProfilePage() {
           tiktok: form.tiktok.trim(),
           youtube: form.youtube.trim(),
           imdb: form.imdb.trim(),
+          linkedin: form.linkedin.trim(),
         },
       })
       .eq("id", userId);
@@ -313,6 +317,10 @@ export default function EditProfilePage() {
           <label className="flex flex-col gap-1">
             <span className={label}>IMDb URL</span>
             <input value={form.imdb} onChange={set("imdb")} placeholder="https://imdb.com/name/…" className={input} />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className={label}>LinkedIn URL</span>
+            <input value={form.linkedin} onChange={set("linkedin")} placeholder="https://linkedin.com/in/…" className={input} />
           </label>
         </div>
 

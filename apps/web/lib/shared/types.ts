@@ -33,6 +33,9 @@ export interface Script {
   ambience_config?: AmbienceConfig | null;
   status: ScriptStatus;
   visibility?: ScriptVisibility;
+  /** Request-to-listen showcase: listed publicly, text+audio locked until the
+   *  writer approves each listener (listen_requests). */
+  listen_gated?: boolean;
   full_read_unlocked?: boolean;
   unlocked_at?: string | null;
   cover_image_url?: string | null;

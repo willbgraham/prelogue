@@ -16,6 +16,8 @@ const LABELS: Record<string, string> = {
   live_reading_cast: "You're Cast!",
   live_reading_reminder: "Live Reading Reminder",
   live_reading_published: "Recording Posted",
+  listen_request: "New Listen Request",
+  listen_request_decided: "Listen Request Update",
 };
 
 type Notif = {
@@ -96,6 +98,8 @@ export default function NotificationsPage() {
     if (n.type === "new_submission" && p.script_id) router.push(`/studio/${p.script_id}`);
     else if (n.type === "live_reading_signup" && p.script_id) router.push(`/studio/${p.script_id}/live`);
     else if (n.type.startsWith("live_reading") && p.live_reading_id) router.push(`/live/${p.live_reading_id}`);
+    else if (n.type.startsWith("listen_request") && (p.script_slug || p.script_id))
+      router.push(`/script/${p.script_slug ?? p.script_id}`);
     else if (p.script_id) router.push(`/script/${p.script_id}`);
   }
 

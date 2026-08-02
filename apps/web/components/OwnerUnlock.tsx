@@ -137,8 +137,8 @@ export function OwnerUnlock({
       {canPlanUnlock ? (
         <>
           <p className="mt-1 text-sm text-taupe">
-            Listeners currently hear a short preview. Unlock to voice the entire script — every
-            line, with full narration — and share it privately, invite-only.
+            The read is locked. Unlock to voice the entire script — every line, with full
+            narration — and share it privately, invite-only.
           </p>
           <p className="mt-2 text-sm text-forest">
             Included in your {planLabel(plan!.plan)} plan · uses about {pages}{" "}
@@ -176,8 +176,8 @@ export function OwnerUnlock({
       ) : (
         <>
           <p className="mt-1 text-sm text-taupe">
-            Listeners currently hear a short preview. Unlock to voice the entire script with full
-            narration and share it privately, invite-only. One-time — yours forever.
+            The read is locked. Unlock to voice the entire script with full narration and share it
+            privately, invite-only. One-time — yours forever.
           </p>
           {error && <p className="mt-2 text-sm text-brick">{error}</p>}
           <div className="mt-3">{onceButton}</div>

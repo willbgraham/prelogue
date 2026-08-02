@@ -172,7 +172,7 @@ Deno.serve(async (req) => {
     // Fetch parsed script + voice config
     const { data: script, error: scriptErr } = await supabase
       .from("scripts")
-      .select("parsed_json, voice_config, writer_id, full_read_unlocked")
+      .select("parsed_json, voice_config, writer_id, full_read_unlocked, listen_gated")
       .eq("id", script_id)
       .single();
 
@@ -196,11 +196,11 @@ Deno.serve(async (req) => {
     }
 
     // ----- Unlock gate -----
-    // A script's full read is unlocked by a one-time purchase
-    // (scripts.full_read_unlocked, flipped by the Stripe webhook). Until then
-    // only a short opening preview is voiced. Enforced here (service role) so
-    // it can't be bypassed from the client.
-    const FREE_PREVIEW_LIMIT = 30; // spoken elements voiced before unlock
+    // A script's full read is unlocked by a purchase (scripts.full_read_unlocked,
+    // flipped by the Stripe webhook / subscription-unlock). A locked script
+    // voices NOTHING — the public demo is the free tryout; your own script is
+    // paid. Enforced here (service role) so it can't be bypassed from the client.
+    const FREE_PREVIEW_LIMIT = 0; // spoken elements voiced before unlock
     const fullAccess = (script as any).full_read_unlocked === true;
     const locked = !fullAccess;
 
@@ -222,6 +222,35 @@ Deno.serve(async (req) => {
     }
     const allowOverride =
       script_id === DEMO_SCRIPT_ID || (!!callerId && callerId === script.writer_id);
+
+    // ----- Request-to-listen gate -----
+    // A showcase script (listen_gated) is listed publicly but only the writer,
+    // an approved requester, or the trusted render worker (service-role bearer)
+    // may generate/fetch its audio. Enforced here (service role) so the client
+    // can't bypass it; the script TEXT is separately protected by RLS
+    // (visibility 'private' + can_view_script).
+    if ((script as any).listen_gated === true) {
+      const bearer = (authHeader ?? "").replace(/^Bearer\s+/i, "");
+      const isService = !!bearer && bearer === Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+      const isWriter = !!callerId && callerId === script.writer_id;
+      let approved = false;
+      if (!isService && !isWriter && callerId) {
+        const { data: lr } = await supabase
+          .from("listen_requests")
+          .select("id")
+          .eq("script_id", script_id)
+          .eq("requester_id", callerId)
+          .eq("status", "approved")
+          .maybeSingle();
+        approved = !!lr;
+      }
+      if (!isService && !isWriter && !approved) {
+        return new Response(
+          JSON.stringify({ error: "listen_access_required" }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
 
     // The override (visitor voice-picking) wins only when allowed; the
     // content-addressed manifest hash keys on the resolved config, so an

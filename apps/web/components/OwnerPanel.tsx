@@ -11,16 +11,20 @@ const OPTS: { key: Vis; label: string; hint: string }[] = [
   { key: "private", label: "Private", hint: "Invite-only — only people you invite can open it." },
 ];
 
-/** Writer-only sharing controls: visibility + invite-by-email (private scripts). */
+/** Writer-only sharing controls: visibility + invite-by-email (private scripts)
+ *  + the request-to-listen showcase toggle. */
 export function OwnerPanel({
   scriptId,
   initialVisibility,
+  initialListenGated = false,
 }: {
   scriptId: string;
   initialVisibility: Vis;
+  initialListenGated?: boolean;
 }) {
   const supabase = getBrowserClient();
   const [visibility, setVisibility] = useState<Vis>(initialVisibility);
+  const [listenGated, setListenGated] = useState(initialListenGated);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [invites, setInvites] = useState<{ id: string; email: string }[]>([]);
@@ -52,6 +56,26 @@ export function OwnerPanel({
       return;
     }
     setVisibility(next);
+  }
+
+  async function toggleShowcase() {
+    setBusy(true);
+    setError(null);
+    const next = !listenGated;
+    // Showcase = listed publicly (poster/logline/you) while text + audio stay
+    // locked per-listener. Private visibility is what locks the script itself;
+    // the listing RPCs keep the card public.
+    const patch = next
+      ? { listen_gated: true, visibility: "private" as Vis }
+      : { listen_gated: false };
+    const { error } = await supabase.from("scripts").update(patch).eq("id", scriptId);
+    setBusy(false);
+    if (error) {
+      setError(error.message);
+      return;
+    }
+    setListenGated(next);
+    if (next) setVisibility("private");
   }
 
   async function addInvite() {
@@ -113,6 +137,33 @@ export function OwnerPanel({
         })}
       </div>
       <p className="mt-2 text-xs text-muted">{OPTS.find((o) => o.key === visibility)?.hint}</p>
+
+      {/* Request-to-listen showcase */}
+      <div className="mt-4 flex items-start justify-between gap-3 rounded-lg border border-tan/60 bg-elevated p-3">
+        <div>
+          <div className="text-sm font-medium">Request-to-listen showcase</div>
+          <p className="mt-0.5 text-xs text-muted">
+            List your script on Discover (poster, logline, your name) while the read and text stay
+            locked. You approve each listener — they request access with their name and a LinkedIn
+            or IMDb link.
+          </p>
+        </div>
+        <button
+          onClick={toggleShowcase}
+          disabled={busy}
+          role="switch"
+          aria-checked={listenGated}
+          className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+            listenGated ? "bg-brick" : "bg-tan"
+          }`}
+        >
+          <span
+            className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${
+              listenGated ? "left-[1.375rem]" : "left-0.5"
+            }`}
+          />
+        </button>
+      </div>
 
       {visibility === "private" && (
         <div className="mt-4">

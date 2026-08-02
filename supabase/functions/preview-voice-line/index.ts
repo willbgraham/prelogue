@@ -18,7 +18,9 @@ const ELEVENLABS_API_KEY = Deno.env.get("ELEVENLABS_API_KEY");
 const ELEVENLABS_BASE = "https://api.elevenlabs.io/v1";
 
 const DEMO_SCRIPT_ID = "b0078900-0000-4000-8000-000000000009";
-const FREE_PREVIEW_LIMIT = 30; // must match generate-voice-cues
+// Locked scripts voice nothing (the demo is the free tryout) — line previews
+// on your own script are part of the paid unlock. Must match generate-voice-cues.
+const FREE_PREVIEW_LIMIT = 0;
 const BUCKET = "scripts";
 
 const DEFAULT_NARRATOR = "onwK4e9ZLuTAKqWW03F9"; // Daniel
@@ -138,7 +140,7 @@ Deno.serve(async (req) => {
     if (!target) return json({ error: "Line not found" }, 404);
 
     if (!script.full_read_unlocked && voicedOrdinal > FREE_PREVIEW_LIMIT) {
-      return json({ error: "Unlock the full read to preview lines past the free window" }, 403);
+      return json({ error: "Unlock the full read to hear your script's lines" }, 403);
     }
 
     // Voice: explicit (the picker's current, possibly-unsaved selection) or
