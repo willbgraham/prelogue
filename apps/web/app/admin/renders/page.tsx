@@ -146,12 +146,21 @@ export default function AdminRendersPage() {
   }
   const generateNow = () =>
     dispatch({ action: "generate" }, "gen", "Generating a new scene — it'll appear here automatically in a few minutes.");
-  const reRender = (r: Render) =>
+  const reRender = (r: Render) => {
+    // One at a time per scene: two concurrent renders of the same scene race
+    // (each supersedes the other) and a double-click used to lose the card.
+    if (
+      pending[r.script_id] !== undefined &&
+      !window.confirm("A re-render of this scene is already in flight. Start another anyway?")
+    ) {
+      return;
+    }
     dispatch(
       { action: "render", script_id: r.script_id, variant: r.variant },
       r.id,
       "Re-rendering — the new version replaces this one automatically in ~2–3 min.",
     );
+  };
 
   async function openVoices(r: Render) {
     setBusy(`${r.id}:voices`);

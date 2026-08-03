@@ -169,13 +169,22 @@ async function renderScene({ supabase, supabaseUrl, serviceKey, scriptId, varian
 
     // Keep only this render for the scene+variant — delete superseded ones and
     // their videos so re-renders replace instead of piling up in the admin panel.
+    // ONLY rows created before this one count as superseded: two concurrent
+    // re-renders (e.g. a double-clicked button) otherwise each delete the
+    // other's row — both vanish and the admin card disappears entirely.
     try {
+      const { data: mine } = await supabase
+        .from("daily_renders")
+        .select("created_at")
+        .eq("id", renderId)
+        .single();
       const { data: stale } = await supabase
         .from("daily_renders")
         .select("id, video_path")
         .eq("script_id", scriptId)
         .eq("variant", variant)
-        .neq("id", renderId);
+        .neq("id", renderId)
+        .lt("created_at", mine?.created_at ?? new Date(0).toISOString());
       const paths = (stale || []).map((s) => s.video_path).filter(Boolean);
       if (paths.length) await supabase.storage.from("daily-renders").remove(paths);
       const ids = (stale || []).map((s) => s.id);
