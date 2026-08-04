@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { getBrowserClient } from "@/lib/supabase/client";
+import { isActiveStatus } from "@/lib/shared/plans";
 
 type Vis = "public" | "hidden" | "private";
 
@@ -30,6 +32,27 @@ export function OwnerPanel({
   const [invites, setInvites] = useState<{ id: string; email: string }[]>([]);
   const [email, setEmail] = useState("");
   const [adding, setAdding] = useState(false);
+  // Creating NEW invites is a subscription feature (RLS enforces the same);
+  // null while the plan check loads. Existing invites stay listed/removable.
+  const [canInvite, setCanInvite] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) {
+        setCanInvite(false);
+        return;
+      }
+      const { data } = await supabase
+        .from("users")
+        .select("plan_status")
+        .eq("id", user.id)
+        .single();
+      setCanInvite(isActiveStatus(data?.plan_status));
+    })();
+  }, [supabase]);
 
   const loadInvites = useCallback(async () => {
     const { data } = await supabase
@@ -170,23 +193,32 @@ export function OwnerPanel({
           <div className="text-xs font-medium uppercase tracking-wide text-muted">
             Invite by email
           </div>
-          <div className="mt-2 flex gap-2">
-            <input
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && addInvite()}
-              placeholder="name@email.com"
-              type="email"
-              className="flex-1 rounded-lg border border-tan bg-elevated px-3 py-2 text-sm outline-none focus:border-brick"
-            />
-            <button
-              onClick={addInvite}
-              disabled={adding}
-              className="rounded-lg bg-brick px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-            >
-              {adding ? "…" : "Invite"}
-            </button>
-          </div>
+          {canInvite ? (
+            <div className="mt-2 flex gap-2">
+              <input
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && addInvite()}
+                placeholder="name@email.com"
+                type="email"
+                className="flex-1 rounded-lg border border-tan bg-elevated px-3 py-2 text-sm outline-none focus:border-brick"
+              />
+              <button
+                onClick={addInvite}
+                disabled={adding}
+                className="rounded-lg bg-brick px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+              >
+                {adding ? "…" : "Invite"}
+              </button>
+            </div>
+          ) : canInvite === false ? (
+            <div className="mt-2 rounded-lg border border-tan/60 bg-elevated p-3 text-sm text-taupe">
+              Inviting listeners by private link is part of Prelogue plans.{" "}
+              <Link href="/pricing" className="font-medium text-brick hover:underline">
+                See plans →
+              </Link>
+            </div>
+          ) : null}
           <div className="mt-3 space-y-2">
             {invites.map((i) => (
               <div
@@ -199,7 +231,7 @@ export function OwnerPanel({
                 </button>
               </div>
             ))}
-            {invites.length === 0 && (
+            {invites.length === 0 && canInvite && (
               <p className="text-xs text-muted">
                 No one invited yet. They get access when they sign in with the invited email.
               </p>

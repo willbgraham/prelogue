@@ -142,7 +142,7 @@ Deno.serve(async (req) => {
             unit_amount: UNLOCK_PRICE_CENTS,
             product_data: {
               name: "Full script unlock — Prelogue",
-              description: `Full AI table read + invite-only sharing for "${script.title}"`,
+              description: `The complete AI table read of "${script.title}" — yours forever`,
             },
           },
         },

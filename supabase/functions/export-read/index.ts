@@ -73,11 +73,18 @@ Deno.serve(async (req) => {
         .maybeSingle();
       if (!render) return json({ render: null });
       let url: string | null = null;
+      let audioUrl: string | null = null;
       if (render.video_path && (render.status === "ready" || render.status === "posted")) {
         const { data: signed } = await admin.storage
           .from("daily-renders")
           .createSignedUrl(render.video_path, 3600);
         url = signed?.signedUrl ?? null;
+        // MP3 sibling (renders after 2026-08-04 carry one; older ones just 404
+        // the sign and the card hides the button).
+        const { data: signedMp3 } = await admin.storage
+          .from("daily-renders")
+          .createSignedUrl(render.video_path.replace(/\.mp4$/, ".mp3"), 3600);
+        audioUrl = signedMp3?.signedUrl ?? null;
       }
       return json({
         render: {
@@ -87,6 +94,7 @@ Deno.serve(async (req) => {
           created_at: render.created_at,
           rendered_at: render.rendered_at,
           url,
+          audio_url: audioUrl,
         },
       });
     }

@@ -26,7 +26,7 @@ const WRITER_STEPS = [
   },
   {
     title: "Unlock the full read",
-    body: "$19 one-time unlocks the complete narration plus private, invite-only sharing. Replays are free forever.",
+    body: "$19 one-time unlocks the complete narration plus MP4 and MP3 downloads. Replays are free forever; private invite sharing comes with plans.",
   },
 ];
 

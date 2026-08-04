@@ -155,6 +155,29 @@ async function renderScene({ supabase, supabaseUrl, serviceKey, scriptId, varian
       .upload(storagePath, fs.readFileSync(outPath), { contentType: "video/mp4", upsert: true });
     if (upErr) throw upErr;
 
+    // Audio-only sibling (same path, .mp3) so the writer export offers an MP3
+    // download alongside the MP4. Best-effort — an extract failure never kills
+    // the render (the MP4 already uploaded; export-read hides a missing MP3).
+    try {
+      const { execFileSync } = require("child_process");
+      const mp3Path = path.join(tmp, "out.mp3");
+      execFileSync(
+        "ffmpeg",
+        ["-y", "-i", outPath, "-vn", "-c:a", "libmp3lame", "-q:a", "4", mp3Path],
+        { stdio: ["ignore", "ignore", "pipe"] }
+      );
+      const { error: mp3Err } = await supabase.storage
+        .from("daily-renders")
+        .upload(storagePath.replace(/\.mp4$/, ".mp3"), fs.readFileSync(mp3Path), {
+          contentType: "audio/mpeg",
+          upsert: true,
+        });
+      if (mp3Err) throw mp3Err;
+      console.log("  mp3 sibling uploaded");
+    } catch (e) {
+      console.warn("mp3 extract/upload failed (non-fatal):", (e && e.message) || e);
+    }
+
     await supabase
       .from("daily_renders")
       .update({
@@ -185,7 +208,9 @@ async function renderScene({ supabase, supabaseUrl, serviceKey, scriptId, varian
         .eq("variant", variant)
         .neq("id", renderId)
         .lt("created_at", mine?.created_at ?? new Date(0).toISOString());
-      const paths = (stale || []).map((s) => s.video_path).filter(Boolean);
+      const mp4s = (stale || []).map((s) => s.video_path).filter(Boolean);
+      // Remove each stale video and its .mp3 sibling (missing siblings no-op).
+      const paths = mp4s.flatMap((p) => [p, p.replace(/\.mp4$/, ".mp3")]);
       if (paths.length) await supabase.storage.from("daily-renders").remove(paths);
       const ids = (stale || []).map((s) => s.id);
       if (ids.length) {

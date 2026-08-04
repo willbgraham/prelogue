@@ -127,7 +127,8 @@ export default function Pricing() {
           </div>
           <p className="mt-4 text-sm text-taupe">
             Just one script to perform? Unlock its full read once and keep it forever, with no
-            subscription. Includes private, invite-only sharing and free replays.
+            subscription. Includes MP4 and MP3 downloads and free replays. Private invite sharing
+            comes with plans.
           </p>
           <Link
             href="/studio/upload"

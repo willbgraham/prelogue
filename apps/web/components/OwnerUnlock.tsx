@@ -138,7 +138,7 @@ export function OwnerUnlock({
         <>
           <p className="mt-1 text-sm text-taupe">
             The read is locked. Unlock to voice the entire script — every line, with full
-            narration — and share it privately, invite-only.
+            narration — plus MP4 and MP3 downloads.
           </p>
           <p className="mt-2 text-sm text-forest">
             Included in your {planLabel(plan!.plan)} plan · uses about {pages}{" "}
@@ -176,8 +176,8 @@ export function OwnerUnlock({
       ) : (
         <>
           <p className="mt-1 text-sm text-taupe">
-            The read is locked. Unlock to voice the entire script with full narration and share it
-            privately, invite-only. One-time — yours forever.
+            The read is locked. Unlock to voice the entire script with full narration, plus MP4 and
+            MP3 downloads. One-time — yours forever. Private invite sharing comes with plans.
           </p>
           {error && <p className="mt-2 text-sm text-brick">{error}</p>}
           <div className="mt-3">{onceButton}</div>

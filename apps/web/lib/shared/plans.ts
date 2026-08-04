@@ -52,8 +52,8 @@ export const PLAN_FEATURES = [
   "Full AI table reads: every line of dialogue and narration",
   "900+ voices, per-line emotion, speed and tone controls",
   "Scene background music and ambience",
-  "MP4 export of any unlocked read",
-  "Private, invite-only sharing",
+  "MP4 and MP3 downloads of any unlocked read",
+  "Private, invite-only sharing (plans only)",
   "Real actors can record your roles; host live table reads",
 ];
 

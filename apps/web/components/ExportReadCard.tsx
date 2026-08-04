@@ -10,6 +10,7 @@ type RenderRow = {
   created_at: string;
   rendered_at: string | null;
   url: string | null;
+  audio_url?: string | null;
 };
 
 const MAX_PAGES = 15;
@@ -85,10 +86,10 @@ export function ExportReadCard({
     <section className="mt-8 rounded-xl border border-tan bg-ivory p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="font-slab text-lg">Export MP4</h2>
+          <h2 className="font-slab text-lg">Export MP4 &amp; MP3</h2>
           <p className="mt-1 text-sm text-taupe">
-            Render the table read as a video — the typed pages with your cast — to keep, send, or
-            post anywhere.
+            Render the table read as a video and an audio file — yours to keep, send, or post
+            anywhere.
           </p>
         </div>
         {unlocked && !tooLong && (
@@ -104,7 +105,8 @@ export function ExportReadCard({
 
       {!unlocked && (
         <p className="mt-3 text-sm text-muted">
-          MP4 export comes with the full read — one payment of $19 for this script unlocks both.
+          MP4 and MP3 downloads come with the full read — one payment of $19 for this script
+          unlocks all of it.
         </p>
       )}
       {unlocked && tooLong && (
@@ -124,18 +126,29 @@ export function ExportReadCard({
             <p className="text-brick">Render failed{render.error ? ` — ${render.error}` : ""}. Try again.</p>
           )}
           {!inFlight && render?.url && (
-            <a
-              href={render.url}
-              download={downloadName}
-              className="inline-flex items-center gap-2 rounded-lg border border-brick px-4 py-2 font-medium text-brick hover:bg-brick/5"
-            >
-              ⬇ Download MP4
-              {render.rendered_at && (
-                <span className="text-xs font-normal text-muted">
-                  {new Date(render.rendered_at).toLocaleDateString()}
-                </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <a
+                href={render.url}
+                download={downloadName}
+                className="inline-flex items-center gap-2 rounded-lg border border-brick px-4 py-2 font-medium text-brick hover:bg-brick/5"
+              >
+                ⬇ Download MP4
+                {render.rendered_at && (
+                  <span className="text-xs font-normal text-muted">
+                    {new Date(render.rendered_at).toLocaleDateString()}
+                  </span>
+                )}
+              </a>
+              {render.audio_url && (
+                <a
+                  href={render.audio_url}
+                  download={downloadName.replace(/\.mp4$/, ".mp3")}
+                  className="inline-flex items-center gap-2 rounded-lg border border-tan px-4 py-2 font-medium text-taupe hover:bg-elevated"
+                >
+                  ⬇ MP3
+                </a>
               )}
-            </a>
+            </div>
           )}
           {error && <p className="mt-2 text-brick">{error}</p>}
         </div>
