@@ -571,8 +571,9 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Tally what the demo actually generated against the daily budget.
-    if (script_id === DEMO_SCRIPT_ID && generatedKeys.size) {
+    // Tally what the demo actually generated against the budget. Ops pre-warming
+    // (service role) is excluded — it shouldn't eat visitors' allowance.
+    if (script_id === DEMO_SCRIPT_ID && generatedKeys.size && !serviceBearer) {
       const genChars = toDo
         .filter(([k]) => generatedKeys.has(k))
         .reduce((n, [, j]) => n + j.text.length, 0);
