@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Roboto_Slab, Courier_Prime } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
 import { SiteFooter } from "@/components/SiteFooter";
+import { MetaPixel } from "@/components/MetaPixel";
 import "./globals.css";
 
 const robotoSlab = Roboto_Slab({
@@ -34,6 +35,7 @@ export default function RootLayout({
         {children}
         <SiteFooter />
         <Analytics />
+        <MetaPixel />
       </body>
     </html>
   );

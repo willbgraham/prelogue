@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { getBrowserClient } from "@/lib/supabase/client";
+import { trackOnce } from "@/lib/analytics";
 
 // Only allow same-origin relative redirects (no open-redirect to other sites).
 function safeNext(raw: string | null): string {
@@ -52,7 +53,7 @@ export default function SignInPage() {
     e.preventDefault();
     setLoading(true);
     setError(null);
-    const { error } = await getBrowserClient().auth.verifyOtp({
+    const { data, error } = await getBrowserClient().auth.verifyOtp({
       email: email.trim(),
       token: code.trim(),
       type: "email",
@@ -62,6 +63,9 @@ export default function SignInPage() {
       setError(error.message);
       return;
     }
+    // Ad attribution: count a signup once per account, not on every sign-in.
+    const u = data?.user;
+    if (u?.id) trackOnce(`reg:${u.id}`, "CompleteRegistration");
     router.push(next);
     router.refresh();
   }

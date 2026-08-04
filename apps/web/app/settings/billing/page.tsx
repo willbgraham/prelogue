@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { getBrowserClient } from "@/lib/supabase/client";
+import { trackOnce } from "@/lib/analytics";
 import {
   PLANS,
   dollars,
@@ -60,7 +61,17 @@ export default function BillingPage() {
 
   useEffect(() => {
     load();
-    setJustSubscribed(new URLSearchParams(window.location.search).get("subscribed") === "1");
+    const subscribed = new URLSearchParams(window.location.search).get("subscribed") === "1";
+    setJustSubscribed(subscribed);
+    // Conversion event for the ads. Keyed on the subscription so a reload of
+    // the success URL doesn't double-count.
+    if (subscribed) {
+      getBrowserClient()
+        .auth.getUser()
+        .then(({ data }) => {
+          if (data.user?.id) trackOnce(`sub:${data.user.id}`, "Subscribe");
+        });
+    }
   }, [load]);
 
   async function openPortal() {

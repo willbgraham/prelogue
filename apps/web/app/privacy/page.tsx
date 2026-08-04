@@ -73,11 +73,24 @@ export default function PrivacyPage() {
             are screened before they become visible to others.
           </li>
           <li className={li}><strong>Stripe</strong> — payment processing.</li>
-          <li className={li}><strong>Resend</strong> — transactional email (sign-in codes, invites, notifications).</li>
+          <li className={li}><strong>Resend</strong> — transactional email (invites and notifications).</li>
+          <li className={li}>
+            <strong>Zoom</strong> — hosting live table reads; <strong>YouTube (Google)</strong> —
+            publishing recordings of live reads you take part in.
+          </li>
+          <li className={li}>
+            <strong>Meta (Facebook)</strong> — advertising measurement. We use the Meta pixel to see
+            which ads bring people to Prelogue and whether they sign up or subscribe. It sets cookies
+            and shares limited event data (page views, sign-ups, purchases) with Meta.
+          </li>
         </ul>
         <p className={p}>
-          We do not sell your personal information. We may disclose information if required by law or to
-          protect the rights, safety, and security of our users and the platform.
+          We do not sell your personal information for money. Under some US state privacy laws, using
+          advertising tools like the Meta pixel counts as &ldquo;sharing&rdquo; personal information
+          for targeted advertising. To opt out, use your browser&rsquo;s Do Not Track or
+          Global Privacy Control setting, block third-party cookies, or email us and we&rsquo;ll
+          exclude you. We may also disclose information if required by law or to protect the rights,
+          safety, and security of our users and the platform.
         </p>
 
         <h2 className={h2}>User-generated content &amp; visibility</h2>
