@@ -85,6 +85,7 @@ export function VoicePicker({
   writersCast = {},
   canChangeVoices = true,
   canPersist = false,
+  restrictedVoices = null,
   onSaveConfig,
   onApply,
   onClose,
@@ -104,6 +105,10 @@ export function VoicePicker({
   canChangeVoices?: boolean;
   /** Whether Save persists (the writer). Visitors' tweaks stay session-only. */
   canPersist?: boolean;
+  /** When set, only these voices can be APPLIED (the rest still render, locked
+   *  behind a sign-up nudge). Used on the public demo so re-casting always hits
+   *  pre-generated audio; the server enforces the same list. */
+  restrictedVoices?: Set<string> | null;
   /** Persist the config now (without regenerating) — used by Save. */
   onSaveConfig?: (cfg: VoiceConfig) => void;
   onApply: (cfg: VoiceConfig, cast: Record<string, string>) => void;
@@ -784,12 +789,22 @@ export function VoicePicker({
                                 .join(" · ")}
                             </div>
                           </div>
-                          <button
-                            onClick={() => setRoleVoice(editing!, v.voice_id)}
-                            className="shrink-0 rounded-lg border border-tan px-3 py-1.5 text-xs font-medium hover:bg-elevated"
-                          >
-                            {!cast[editing!] && currentVoiceFor(editing!) === v.voice_id ? "Selected" : "Use"}
-                          </button>
+                          {restrictedVoices && !restrictedVoices.has(v.voice_id) ? (
+                            <a
+                              href="/sign-in?next=/pricing"
+                              title="Sign up to use the full voice library on your own script"
+                              className="shrink-0 rounded-lg border border-tan px-3 py-1.5 text-xs font-medium text-muted hover:border-brick hover:text-brick"
+                            >
+                              🔒 Sign up
+                            </a>
+                          ) : (
+                            <button
+                              onClick={() => setRoleVoice(editing!, v.voice_id)}
+                              className="shrink-0 rounded-lg border border-tan px-3 py-1.5 text-xs font-medium hover:bg-elevated"
+                            >
+                              {!cast[editing!] && currentVoiceFor(editing!) === v.voice_id ? "Selected" : "Use"}
+                            </button>
+                          )}
                         </div>
                       ))}
                       {filtered.length === 0 && (

@@ -10,9 +10,9 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 // KEEP IN SYNC with apps/web/lib/shared/plans.ts
 const PLANS: Record<string, { pages: number; label: string }> = {
-  growth: { pages: 150, label: "Growth" },
-  pro: { pages: 400, label: "Pro" },
-  studio: { pages: 800, label: "Studio" },
+  growth: { pages: 50, label: "Growth" },
+  pro: { pages: 150, label: "Pro" },
+  studio: { pages: 300, label: "Studio" },
 };
 
 const cors = {

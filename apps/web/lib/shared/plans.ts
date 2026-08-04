@@ -21,27 +21,31 @@ export type Plan = {
 };
 
 export const PLANS: Record<PlanId, Plan> = {
+  // Page allowances are sized so every tier stays profitable even when fully
+  // used: generation costs ~2,400 ElevenLabs credits/page (~$0.40), measured on
+  // real scripts. Unlocking is permanent and replays/edits are free, so most
+  // writers use their allowance once and then cost nothing.
   growth: {
     id: "growth",
     label: "Growth",
     price_cents: 1900,
-    pages: 150,
-    blurb: "About one feature, or a handful of shorts, every month.",
+    pages: 50,
+    blurb: "A feature script a month, or a handful of shorts.",
   },
   pro: {
     id: "pro",
     label: "Pro",
     price_cents: 3900,
-    pages: 400,
-    blurb: "Three to four features a month, for working writers.",
+    pages: 150,
+    blurb: "A feature plus rewrites, for working writers.",
     highlight: true,
   },
   studio: {
     id: "studio",
     label: "Studio",
     price_cents: 5900,
-    pages: 800,
-    blurb: "A writers' room's worth: eight-plus features a month.",
+    pages: 300,
+    blurb: "Three features a month: a writers' room's worth.",
   },
 };
 

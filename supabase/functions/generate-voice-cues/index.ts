@@ -223,6 +223,40 @@ Deno.serve(async (req) => {
     const allowOverride =
       script_id === DEMO_SCRIPT_ID || (!!callerId && callerId === script.writer_id);
 
+    // Voices an anonymous demo visitor may apply. These are pre-generated for
+    // the demo, so a swap is a cache hit and costs nothing — which is what
+    // keeps ad traffic from draining the ElevenLabs balance. The picker still
+    // shows the full library; this is the server-side half of that gate (a
+    // client-side lock is trivially bypassed).
+    // KEEP IN SYNC with apps/web/lib/shared/demoVoices.ts.
+    const DEMO_VOICE_ALLOWLIST = new Set([
+      "yRkCcID7C7SG09Wb6tIg", "4YWIJNXODjo9x7Nz4BhO", "SOYHLrjzK2X1ezoPC6cr",
+      "jmovCppyUT0hdwQb6rmj", "vOIRno85PgKv4YKFyUlz", "hLygPNd2gK6Azddorc5W",
+      "VC6vCXhVaI8BZefRtXZV", "MDrnb4sU30RxVQwLWmU3", "H7Fc5Qy614JJMoitlc8A",
+      "eR8vsPZKHCfpn1pfTMTZ", "TAXL9Duy50pxAXIMCYbu", "Q86KUByuoHsuv9sOa4NX",
+      "UrdIUsVuyr5QSUJdS5hu", "d8WcCpplp8meHt10UhL8", "6de0u4cGYWDeBlsfrX39",
+      "QyCGbzzEtSqHWJ8rNRMK",
+    ]);
+    const serviceBearer =
+      (authHeader ?? "").replace(/^Bearer\s+/i, "") === Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    const isDemoVisitor =
+      script_id === DEMO_SCRIPT_ID && !serviceBearer && callerId !== script.writer_id;
+    if (isDemoVisitor && voiceConfigOverride) {
+      const ov = voiceConfigOverride as any;
+      const requested = [
+        ov.narrator_voice_id,
+        ov.single_voice_id,
+        ...Object.values(ov.characters ?? {}),
+      ].filter(Boolean) as string[];
+      const bad = requested.find((v) => !DEMO_VOICE_ALLOWLIST.has(v));
+      if (bad) {
+        return new Response(
+          JSON.stringify({ error: "demo_voice_not_allowed", voice_id: bad }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
+
     // ----- Request-to-listen gate -----
     // A showcase script (listen_gated) is listed publicly but only the writer,
     // an approved requester, or the trusted render worker (service-role bearer)
@@ -506,7 +540,9 @@ Deno.serve(async (req) => {
     const todayKey = new Date().toISOString().slice(0, 10);
     const monthStart = `${todayKey.slice(0, 7)}-01`;
     let demoBudgetExceeded = false;
-    if (script_id === DEMO_SCRIPT_ID && toDo.length) {
+    // Service-role callers (ops pre-warming the curated demo voices, the render
+    // worker) are exempt — the budget exists to bound anonymous visitors.
+    if (script_id === DEMO_SCRIPT_ID && toDo.length && !serviceBearer) {
       const { data: rows } = await supabase
         .from("demo_tts_usage")
         .select("day, chars")

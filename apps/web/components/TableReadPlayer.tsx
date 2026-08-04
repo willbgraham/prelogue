@@ -5,12 +5,14 @@ import Link from "next/link";
 import { buildRows, prepareVoiceCues, DEFAULT_AMBIENCE_VOLUME } from "@/lib/shared";
 import type { AmbienceConfig, ParsedScript, VoiceCueEntry, VoiceConfig } from "@/lib/shared";
 import { getBrowserClient } from "@/lib/supabase/client";
+import { DEMO_VOICE_ALLOWLIST } from "@/lib/shared/demoVoices";
 import { VoicePicker } from "@/components/VoicePicker";
 import { CastIcon } from "@/components/icons";
 
 // Cap how many times a visitor can re-cast voices per day (cost guard). Voices
 // already generated replay free; only a *new* voice config counts.
 const MAX_VOICE_CHANGES_PER_DAY = 15;
+const DEMO_VOICE_SET = new Set(DEMO_VOICE_ALLOWLIST);
 
 // A cast actor's clip + the non-destructive edits applied at playback.
 type ClipInfo = { url: string; trimStart: number; trimEnd: number | null; volume: number };
@@ -907,6 +909,10 @@ export function TableReadPlayer({
           writersCast={writersCast}
           canChangeVoices={canChangeVoices}
           canPersist={isOwner}
+          // Demo visitors (can re-cast, but don't own the script) may only
+          // apply pre-generated voices — the rest show locked. Writers on
+          // their own scripts get the whole library.
+          restrictedVoices={canChangeVoices && !isOwner ? DEMO_VOICE_SET : null}
           onSaveConfig={persistConfig}
           onApply={applyVoices}
           onClose={() => setShowPicker(false)}
