@@ -9,11 +9,15 @@ create table if not exists public.contact_messages (
   message    text not null,
   user_id    uuid references public.users(id) on delete set null,  -- set when signed in
   handled    boolean not null default false,
+  notified_at timestamptz,   -- set by the send-contact fn once emailed
   created_at timestamptz not null default now(),
   constraint contact_name_len    check (char_length(name) between 1 and 120),
   constraint contact_email_len   check (char_length(email) between 3 and 200),
   constraint contact_message_len check (char_length(message) between 1 and 5000)
 );
+-- Safe to re-run if the table was already created before notified_at existed.
+alter table public.contact_messages add column if not exists notified_at timestamptz;
+
 create index if not exists contact_messages_created_idx
   on public.contact_messages (created_at desc);
 

@@ -62,14 +62,22 @@ export default function ContactPage() {
     }
     setBusy(true);
     setError(null);
-    const { error: insErr } = await getBrowserClient()
+    const supabase = getBrowserClient();
+    // Mint the id here rather than reading it back: SELECT on contact_messages
+    // is admin-only, so an insert().select() would fail for real visitors.
+    const id = crypto.randomUUID();
+    const { error: insErr } = await supabase
       .from("contact_messages")
-      .insert({ name: nm, email: em, topic, message: msg, user_id: userId });
+      .insert({ id, name: nm, email: em, topic, message: msg, user_id: userId });
     setBusy(false);
     if (insErr) {
       setError("Couldn't send that — please email hello@prelogue.studio instead.");
       return;
     }
+    // Email it to the Prelogue inbox. Fire-and-forget: the message is already
+    // stored and visible in /admin/messages, so a mail hiccup mustn't fail the
+    // form for the person who wrote it.
+    supabase.functions.invoke("send-contact", { body: { id } }).catch(() => {});
     setSent(true);
   }
 
