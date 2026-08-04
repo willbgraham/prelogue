@@ -23,7 +23,13 @@ export default function SignInPage() {
   const [next, setNext] = useState("/");
 
   useEffect(() => {
-    setNext(safeNext(new URLSearchParams(window.location.search).get("next")));
+    const params = new URLSearchParams(window.location.search);
+    setNext(safeNext(params.get("next")));
+    // The auth callback bounces here with ?error=auth when a link is invalid
+    // or expired — say so instead of showing a pristine form.
+    if (params.get("error") === "auth") {
+      setError("That sign-in link didn't work — it may have expired. Enter your email for a fresh code.");
+    }
   }, []);
 
   async function sendCode(e: React.FormEvent) {
@@ -91,6 +97,17 @@ export default function SignInPage() {
           </button>
           <p className="text-center text-xs text-muted">
             We&rsquo;ll email you a 6-digit code — no password needed.
+          </p>
+          <p className="text-center text-xs text-muted">
+            By continuing you agree to our{" "}
+            <a href="/terms" className="underline hover:text-brick">
+              Terms
+            </a>{" "}
+            and{" "}
+            <a href="/privacy" className="underline hover:text-brick">
+              Privacy Policy
+            </a>
+            .
           </p>
         </form>
       ) : (

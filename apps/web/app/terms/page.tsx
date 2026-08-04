@@ -40,7 +40,13 @@ export default function TermsPage() {
           <li className={li}>
             <strong>Actors.</strong> You keep ownership of the reads you record. By submitting a read, you
             grant Prelogue and the relevant writer a non-exclusive, worldwide license to host, display, and
-            play your recording as part of that script&rsquo;s table reads on the platform.
+            play your recording as part of that script&rsquo;s table reads on the platform — and, for live
+            table reads you join, in recordings published on Prelogue&rsquo;s YouTube channel.
+          </li>
+          <li className={li}>
+            <strong>Generated reads.</strong> The AI table read of your unlocked script — including MP3 and
+            MP4 exports — is yours to keep and use for your own purposes, subject to these Terms and the
+            rights of any actors whose recordings appear in it.
           </li>
           <li className={li}>
             <strong>Everyone.</strong> You&rsquo;re responsible for the content you upload and must have the
@@ -71,10 +77,34 @@ export default function TermsPage() {
 
         <h2 className={h2}>Payments</h2>
         <p className={p}>
-          Some features (such as unlocking a script&rsquo;s full AI table read) are paid. Prices are shown
-          before purchase. A script unlock is a <strong>one-time purchase</strong> for that script — not a
-          subscription. Payments are processed by Stripe. Except where required by law, purchases are
-          non-refundable; if something goes wrong, contact us and we&rsquo;ll make it right.
+          Some features are paid, and prices are shown before purchase. Payments are processed by Stripe.
+          There are two ways to pay:
+        </p>
+        <ul>
+          <li className={li}>
+            <strong>Script unlock.</strong> A one-time purchase that unlocks one script&rsquo;s full read
+            (with MP3 and MP4 downloads) permanently. It is not a subscription.
+          </li>
+          <li className={li}>
+            <strong>Plans.</strong> Monthly subscriptions that renew automatically each month until you
+            cancel. Cancel anytime from Billing settings; cancellation takes effect at the end of the
+            current billing period, and partial months are not refunded. Scripts you unlocked while
+            subscribed stay unlocked after you cancel.
+          </li>
+        </ul>
+        <p className={p}>
+          Except where required by law, purchases are non-refundable; if something goes wrong, contact us
+          and we&rsquo;ll make it right.
+        </p>
+
+        <h2 className={h2}>Copyright complaints</h2>
+        <p className={p}>
+          If you believe content on Prelogue infringes your copyright, email{" "}
+          <a href="mailto:hello@prelogue.studio" className="text-brick underline">
+            hello@prelogue.studio
+          </a>{" "}
+          with the work, the URL, and a statement that you own the rights. We remove infringing content
+          and terminate repeat infringers.
         </p>
 
         <h2 className={h2}>Termination</h2>

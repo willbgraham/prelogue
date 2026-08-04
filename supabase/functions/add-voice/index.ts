@@ -1,5 +1,7 @@
 // Adds a voice from the ElevenLabs shared Voice Library to the account so it
 // becomes usable for text-to-speech. Returns the new account voice_id.
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -20,6 +22,22 @@ Deno.serve(async (req) => {
         JSON.stringify({ error: "ELEVENLABS_API_KEY not configured" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
+    }
+
+    // Account voice slots are finite — an anonymous loop could exhaust them.
+    // Require a signed-in caller.
+    const {
+      data: { user: caller },
+    } = await createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_ANON_KEY")!,
+      { global: { headers: { Authorization: req.headers.get("Authorization") ?? "" } } }
+    ).auth.getUser();
+    if (!caller) {
+      return new Response(JSON.stringify({ error: "unauthorized" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     const { public_owner_id, voice_id, name } = await req.json();

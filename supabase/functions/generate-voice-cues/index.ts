@@ -476,7 +476,26 @@ Deno.serve(async (req) => {
 
     // Generate the misses, capped per run (resumable).
     const allMisses = [...distinctJobs.entries()].filter(([k]) => !existing.has(k));
-    const toDo = allMisses.slice(0, MAX_NEW_PER_RUN);
+    let toDo = allMisses.slice(0, MAX_NEW_PER_RUN);
+
+    // Server-side daily budget for DEMO generation. The demo is deliberately
+    // open (anyone can re-cast voices), but the only cap was localStorage —
+    // curl in a loop could drain the ElevenLabs balance. Meter actual
+    // generated characters per day; past the ceiling the demo serves cache only.
+    const DEMO_DAILY_CHAR_BUDGET = 200_000;
+    const todayKey = new Date().toISOString().slice(0, 10);
+    let demoBudgetExceeded = false;
+    if (script_id === DEMO_SCRIPT_ID && toDo.length) {
+      const { data: usage } = await supabase
+        .from("demo_tts_usage")
+        .select("chars")
+        .eq("day", todayKey)
+        .maybeSingle();
+      if ((usage?.chars ?? 0) >= DEMO_DAILY_CHAR_BUDGET) {
+        demoBudgetExceeded = true;
+        toDo = [];
+      }
+    }
     const generatedKeys = new Set<string>();
     let failed = 0;
 
@@ -489,6 +508,21 @@ Deno.serve(async (req) => {
         if (ok) generatedKeys.add(batch[j][0]);
         else failed++;
       });
+    }
+
+    // Tally what the demo actually generated against the daily budget.
+    if (script_id === DEMO_SCRIPT_ID && generatedKeys.size) {
+      const genChars = toDo
+        .filter(([k]) => generatedKeys.has(k))
+        .reduce((n, [, j]) => n + j.text.length, 0);
+      const { data: cur } = await supabase
+        .from("demo_tts_usage")
+        .select("chars")
+        .eq("day", todayKey)
+        .maybeSingle();
+      await supabase
+        .from("demo_tts_usage")
+        .upsert({ day: todayKey, chars: (cur?.chars ?? 0) + genChars });
     }
 
     // An entry's audio is available if it pre-existed or we just generated it.
@@ -527,7 +561,10 @@ Deno.serve(async (req) => {
         already_cached: entries.length - allMisses.length,
         failed,
         remaining,
-        done: remaining === 0,
+        // Budget-capped demo runs report done so clients don't retry-loop a
+        // ceiling that won't lift until tomorrow.
+        done: demoBudgetExceeded ? true : remaining === 0,
+        demo_budget_exceeded: demoBudgetExceeded || undefined,
         cached: allMisses.length === 0,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }

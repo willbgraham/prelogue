@@ -211,6 +211,20 @@ Deno.serve(async (req) => {
     let cached = (existing ?? []).some((o) => o.name === filename);
 
     if (!cached) {
+      // Demo previews share the daily server-side character budget with
+      // generate-voice-cues (demo_tts_usage) — the localStorage cap alone is
+      // trivially bypassed with curl.
+      const todayKey = new Date().toISOString().slice(0, 10);
+      if (script_id === DEMO_SCRIPT_ID) {
+        const { data: usage } = await supabase
+          .from("demo_tts_usage")
+          .select("chars")
+          .eq("day", todayKey)
+          .maybeSingle();
+        if ((usage?.chars ?? 0) >= 200_000) {
+          return json({ error: "The demo has hit today's voice budget — try again tomorrow." }, 429);
+        }
+      }
       const res = await fetch(
         `${ELEVENLABS_BASE}/text-to-speech/${vid}?output_format=mp3_22050_32`,
         {
@@ -238,6 +252,16 @@ Deno.serve(async (req) => {
       if (upErr) {
         console.error("preview upload error:", upErr.message);
         return json({ error: "Couldn't store the preview" }, 500);
+      }
+      if (script_id === DEMO_SCRIPT_ID) {
+        const { data: cur } = await supabase
+          .from("demo_tts_usage")
+          .select("chars")
+          .eq("day", todayKey)
+          .maybeSingle();
+        await supabase
+          .from("demo_tts_usage")
+          .upsert({ day: todayKey, chars: (cur?.chars ?? 0) + ttsText.length });
       }
     }
 

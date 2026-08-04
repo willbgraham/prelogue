@@ -58,7 +58,7 @@ export default async function Home() {
             </Link>
           </div>
           <p className="mt-4 font-mono text-[11px] uppercase tracking-wider text-muted">
-            Private by default · you keep all rights · $19 one-time · no subscription
+            Private by default · you keep all rights · plans from $19/mo or $19 once
           </p>
         </div>
 
@@ -225,9 +225,9 @@ export default async function Home() {
           Your script deserves to be heard before it&rsquo;s shot.
         </h2>
         <p className="mx-auto mt-3 max-w-md text-taupe">
-          Upload a PDF and hear the opening free - your script stays private
-          unless you decide otherwise. One payment of $19 unlocks the complete
-          read and MP4 export; replays are free forever.
+          Try the full demo scene free, then upload your PDF - it stays private
+          unless you decide otherwise. Unlock the complete read with a plan or
+          $19 once, with MP4 and MP3 downloads; replays are free forever.
         </p>
         <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
           <Link

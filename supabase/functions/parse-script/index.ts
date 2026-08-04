@@ -313,7 +313,7 @@ Deno.serve(async (req) => {
 
     const { data: script, error: scriptError } = await supabase
       .from("scripts")
-      .select("id, file_url")
+      .select("id, file_url, writer_id")
       .eq("id", script_id)
       .single();
 
@@ -323,6 +323,39 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    // Parsing rewrites parsed_json/characters and (with debug) echoes raw
+    // script text, so only the script's writer, an admin, or the service role
+    // may run it. Previously unauthenticated — private-script text leak.
+    const bearer = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
+    const isService = bearer === Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    let isAdmin = false;
+    let callerId: string | null = null;
+    if (!isService) {
+      const {
+        data: { user: caller },
+      } = await createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_ANON_KEY")!,
+        { global: { headers: { Authorization: req.headers.get("Authorization") ?? "" } } }
+      ).auth.getUser();
+      callerId = caller?.id ?? null;
+      if (callerId) {
+        const { data: me } = await supabase
+          .from("users")
+          .select("is_admin")
+          .eq("id", callerId)
+          .single();
+        isAdmin = !!me?.is_admin;
+      }
+      if (!callerId || (callerId !== script.writer_id && !isAdmin)) {
+        return new Response(JSON.stringify({ error: "forbidden" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+    const allowDebug = !!debug && (isService || isAdmin);
 
     const { data: fileData, error: downloadError } = await supabase.storage
       .from("scripts")
@@ -382,8 +415,9 @@ Deno.serve(async (req) => {
 
     const totalElements = scenes.reduce((n, s) => n + s.elements.length, 0);
 
-    // Debug mode: inspect extraction without writing to the DB.
-    if (debug) {
+    // Debug mode: inspect extraction without writing to the DB (echoes raw
+    // script text, so admin/service-role only).
+    if (allowDebug) {
       const counts: Record<string, number> = { dialogue: 0, action: 0, character: 0, parenthetical: 0 };
       for (const s of scenes) for (const el of s.elements) counts[el.type] = (counts[el.type] || 0) + 1;
       return new Response(

@@ -66,6 +66,9 @@ export default function UploadPage() {
         // choice the writer makes later from the script's Sharing panel.
         visibility: "private",
         submission_deadline: "2099-12-31",
+        // The required rights checkbox below gates submit; record when it was
+        // affirmed (same column the mobile flow writes).
+        rights_acknowledged_at: new Date().toISOString(),
         ...(details.cover_image_url ? { cover_image_url: details.cover_image_url } : {}),
         ...(details.synopsis?.trim() ? { synopsis: details.synopsis.trim() } : {}),
         ...(details.more_details?.trim() ? { more_details: details.more_details.trim() } : {}),
@@ -79,7 +82,17 @@ export default function UploadPage() {
       if (insErr) throw insErr;
 
       setStatus("Parsing the screenplay…");
-      await supabase.functions.invoke("parse-script", { body: { script_id: scriptId } });
+      const { data: parsed, error: parseErr } = await supabase.functions.invoke("parse-script", {
+        body: { script_id: scriptId },
+      });
+      // Surface a failed parse here instead of dumping the writer on a script
+      // page with zero lines and no way to retry (scanned/image PDFs mostly).
+      const parseMsg = (parsed as { error?: string } | null)?.error ?? parseErr?.message;
+      if (parseMsg) {
+        throw new Error(
+          "We couldn't read that PDF — it may be a scan or image-based. Export a text PDF from your writing app and try again."
+        );
+      }
 
       router.push(`/script/${scriptId}`);
     } catch (e) {
@@ -172,6 +185,12 @@ export default function UploadPage() {
             onChange={(e) => setFile(e.target.files?.[0] ?? null)}
             className="text-sm text-taupe file:mr-3 file:rounded-lg file:border file:border-tan file:bg-elevated file:px-4 file:py-2 file:text-sm"
           />
+        </label>
+        <label className="flex items-start gap-2 text-sm text-taupe">
+          <input type="checkbox" required className="mt-1 accent-brick" />
+          <span>
+            I own this screenplay or have the rights to upload it and have it performed here.
+          </span>
         </label>
         <button
           disabled={busy}

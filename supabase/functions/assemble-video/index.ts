@@ -39,6 +39,34 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Only the script's writer, an admin, or the service role may assemble —
+    // previously unauthenticated (status flips + notification spam).
+    const bearer = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
+    if (bearer !== Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")) {
+      const {
+        data: { user: caller },
+      } = await createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_ANON_KEY")!,
+        { global: { headers: { Authorization: req.headers.get("Authorization") ?? "" } } }
+      ).auth.getUser();
+      let isAdmin = false;
+      if (caller) {
+        const { data: me } = await supabase
+          .from("users")
+          .select("is_admin")
+          .eq("id", caller.id)
+          .single();
+        isAdmin = !!me?.is_admin;
+      }
+      if (!caller || (caller.id !== script.writer_id && !isAdmin)) {
+        return new Response(JSON.stringify({ error: "forbidden" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
     // Get all Writer's Choice submissions
     const { data: submissions, error: subError } = await supabase
       .from("submissions")
