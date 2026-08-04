@@ -101,6 +101,7 @@ export default function AdminModerationPage() {
     <main className="mx-auto w-full max-w-4xl px-6 py-10">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
         <Link href="/admin/users" className="text-taupe hover:text-brick">People</Link>
+        <Link href="/admin/messages" className="text-taupe hover:text-brick">Messages</Link>
         <Link href="/admin/moderation" className="font-medium text-brick">Moderation</Link>
         <Link href="/admin/live" className="text-taupe hover:text-brick">Live readings</Link>
         <Link href="/admin/renders" className="text-taupe hover:text-brick">Daily renders</Link>

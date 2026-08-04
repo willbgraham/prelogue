@@ -29,6 +29,9 @@ export function SiteFooter() {
             <Link href="/pricing" className="hover:text-brick">
               Pricing
             </Link>
+            <Link href="/contact" className="hover:text-brick">
+              Contact
+            </Link>
             <Link href="/privacy" className="hover:text-brick">
               Privacy
             </Link>
