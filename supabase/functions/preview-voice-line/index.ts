@@ -216,13 +216,19 @@ Deno.serve(async (req) => {
       // trivially bypassed with curl.
       const todayKey = new Date().toISOString().slice(0, 10);
       if (script_id === DEMO_SCRIPT_ID) {
-        const { data: usage } = await supabase
+        // Same budget as generate-voice-cues (see the comment there): sized
+        // against the 600k-credit/month plan at 0.5 credits per character.
+        const { data: rows } = await supabase
           .from("demo_tts_usage")
-          .select("chars")
-          .eq("day", todayKey)
-          .maybeSingle();
-        if ((usage?.chars ?? 0) >= 200_000) {
-          return json({ error: "The demo has hit today's voice budget — try again tomorrow." }, 429);
+          .select("day, chars")
+          .gte("day", `${todayKey.slice(0, 7)}-01`);
+        const today = (rows ?? []).find((r: { day: string }) => r.day === todayKey)?.chars ?? 0;
+        const month = (rows ?? []).reduce(
+          (n: number, r: { chars: number }) => n + (r.chars ?? 0),
+          0
+        );
+        if (today >= 12_000 || month >= 150_000) {
+          return json({ error: "The demo has hit its voice budget — try again later." }, 429);
         }
       }
       const res = await fetch(

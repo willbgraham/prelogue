@@ -492,20 +492,31 @@ Deno.serve(async (req) => {
     const allMisses = [...distinctJobs.entries()].filter(([k]) => !existing.has(k));
     let toDo = allMisses.slice(0, MAX_NEW_PER_RUN);
 
-    // Server-side daily budget for DEMO generation. The demo is deliberately
-    // open (anyone can re-cast voices), but the only cap was localStorage —
-    // curl in a loop could drain the ElevenLabs balance. Meter actual
-    // generated characters per day; past the ceiling the demo serves cache only.
-    const DEMO_DAILY_CHAR_BUDGET = 200_000;
+    // Server-side budget for DEMO generation. The demo is deliberately open
+    // (anyone can re-cast voices) and the only client-side cap is localStorage,
+    // so curl in a loop could drain the ElevenLabs balance.
+    //
+    // Sized against the actual plan: 600k credits/month, and TTS bills 0.5
+    // credits per character, so 1 char = 0.5 credits. The monthly ceiling is
+    // the one that matters — it caps the demo at ~12% of the plan, leaving the
+    // rest for paying writers. The daily ceiling just stops a single day from
+    // eating the whole month. Past either, the demo serves cache only.
+    const DEMO_DAILY_CHAR_BUDGET = 12_000; // 6k credits/day
+    const DEMO_MONTHLY_CHAR_BUDGET = 150_000; // 75k credits ≈ 12% of 600k
     const todayKey = new Date().toISOString().slice(0, 10);
+    const monthStart = `${todayKey.slice(0, 7)}-01`;
     let demoBudgetExceeded = false;
     if (script_id === DEMO_SCRIPT_ID && toDo.length) {
-      const { data: usage } = await supabase
+      const { data: rows } = await supabase
         .from("demo_tts_usage")
-        .select("chars")
-        .eq("day", todayKey)
-        .maybeSingle();
-      if ((usage?.chars ?? 0) >= DEMO_DAILY_CHAR_BUDGET) {
+        .select("day, chars")
+        .gte("day", monthStart);
+      const today = (rows ?? []).find((r: { day: string }) => r.day === todayKey)?.chars ?? 0;
+      const month = (rows ?? []).reduce(
+        (n: number, r: { chars: number }) => n + (r.chars ?? 0),
+        0
+      );
+      if (today >= DEMO_DAILY_CHAR_BUDGET || month >= DEMO_MONTHLY_CHAR_BUDGET) {
         demoBudgetExceeded = true;
         toDo = [];
       }
