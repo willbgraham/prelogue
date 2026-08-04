@@ -14,6 +14,7 @@ import { StarRating } from "@/components/StarRating";
 import { DeleteScriptButton } from "@/components/DeleteScriptButton";
 import { RequestListen } from "@/components/RequestListen";
 import { ListenRequests } from "@/components/ListenRequests";
+import { InvitedToRead } from "@/components/InvitedToRead";
 import type { Script, Character } from "@/lib/shared";
 import { labelOf, LISTING_STATUSES, FORMATS, AGE_RATINGS } from "@/lib/constants";
 
@@ -322,6 +323,8 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
           </div>
         </div>
       )}
+
+      {user?.id !== s.writer_id && <InvitedToRead scriptId={s.id} />}
 
       <div className="mt-6">
         <ReadForRole

@@ -10,6 +10,7 @@ import { VoiceDesigner } from "@/components/VoiceDesigner";
 import { ClipReel } from "@/components/ClipReel";
 import { AmbienceManager } from "@/components/AmbienceManager";
 import { ExportReadCard } from "@/components/ExportReadCard";
+import { RoleCasting } from "@/components/RoleCasting";
 import type { AmbienceConfig, ParsedScript, VoiceConfig } from "@/lib/shared";
 
 type Sub = {
@@ -254,6 +255,13 @@ export default function CastingPage() {
       </section>
 
       {/* Music & ambience */}
+      <RoleCasting
+        scriptId={scriptId}
+        scriptTitle={title}
+        characters={characters}
+        onChanged={load}
+      />
+
       <AmbienceManager scriptId={scriptId} parsed={parsed} genre={genre} initial={ambience} />
 
       {/* Export MP4 */}

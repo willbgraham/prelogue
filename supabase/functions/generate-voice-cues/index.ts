@@ -243,6 +243,20 @@ Deno.serve(async (req) => {
           .eq("status", "approved")
           .maybeSingle();
         approved = !!lr;
+        // An actor the writer invited to read a part also needs the read.
+        if (!approved) {
+          const { data: caller } = await supabase.auth.admin.getUserById(callerId);
+          const email = caller?.user?.email ?? "";
+          if (email) {
+            const { data: ri } = await supabase
+              .from("role_invites")
+              .select("id")
+              .eq("script_id", script_id)
+              .ilike("email", email)
+              .maybeSingle();
+            approved = !!ri;
+          }
+        }
       }
       if (!isService && !isWriter && !approved) {
         return new Response(

@@ -32,6 +32,7 @@ export function RequestListen({
   const [name, setName] = useState("");
   const [linkedin, setLinkedin] = useState("");
   const [imdb, setImdb] = useState("");
+  const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -90,7 +91,7 @@ export function RequestListen({
       .eq("id", userId);
     const { error: reqErr } = await supabase
       .from("listen_requests")
-      .insert({ script_id: scriptId, requester_id: userId, email });
+      .insert({ script_id: scriptId, requester_id: userId, email, note: note.trim() || null });
     if (reqErr && !reqErr.message.toLowerCase().includes("duplicate")) {
       setError(reqErr.message);
       setBusy(false);
@@ -220,6 +221,19 @@ export function RequestListen({
           {email ? ` · ${email}` : ""}
         </p>
       )}
+
+      <label className="mt-3 flex flex-col gap-1">
+        <span className="text-xs font-medium uppercase tracking-wide text-muted">
+          Who you are (optional)
+        </span>
+        <input
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          maxLength={120}
+          placeholder="Producer, Blue Hour Films"
+          className="rounded-lg border border-tan bg-ivory px-3 py-2 text-sm outline-none focus:border-brick"
+        />
+      </label>
 
       <button
         onClick={request}

@@ -59,6 +59,7 @@ export default function EditProfilePage() {
   >([]);
   const [roles, setRoles] = useState<string[]>([]);
   const [activeRole, setActiveRole] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const toggleRole = (r: string) =>
     setRoles((cur) => (cur.includes(r) ? cur.filter((x) => x !== r) : [...cur, r]));
@@ -215,6 +216,27 @@ export default function EditProfilePage() {
     await supabase.from("submissions").delete().eq("id", id);
   }
 
+  async function deleteAccount() {
+    if (
+      !window.confirm(
+        "Permanently delete your account? This removes your scripts, recordings, and profile. This cannot be undone."
+      )
+    ) {
+      return;
+    }
+    if (window.prompt('Type DELETE to confirm.')?.trim().toUpperCase() !== "DELETE") return;
+    setDeleting(true);
+    setError(null);
+    const { data, error: fnErr } = await supabase.functions.invoke("delete-account", { body: {} });
+    if ((data as { error?: string } | null)?.error || fnErr) {
+      setError((data as { error?: string } | null)?.error ?? fnErr?.message ?? "Couldn't delete your account.");
+      setDeleting(false);
+      return;
+    }
+    await supabase.auth.signOut();
+    window.location.href = "/";
+  }
+
   if (loading) {
     return <main className="mx-auto max-w-xl px-6 py-16 text-taupe">Loading…</main>;
   }
@@ -361,6 +383,23 @@ export default function EditProfilePage() {
           </div>
         </section>
       )}
+
+      {/* Account deletion — the privacy policy promises this, and the
+          delete-account function already backs the mobile app. */}
+      <section className="mt-12 rounded-xl border border-brick/30 bg-brick/5 p-5">
+        <h2 className="font-slab text-lg">Delete account</h2>
+        <p className="mt-1 text-sm text-taupe">
+          Permanently deletes your account, your scripts, and your recordings. This can&rsquo;t be
+          undone.
+        </p>
+        <button
+          onClick={deleteAccount}
+          disabled={deleting}
+          className="mt-3 rounded-lg border border-brick px-4 py-2 text-sm font-medium text-brick hover:bg-brick/10 disabled:opacity-60"
+        >
+          {deleting ? "Deleting…" : "Delete my account"}
+        </button>
+      </section>
     </main>
   );
 }

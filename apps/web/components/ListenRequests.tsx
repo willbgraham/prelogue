@@ -14,6 +14,7 @@ type Req = {
   id: string;
   status: "pending" | "approved" | "denied";
   email: string | null;
+  note: string | null;
   created_at: string;
   requester: Requester | Requester[] | null;
 };
@@ -40,7 +41,7 @@ export function ListenRequests({
   const load = useCallback(async () => {
     const { data } = await supabase
       .from("listen_requests")
-      .select("id, status, email, created_at, requester:users!listen_requests_requester_id_fkey(display_name, username, avatar_url, links)")
+      .select("id, status, email, note, created_at, requester:users!listen_requests_requester_id_fkey(display_name, username, avatar_url, links)")
       .eq("script_id", scriptId)
       .order("created_at", { ascending: false });
     setReqs((data as unknown as Req[]) ?? []);
@@ -134,6 +135,7 @@ export function ListenRequests({
               </span>
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium">{u?.display_name ?? "Someone"}</div>
+                {r.note && <div className="truncate text-xs text-taupe">{r.note}</div>}
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs">
                   {r.email && (
                     <a href={`mailto:${r.email}`} className="text-brick hover:underline">
