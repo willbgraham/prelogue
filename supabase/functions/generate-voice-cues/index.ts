@@ -511,26 +511,19 @@ Deno.serve(async (req) => {
         });
       }
     }
-    // Existence check, PAGINATED. storage.list() caps at 1000 objects per call,
-    // and a popular voice's folder is shared across every script that uses it —
-    // the default narrator already holds 1,500+ clips. Listing only the first
-    // page made cached audio look missing, so it was re-generated (real
-    // ElevenLabs spend) and, once credits landed, billed to the writer a second
-    // time for audio they already had.
-    const voiceIds = new Set([...distinctJobs.values()].map((j) => j.voiceId));
+    // Existence check against the voice_audio_cache index: ask only about the
+    // keys this run needs, rather than listing whole storage folders (which
+    // capped at 1000 objects and silently made cached audio look missing).
+    // Chunked to keep the query string bounded.
+    const wantedKeys = [...distinctJobs.keys()];
     const existing = new Set<string>();
-    const PAGE = 1000;
-    for (const vid of voiceIds) {
-      const dir = `voice-cues/audio/${vid}`;
-      for (let offset = 0; ; offset += PAGE) {
-        const { data: objs } = await supabase.storage
-          .from(BUCKET)
-          .list(dir, { limit: PAGE, offset });
-        for (const o of objs ?? []) {
-          existing.add(`${vid}/${o.name.replace(/\.mp3$/, "")}`);
-        }
-        if (!objs || objs.length < PAGE) break;
-      }
+    const CHUNK = 200;
+    for (let i = 0; i < wantedKeys.length; i += CHUNK) {
+      const { data: rows } = await supabase
+        .from("voice_audio_cache")
+        .select("key")
+        .in("key", wantedKeys.slice(i, i + CHUNK));
+      for (const r of rows ?? []) existing.add((r as { key: string }).key);
     }
 
     // Generate the misses, capped per run (resumable).
@@ -642,6 +635,20 @@ Deno.serve(async (req) => {
         if (ok) generatedKeys.add(batch[j][0]);
         else failed++;
       });
+    }
+
+    // Index what we just made, so the next run sees it as cached (and nobody
+    // pays for it twice). Upsert keeps it idempotent across resumable runs.
+    if (generatedKeys.size) {
+      const rows = toDo
+        .filter(([k]) => generatedKeys.has(k))
+        .map(([k, j]) => ({
+          key: k,
+          voice_id: j.voiceId,
+          path: j.path,
+          chars: j.text?.length ?? null,
+        }));
+      await supabase.from("voice_audio_cache").upsert(rows, { onConflict: "key" });
     }
 
     // Debit for what was ACTUALLY generated (never the failures, never the

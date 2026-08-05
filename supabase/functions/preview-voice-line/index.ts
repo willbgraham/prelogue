@@ -204,11 +204,16 @@ Deno.serve(async (req) => {
     const filename = `${hash}${tag}.mp3`;
     const path = `${dir}/${filename}`;
 
-    // Cached already? (Preview replays and prior generations are free.)
-    const { data: existing } = await supabase.storage
-      .from(BUCKET)
-      .list(dir, { limit: 5, search: filename });
-    let cached = (existing ?? []).some((o) => o.name === filename);
+    // Cached already? (Preview replays and prior generations are free.) Checks
+    // the same voice_audio_cache index generate-voice-cues uses, so a clip made
+    // here is never re-made — and paid for — there.
+    const cacheKey = `${vid}/${hash}${tag}`;
+    const { data: cacheRow } = await supabase
+      .from("voice_audio_cache")
+      .select("key")
+      .eq("key", cacheKey)
+      .maybeSingle();
+    let cached = !!cacheRow;
 
     if (!cached) {
       // Credits: a single line is well under one credit, so accumulate preview
@@ -291,6 +296,12 @@ Deno.serve(async (req) => {
         console.error("preview upload error:", upErr.message);
         return json({ error: "Couldn't store the preview" }, 500);
       }
+      await supabase
+        .from("voice_audio_cache")
+        .upsert(
+          { key: cacheKey, voice_id: vid, path, chars: ttsText.length },
+          { onConflict: "key" }
+        );
       if (script_id === DEMO_SCRIPT_ID) {
         const { data: cur } = await supabase
           .from("demo_tts_usage")
