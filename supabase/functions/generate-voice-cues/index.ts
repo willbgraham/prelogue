@@ -511,14 +511,25 @@ Deno.serve(async (req) => {
         });
       }
     }
+    // Existence check, PAGINATED. storage.list() caps at 1000 objects per call,
+    // and a popular voice's folder is shared across every script that uses it —
+    // the default narrator already holds 1,500+ clips. Listing only the first
+    // page made cached audio look missing, so it was re-generated (real
+    // ElevenLabs spend) and, once credits landed, billed to the writer a second
+    // time for audio they already had.
     const voiceIds = new Set([...distinctJobs.values()].map((j) => j.voiceId));
     const existing = new Set<string>();
+    const PAGE = 1000;
     for (const vid of voiceIds) {
-      const { data: objs } = await supabase.storage
-        .from(BUCKET)
-        .list(`voice-cues/audio/${vid}`, { limit: 1000 });
-      for (const o of objs ?? []) {
-        existing.add(`${vid}/${o.name.replace(/\.mp3$/, "")}`);
+      const dir = `voice-cues/audio/${vid}`;
+      for (let offset = 0; ; offset += PAGE) {
+        const { data: objs } = await supabase.storage
+          .from(BUCKET)
+          .list(dir, { limit: PAGE, offset });
+        for (const o of objs ?? []) {
+          existing.add(`${vid}/${o.name.replace(/\.mp3$/, "")}`);
+        }
+        if (!objs || objs.length < PAGE) break;
       }
     }
 
