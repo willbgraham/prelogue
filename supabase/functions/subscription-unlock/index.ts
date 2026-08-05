@@ -9,10 +9,10 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 // KEEP IN SYNC with apps/web/lib/shared/plans.ts
-const PLANS: Record<string, { pages: number; label: string }> = {
-  growth: { pages: 50, label: "Growth" },
-  pro: { pages: 150, label: "Pro" },
-  studio: { pages: 300, label: "Studio" },
+const PLAN_LABEL: Record<string, string> = {
+  growth: "Growth",
+  pro: "Pro",
+  studio: "Studio",
 };
 
 const cors = {
@@ -60,64 +60,32 @@ Deno.serve(async (req) => {
 
     const { data: profile } = await admin
       .from("users")
-      .select("plan, plan_status, plan_pages_used, plan_renews_at")
+      .select("plan, plan_status, credits_balance")
       .eq("id", user.id)
       .single();
 
     const planId = (profile?.plan ?? "free") as string;
-    const plan = PLANS[planId];
     const status = profile?.plan_status ?? null;
     const active = status === "active" || status === "trialing";
-    if (!plan || !active) {
+    if (!PLAN_LABEL[planId] || !active) {
       return json({ error: "no_active_plan" }, 402);
     }
 
-    const allowance = plan.pages;
-    // Belt-and-suspenders: if the period end has passed but the renewal webhook
-    // hasn't reset usage yet, treat the budget as fresh.
-    const renews = profile?.plan_renews_at ? new Date(profile.plan_renews_at).getTime() : 0;
-    const periodOver = renews > 0 && Date.now() > renews;
-    const used = periodOver ? 0 : Math.max(0, profile?.plan_pages_used ?? 0);
-
-    // Scripts nearly always carry a page_count from the parser; floor a missing
-    // one so a null can't be spent for free.
-    const pages = Math.max(1, script.page_count ?? 30);
-
-    if (used + pages > allowance) {
-      return json(
-        {
-          error: "over_budget",
-          plan: planId,
-          plan_label: plan.label,
-          used,
-          allowance,
-          remaining: Math.max(0, allowance - used),
-          page_count: pages,
-        },
-        409
-      );
-    }
-
-    // Unlock first (the thing the writer paid for), then meter. If the meter
-    // write somehow fails, the writer keeps the unlock — we never charge budget
-    // without granting access.
+    // Unlocking is just access — the real metering happens per generation, in
+    // credits (see generate-voice-cues). Nothing is charged here, so a
+    // subscriber can open any of their scripts and only pays for what they
+    // actually voice.
     const { error: unlockErr } = await admin
       .from("scripts")
       .update({ full_read_unlocked: true, unlocked_at: new Date().toISOString() })
       .eq("id", script_id);
     if (unlockErr) return json({ error: unlockErr.message }, 500);
 
-    const newUsed = used + pages;
-    await admin.from("users").update({ plan_pages_used: newUsed }).eq("id", user.id);
-
     return json({
       ok: true,
       plan: planId,
-      plan_label: plan.label,
-      used: newUsed,
-      allowance,
-      remaining: Math.max(0, allowance - newUsed),
-      page_count: pages,
+      plan_label: PLAN_LABEL[planId],
+      credits_balance: profile?.credits_balance ?? 0,
     });
   } catch (err) {
     console.error("subscription-unlock error:", err);

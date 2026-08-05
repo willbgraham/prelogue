@@ -17,11 +17,31 @@ const admin = createClient(
 );
 
 // Subscription tiers. KEEP IN SYNC with apps/web/lib/shared/plans.ts.
-const PLANS: Record<string, { price_cents: number; pages: number }> = {
-  growth: { price_cents: 1900, pages: 50 },
-  pro: { price_cents: 3900, pages: 150 },
-  studio: { price_cents: 5900, pages: 300 },
+const PLANS: Record<string, { price_cents: number; credits: number }> = {
+  growth: { price_cents: 1900, credits: 100 },
+  pro: { price_cents: 3900, credits: 225 },
+  studio: { price_cents: 5900, credits: 375 },
 };
+const TOPUPS: Record<string, number> = { small: 100, medium: 250, large: 600 };
+const ONE_TIME_UNLOCK_CREDITS = 150;
+
+/** Grant credits (service role → the SECURITY DEFINER helper). */
+async function grantCredits(
+  userId: string,
+  credits: number,
+  reason: string,
+  ref: string | null,
+  topUpTo = false
+) {
+  if (!userId || credits <= 0) return;
+  await admin.rpc("grant_credits", {
+    p_user: userId,
+    p_credits: credits,
+    p_reason: reason,
+    p_ref: ref,
+    p_set_to_at_least: topUpTo,
+  });
+}
 
 /** Mark a script's full read as unlocked (idempotent). */
 async function unlockScript(scriptId: string) {
@@ -74,6 +94,12 @@ async function applySubscription(sub: Stripe.Subscription, resetUsage: boolean) 
   };
   if (resetUsage) patch.plan_pages_used = 0;
   await admin.from("users").update(patch).eq("id", userId);
+
+  // Fresh period → top the balance up TO the plan allowance (not stacking, so
+  // idle months don't accumulate an unbounded liability).
+  if (resetUsage && planId && PLANS[planId]) {
+    await grantCredits(userId, PLANS[planId].credits, "plan_grant", sub.id, true);
+  }
 }
 
 Deno.serve(async (req) => {
@@ -96,9 +122,25 @@ Deno.serve(async (req) => {
       case "checkout.session.completed": {
         const s = event.data.object as Stripe.Checkout.Session;
         if (s.mode === "subscription") break;
+        const paid = s.payment_status === "paid" || s.payment_status === "no_payment_required";
+        if (!paid) break;
+
+        // Credit top-up pack.
+        const topup = s.metadata?.topup as string | undefined;
+        if (topup && TOPUPS[topup]) {
+          const uid = await findUserId(s.metadata?.user_id, s.customer);
+          if (uid) await grantCredits(uid, TOPUPS[topup], "topup", s.id);
+          break;
+        }
+
+        // One-time per-script unlock: unlocks the script AND grants the credits
+        // needed to actually voice it (otherwise they'd have paid for access
+        // with no way to generate).
         const scriptId = s.metadata?.script_id as string | undefined;
-        if (scriptId && (s.payment_status === "paid" || s.payment_status === "no_payment_required")) {
+        if (scriptId) {
           await unlockScript(scriptId);
+          const uid = await findUserId(s.metadata?.user_id, s.customer);
+          if (uid) await grantCredits(uid, ONE_TIME_UNLOCK_CREDITS, "unlock_grant", scriptId);
         }
         break;
       }

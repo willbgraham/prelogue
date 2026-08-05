@@ -7,7 +7,7 @@ import { PLANS, PLAN_ORDER, PLAN_FEATURES, dollars } from "@/lib/shared/plans";
 export const metadata: Metadata = {
   title: "Pricing - Prelogue Studio",
   description:
-    "Plans from $19/mo by pages per month, or unlock a single script for $19 one-time. Listening is always free.",
+    "Plans from $19/mo with monthly voice credits, or unlock a single script for $19 one-time. Listening is always free.",
 };
 
 const DEMO_SCRIPT_SLUG = "booth-nine";
@@ -29,7 +29,7 @@ export default function Pricing() {
           Pricing that scales with your writing
         </h1>
         <p className="mt-4 text-taupe">
-          Listening is free. Pick a monthly plan and unlock as many scripts as your pages allow, or
+          Listening is free. Pick a monthly plan and spend credits voicing whatever you like, or
           pay once for a single script. Every plan includes the whole studio: 900+ voices, per-line
           emotion, scene music, and MP4 export.
         </p>
@@ -57,7 +57,7 @@ export default function Pricing() {
                 <span className="text-sm text-muted">/mo</span>
               </div>
               <div className="mt-1 text-sm font-medium text-brick">
-                {p.pages} pages / month
+                {p.credits} credits / month
               </div>
               <p className="mt-3 text-sm text-taupe">{p.blurb}</p>
               <SubscribeButton
@@ -87,9 +87,11 @@ export default function Pricing() {
           ))}
         </ul>
         <p className="mt-4 text-xs text-muted">
-          Pages are how many pages of scripts you can unlock each month. Unlocking is permanent, so
-          replays, edits, re-casts, and MP4 exports never cost extra pages. Your budget resets every
-          billing cycle.
+          One credit voices about 1,000 characters of speech: a 10-page short is roughly 7 credits,
+          a 100-page feature about 85. You only spend credits when new audio is generated —
+          replays, edits, re-listening and downloads are always free, and re-selecting a voice
+          you&rsquo;ve already used costs nothing. Credits refill every billing cycle, and you can
+          add more anytime.
         </p>
       </section>
 

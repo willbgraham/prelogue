@@ -211,6 +211,38 @@ Deno.serve(async (req) => {
     let cached = (existing ?? []).some((o) => o.name === filename);
 
     if (!cached) {
+      // Credits: a single line is well under one credit, so accumulate preview
+      // characters on the writer and only debit per full 1,000. Auditioning a
+      // dozen voices on one line costs ~2 credits, not 12. Cached previews are
+      // free (this whole branch is the cache-miss path). Demo is exempt.
+      if (script_id !== DEMO_SCRIPT_ID) {
+        const CHARS_PER_CREDIT = 1000;
+        const payerId = script.writer_id as string;
+        const { data: payer } = await supabase
+          .from("users")
+          .select("credits_balance, credits_preview_chars")
+          .eq("id", payerId)
+          .single();
+        const balance = payer?.credits_balance ?? 0;
+        const carried = (payer?.credits_preview_chars ?? 0) + ttsText.length;
+        const owed = Math.floor(carried / CHARS_PER_CREDIT);
+        if (owed > 0 && balance < owed) {
+          return json({ error: "insufficient_credits", needed: owed, balance }, 402);
+        }
+        if (owed > 0) {
+          await supabase.rpc("spend_credits", {
+            p_user: payerId,
+            p_credits: owed,
+            p_reason: "preview",
+            p_ref: script_id,
+          });
+        }
+        await supabase
+          .from("users")
+          .update({ credits_preview_chars: carried % CHARS_PER_CREDIT })
+          .eq("id", payerId);
+      }
+
       // Demo previews share the daily server-side character budget with
       // generate-voice-cues (demo_tts_usage) — the localStorage cap alone is
       // trivially bypassed with curl.

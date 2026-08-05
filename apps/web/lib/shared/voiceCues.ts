@@ -47,7 +47,14 @@ export interface PrepareVoiceCuesOptions {
    * provider is out of credits), so the caller can surface a retry instead of
    * silently skipping those lines in playback.
    */
-  onResult?: (r: { failed: number; remaining: number; total: number; locked: boolean }) => void;
+  onResult?: (r: {
+    failed: number;
+    remaining: number;
+    total: number;
+    locked: boolean;
+    creditsSpent?: number;
+    creditsLeft?: number;
+  }) => void;
 }
 
 /**
@@ -64,7 +71,14 @@ export async function prepareVoiceCues(
   const { onProgress, shouldCancel, voiceConfig, onResult } = opts;
   let manifestPath: string | null = null;
   let initialMisses = 0;
-  let finalStats = { failed: 0, remaining: 0, total: 0, locked: false };
+  let finalStats: {
+    failed: number;
+    remaining: number;
+    total: number;
+    locked: boolean;
+    creditsSpent?: number;
+    creditsLeft?: number;
+  } = { failed: 0, remaining: 0, total: 0, locked: false };
 
   for (let round = 0; round < MAX_ROUNDS; round++) {
     if (shouldCancel?.()) return new Map();
@@ -74,6 +88,18 @@ export async function prepareVoiceCues(
 
     const { data, error } = await client.functions.invoke("generate-voice-cues", { body });
     if (error) throw new Error((error as any)?.message ?? String(error));
+    if ((data as any)?.error === "insufficient_credits") {
+      // Typed so the player can offer a top-up instead of showing a raw string.
+      const e = new Error("insufficient_credits") as Error & {
+        code?: string;
+        needed?: number;
+        balance?: number;
+      };
+      e.code = "insufficient_credits";
+      e.needed = (data as any).needed;
+      e.balance = (data as any).balance;
+      throw e;
+    }
     if ((data as any)?.error) throw new Error((data as any).error);
 
     manifestPath = (data as any)?.manifest_path ?? manifestPath;
@@ -92,6 +118,8 @@ export async function prepareVoiceCues(
       remaining,
       total: Number((data as any)?.total_lines ?? 0),
       locked: !!(data as any)?.locked,
+      creditsSpent: (finalStats.creditsSpent ?? 0) + Number((data as any)?.credits_spent ?? 0),
+      creditsLeft: (data as any)?.credits_left ?? finalStats.creditsLeft,
     };
     if ((data as any)?.done) break;
     // No progress this round — every attempt failed (the voice provider is

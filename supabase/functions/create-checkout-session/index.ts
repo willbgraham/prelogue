@@ -23,10 +23,17 @@ const UNLOCK_PRICE_CENTS = Number(Deno.env.get("STRIPE_UNLOCK_PRICE_CENTS") ?? "
 
 // Monthly subscription tiers (pages/month). KEEP IN SYNC with
 // apps/web/lib/shared/plans.ts.
-const PLANS: Record<string, { price_cents: number; pages: number; label: string }> = {
-  growth: { price_cents: 1900, pages: 50, label: "Growth" },
-  pro: { price_cents: 3900, pages: 150, label: "Pro" },
-  studio: { price_cents: 5900, pages: 300, label: "Studio" },
+const PLANS: Record<string, { price_cents: number; credits: number; label: string }> = {
+  growth: { price_cents: 1900, credits: 100, label: "Growth" },
+  pro: { price_cents: 3900, credits: 225, label: "Pro" },
+  studio: { price_cents: 5900, credits: 375, label: "Studio" },
+};
+
+// One-off credit packs for when a month's allowance runs out.
+const TOPUPS: Record<string, { credits: number; price_cents: number }> = {
+  small: { credits: 100, price_cents: 1500 },
+  medium: { credits: 250, price_cents: 3500 },
+  large: { credits: 600, price_cents: 7900 },
 };
 
 /**
@@ -45,9 +52,12 @@ Deno.serve(async (req) => {
       return json({ error: "Stripe not configured (STRIPE_SECRET_KEY)" }, 500);
     }
 
-    const { script_id, plan, success_url, cancel_url } = await req.json().catch(() => ({}));
-    if (!script_id && !plan) return json({ error: "Missing script_id or plan" }, 400);
+    const { script_id, plan, topup, success_url, cancel_url } = await req.json().catch(() => ({}));
+    if (!script_id && !plan && !topup) {
+      return json({ error: "Missing script_id, plan or topup" }, 400);
+    }
     if (plan && !PLANS[plan]) return json({ error: "Unknown plan" }, 400);
+    if (topup && !TOPUPS[topup]) return json({ error: "Unknown top-up" }, 400);
 
     // Identify the caller from their Supabase auth token.
     const authHeader = req.headers.get("Authorization") ?? "";
@@ -90,6 +100,35 @@ Deno.serve(async (req) => {
     const cancelUrl =
       cancel_url ?? Deno.env.get("STRIPE_CANCEL_URL") ?? `${Deno.env.get("SUPABASE_URL")}`;
 
+    // ---- Credit top-up (one-time) ------------------------------------------
+    if (topup) {
+      const t = TOPUPS[topup];
+      const checkoutSession = await stripe.checkout.sessions.create({
+        mode: "payment",
+        customer: customerId,
+        line_items: [
+          {
+            quantity: 1,
+            price_data: {
+              currency: "usd",
+              unit_amount: t.price_cents,
+              product_data: {
+                name: `${t.credits} Prelogue credits`,
+                description: `Voice generation credits. 1 credit ≈ 1,000 characters of speech (a 100-page feature ≈ 85 credits).`,
+              },
+            },
+          },
+        ],
+        payment_intent_data: { metadata: { user_id: user.id, topup } },
+        metadata: { user_id: user.id, topup },
+        client_reference_id: user.id,
+        allow_promotion_codes: true,
+        success_url: successUrl,
+        cancel_url: cancelUrl,
+      });
+      return json({ url: checkoutSession.url });
+    }
+
     // ---- Subscription checkout ---------------------------------------------
     if (plan) {
       const p = PLANS[plan];
@@ -105,7 +144,7 @@ Deno.serve(async (req) => {
               recurring: { interval: "month" },
               product_data: {
                 name: `Prelogue ${p.label}`,
-                description: `${p.pages} pages of script unlocks per month, plus every studio feature.`,
+                description: `${p.credits} voice credits per month, plus every studio feature.`,
               },
             },
           },

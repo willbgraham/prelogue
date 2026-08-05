@@ -140,6 +140,14 @@ export function TableReadPlayer({
   // Lines the voice provider couldn't generate (e.g. out of credits). Surfaced
   // as a retryable banner instead of the read silently skipping those lines.
   const [genWarn, setGenWarn] = useState<{ missing: number } | null>(null);
+  // Out of credits: shown with a top-up link instead of a raw error string.
+  const [creditWall, setCreditWall] = useState<{ needed: number; balance: number } | null>(null);
+  // "This will use N credits" — asked before any spend, never after.
+  const [confirmSpend, setConfirmSpend] = useState<{
+    needed: number;
+    balance: number;
+    go: () => void;
+  } | null>(null);
   // Playback reached the paywall preview boundary on a locked script → show an
   // "unlock to continue" card instead of silently skipping the rest.
   const [previewStop, setPreviewStop] = useState(false);
@@ -536,6 +544,11 @@ export function TableReadPlayer({
       return true;
     } catch (e) {
       setPreparing(false);
+      const err = e as Error & { code?: string; needed?: number; balance?: number };
+      if (err?.code === "insufficient_credits") {
+        setCreditWall({ needed: err.needed ?? 0, balance: err.balance ?? 0 });
+        return false;
+      }
       setError(e instanceof Error ? e.message : "Couldn't prepare the audio.");
       return false;
     }
@@ -592,6 +605,8 @@ export function TableReadPlayer({
       setActive(0);
       setReveal(0);
       setNeedsTap(false);
+      // Price the re-cast before spending anything.
+      if (!(await confirmIfCostly())) return;
       await ensureReady(); // regenerates with the new voices (keyed on override)
       playingRef.current = true;
       setPlaying(true);
@@ -620,16 +635,50 @@ export function TableReadPlayer({
     [isOwner, scriptId]
   );
 
+  /** Price the pending generation first. Returns true when it's free (or the
+   *  writer already agreed to spend); false when we're waiting on a decision. */
+  const confirmIfCostly = useCallback(async (): Promise<boolean> => {
+    // Nothing to price on the demo or a script that's fully cached.
+    if (preparedKeyRef.current === (overrideRef.current ? JSON.stringify(overrideRef.current) : "default")) {
+      return true;
+    }
+    try {
+      const { data } = await getBrowserClient().functions.invoke("generate-voice-cues", {
+        body: {
+          script_id: scriptId,
+          dry_run: true,
+          ...(overrideRef.current ? { voice_config: overrideRef.current } : {}),
+        },
+      });
+      const needed = Number((data as { credits_needed?: number } | null)?.credits_needed ?? 0);
+      const balance = Number((data as { balance?: number } | null)?.balance ?? 0);
+      if (needed <= 0) return true;
+      return await new Promise<boolean>((resolve) => {
+        setConfirmSpend({
+          needed,
+          balance,
+          go: () => {
+            setConfirmSpend(null);
+            resolve(true);
+          },
+        });
+      });
+    } catch {
+      return true; // pricing is best-effort; never block playback on it
+    }
+  }, [scriptId]);
+
   const handlePlay = useCallback(async () => {
     if (playing) {
       stop();
       return;
     }
+    if (!(await confirmIfCostly())) return;
     await ensureReady();
     playingRef.current = true;
     setPlaying(true);
     playRow(activeRef.current);
-  }, [playing, ensureReady, playRow, stop]);
+  }, [playing, ensureReady, playRow, stop, confirmIfCostly]);
 
   const handleTap = useCallback(() => {
     setNeedsTap(false);
@@ -778,6 +827,50 @@ export function TableReadPlayer({
         </div>
       )}
       {error && <div className="px-4 py-2 text-sm text-brick">{error}</div>}
+      {confirmSpend && (
+        <div className="border-t border-tan bg-elevated px-4 py-4 text-center">
+          <div className="font-slab text-base">
+            This will use {confirmSpend.needed}{" "}
+            {confirmSpend.needed === 1 ? "credit" : "credits"}
+          </div>
+          <p className="mx-auto mt-1 max-w-md text-sm text-taupe">
+            You have {confirmSpend.balance}. Only new audio costs credits — replays, and voices
+            you&rsquo;ve already used, are free.
+          </p>
+          <div className="mt-3 flex flex-wrap justify-center gap-2">
+            <button
+              onClick={confirmSpend.go}
+              className="rounded-lg bg-brick px-5 py-2 text-sm font-medium text-white"
+            >
+              Generate
+            </button>
+            <button
+              onClick={() => setConfirmSpend(null)}
+              className="rounded-lg border border-tan px-5 py-2 text-sm font-medium text-taupe hover:bg-ivory"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {creditWall && (
+        <div className="border-t border-tan bg-brick/5 px-4 py-4 text-center">
+          <div className="font-slab text-base">You&rsquo;re out of credits</div>
+          <p className="mx-auto mt-1 max-w-md text-sm text-taupe">
+            This needs about {creditWall.needed}{" "}
+            {creditWall.needed === 1 ? "credit" : "credits"} and you have{" "}
+            {creditWall.balance}. Anything already voiced still plays free.
+          </p>
+          <Link
+            href="/settings/billing"
+            className="mt-3 inline-flex rounded-lg bg-brick px-5 py-2 text-sm font-medium text-white"
+          >
+            Add credits →
+          </Link>
+        </div>
+      )}
+
       {genWarn && (
         <div className="flex flex-wrap items-center gap-2 border-t border-tan/40 bg-brick/5 px-4 py-2 text-sm text-brick">
           <span>

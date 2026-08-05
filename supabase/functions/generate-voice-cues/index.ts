@@ -150,7 +150,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { script_id, voice_config: voiceConfigOverride } = await req.json();
+    const { script_id, voice_config: voiceConfigOverride, dry_run } = await req.json();
     if (!script_id) {
       return new Response(JSON.stringify({ error: "script_id required" }), {
         status: 400,
@@ -557,6 +557,68 @@ Deno.serve(async (req) => {
         toDo = [];
       }
     }
+    // ---- Credits ----------------------------------------------------------
+    // 1 credit = 1,000 characters of generated speech. Only genuine cache
+    // MISSES cost anything: replays, and re-selecting a voice already used for
+    // a line, are free. The script's WRITER pays (not whoever presses play), so
+    // an approved listener or invited actor can hear the read without being
+    // billed for someone else's script.
+    // The demo is exempt (pre-warmed + its own budget) and so is the service
+    // role (the render worker).
+    const CHARS_PER_CREDIT = 1000;
+    const payerId = script.writer_id as string;
+    const isDemoScript = script_id === DEMO_SCRIPT_ID;
+    const meterCredits = !isDemoScript && !serviceBearer && toDo.length > 0;
+
+    // A dry run prices the job without generating anything, so the client can
+    // warn "this will use N credits" BEFORE spending. Costs nothing to call.
+    if (dry_run) {
+      const chars = toDo.reduce((n, [, j]) => n + (j.text?.length ?? 0), 0);
+      const needed = chars > 0 ? Math.max(1, Math.ceil(chars / CHARS_PER_CREDIT)) : 0;
+      let balance = 0;
+      if (!isDemoScript) {
+        const { data: payer } = await supabase
+          .from("users")
+          .select("credits_balance")
+          .eq("id", payerId)
+          .single();
+        balance = payer?.credits_balance ?? 0;
+      }
+      return new Response(
+        JSON.stringify({
+          dry_run: true,
+          credits_needed: meterCredits ? needed : 0,
+          balance,
+          new_lines: toDo.length,
+          remaining_after_run: Math.max(0, allMisses.length - toDo.length),
+          cached: allMisses.length === 0,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    if (meterCredits) {
+      const charsToGenerate = toDo.reduce((n, [, j]) => n + (j.text?.length ?? 0), 0);
+      const estimate = Math.max(1, Math.ceil(charsToGenerate / CHARS_PER_CREDIT));
+      const { data: payer } = await supabase
+        .from("users")
+        .select("credits_balance")
+        .eq("id", payerId)
+        .single();
+      const balance = payer?.credits_balance ?? 0;
+      if (balance < estimate) {
+        return new Response(
+          JSON.stringify({
+            error: "insufficient_credits",
+            needed: estimate,
+            balance,
+            is_owner: callerId === payerId,
+          }),
+          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
+
     const generatedKeys = new Set<string>();
     let failed = 0;
 
@@ -569,6 +631,25 @@ Deno.serve(async (req) => {
         if (ok) generatedKeys.add(batch[j][0]);
         else failed++;
       });
+    }
+
+    // Debit for what was ACTUALLY generated (never the failures, never the
+    // cache hits). The pre-flight check above already guaranteed the balance
+    // covers this, so the debit can't push anyone negative.
+    let creditsSpent = 0;
+    let creditsLeft: number | null = null;
+    if (meterCredits && generatedKeys.size) {
+      const charsDone = toDo
+        .filter(([k]) => generatedKeys.has(k))
+        .reduce((n, [, j]) => n + (j.text?.length ?? 0), 0);
+      creditsSpent = Math.max(1, Math.ceil(charsDone / CHARS_PER_CREDIT));
+      const { data: newBalance } = await supabase.rpc("spend_credits", {
+        p_user: payerId,
+        p_credits: creditsSpent,
+        p_reason: "generation",
+        p_ref: script_id,
+      });
+      creditsLeft = typeof newBalance === "number" ? newBalance : null;
     }
 
     // Tally what the demo actually generated against the budget. Ops pre-warming
@@ -627,6 +708,8 @@ Deno.serve(async (req) => {
         // ceiling that won't lift until tomorrow.
         done: demoBudgetExceeded ? true : remaining === 0,
         demo_budget_exceeded: demoBudgetExceeded || undefined,
+        credits_spent: creditsSpent || undefined,
+        credits_left: creditsLeft ?? undefined,
         cached: allMisses.length === 0,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
