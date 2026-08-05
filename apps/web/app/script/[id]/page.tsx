@@ -15,6 +15,7 @@ import { DeleteScriptButton } from "@/components/DeleteScriptButton";
 import { RequestListen } from "@/components/RequestListen";
 import { ListenRequests } from "@/components/ListenRequests";
 import { InvitedToRead } from "@/components/InvitedToRead";
+import { WriterCTA } from "@/components/WriterCTA";
 import type { Script, Character } from "@/lib/shared";
 import { labelOf, LISTING_STATUSES, FORMATS, AGE_RATINGS } from "@/lib/constants";
 
@@ -269,6 +270,26 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
         />
       </div>
 
+      {/* The read comes first: it IS the product, and ad traffic used to have
+          to scroll past the cast, actor sign-up and live readings to find the
+          play button. */}
+      <div className="mt-6">
+        <TableReadPlayer
+          scriptId={(script as Script).id}
+          parsed={(script as Script).parsed_json}
+          voiceConfig={(script as Script).voice_config}
+          ambience={(script as Script).ambience_config ?? null}
+          canChangeVoices={
+            (script as Script).slug === "booth-nine" ||
+            user?.id === (script as Script).writer_id
+          }
+          isOwner={user?.id === (script as Script).writer_id}
+        />
+      </div>
+
+      {/* Then the ask, while they've just heard it. */}
+      {user?.id !== (script as Script).writer_id && <WriterCTA signedIn={!!user} />}
+
       <ScriptCast
         scriptId={s.id}
         characters={
@@ -339,20 +360,6 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
         scriptId={s.id}
         characters={(characters as { id: string; name: string }[] | null) ?? []}
       />
-
-      <div className="mt-6">
-        <TableReadPlayer
-          scriptId={(script as Script).id}
-          parsed={(script as Script).parsed_json}
-          voiceConfig={(script as Script).voice_config}
-          ambience={(script as Script).ambience_config ?? null}
-          canChangeVoices={
-            (script as Script).slug === "booth-nine" ||
-            user?.id === (script as Script).writer_id
-          }
-          isOwner={user?.id === (script as Script).writer_id}
-        />
-      </div>
 
       {s.more_details && (
         <div className="mt-8">
