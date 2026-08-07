@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { isServiceRole } from "../_shared/serviceRole.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -28,8 +29,7 @@ Deno.serve(async (req) => {
     // arbitrary "first-party" notifications (phishing) to any user's devices.
     // Require a signed-in caller (or the service role, for internal fns); cap
     // payload sizes so it can't carry walls of spam.
-    const bearer = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
-    const isService = bearer === Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    const isService = isServiceRole(req.headers.get("Authorization"));
     if (!isService) {
       const {
         data: { user: caller },

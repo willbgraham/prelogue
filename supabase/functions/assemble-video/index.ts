@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { isServiceRole } from "../_shared/serviceRole.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -41,8 +42,7 @@ Deno.serve(async (req) => {
 
     // Only the script's writer, an admin, or the service role may assemble —
     // previously unauthenticated (status flips + notification spam).
-    const bearer = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
-    if (bearer !== Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")) {
+    if (!isServiceRole(req.headers.get("Authorization"))) {
       const {
         data: { user: caller },
       } = await createClient(

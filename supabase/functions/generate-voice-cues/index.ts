@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { isServiceRole } from "../_shared/serviceRole.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -237,8 +238,7 @@ Deno.serve(async (req) => {
       "UrdIUsVuyr5QSUJdS5hu", "d8WcCpplp8meHt10UhL8", "6de0u4cGYWDeBlsfrX39",
       "QyCGbzzEtSqHWJ8rNRMK",
     ]);
-    const serviceBearer =
-      (authHeader ?? "").replace(/^Bearer\s+/i, "") === Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    const serviceBearer = isServiceRole(authHeader);
     const isDemoVisitor =
       script_id === DEMO_SCRIPT_ID && !serviceBearer && callerId !== script.writer_id;
     if (isDemoVisitor && voiceConfigOverride) {
@@ -264,8 +264,7 @@ Deno.serve(async (req) => {
     // can't bypass it; the script TEXT is separately protected by RLS
     // (visibility 'private' + can_view_script).
     if ((script as any).listen_gated === true) {
-      const bearer = (authHeader ?? "").replace(/^Bearer\s+/i, "");
-      const isService = !!bearer && bearer === Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+      const isService = isServiceRole(authHeader);
       const isWriter = !!callerId && callerId === script.writer_id;
       let approved = false;
       if (!isService && !isWriter && callerId) {

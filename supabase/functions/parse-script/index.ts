@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { isServiceRole } from "../_shared/serviceRole.ts";
 import { getDocumentProxy } from "https://esm.sh/unpdf@0.12.1";
 
 const corsHeaders = {
@@ -327,8 +328,7 @@ Deno.serve(async (req) => {
     // Parsing rewrites parsed_json/characters and (with debug) echoes raw
     // script text, so only the script's writer, an admin, or the service role
     // may run it. Previously unauthenticated — private-script text leak.
-    const bearer = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
-    const isService = bearer === Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    const isService = isServiceRole(req.headers.get("Authorization"));
     let isAdmin = false;
     let callerId: string | null = null;
     if (!isService) {
