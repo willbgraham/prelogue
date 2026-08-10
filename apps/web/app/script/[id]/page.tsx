@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { TableReadPlayer } from "@/components/TableReadPlayer";
 import { OwnerUnlock } from "@/components/OwnerUnlock";
 import { OwnerPanel } from "@/components/OwnerPanel";
+import { ExportReadCard } from "@/components/ExportReadCard";
 import { ShareButton } from "@/components/ShareButton";
 import { ReadForRole } from "@/components/ReadForRole";
 import { ScriptLiveReadings } from "@/components/ScriptLiveReadings";
@@ -289,6 +290,18 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
 
       {/* Then the ask, while they've just heard it. */}
       {user?.id !== (script as Script).writer_id && <WriterCTA signedIn={!!user} />}
+
+      {/* Download sits right under the player because that's where a writer who
+          just listened looks for it. It used to live only on the casting page —
+          a paying customer emailed that she couldn't find it at all. */}
+      {user?.id === s.writer_id && s.full_read_unlocked && (
+        <ExportReadCard
+          scriptId={s.id}
+          title={s.title}
+          unlocked={!!s.full_read_unlocked}
+          pageCount={s.page_count ?? null}
+        />
+      )}
 
       <ScriptCast
         scriptId={s.id}
