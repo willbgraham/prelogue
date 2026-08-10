@@ -2,7 +2,7 @@
 // the render-one GitHub Actions workflow with a script_id. Env: SUPABASE_URL,
 // SUPABASE_SERVICE_ROLE_KEY. Args: <script_id> [variant] [submission_ids csv].
 const { makeClient } = require("../src/supabaseData");
-const { renderScene } = require("../src/renderScene");
+const { renderScene, exportAudio } = require("../src/renderScene");
 
 const scriptId = process.argv[2];
 const variant = process.argv[3] || "ai";
@@ -25,14 +25,21 @@ if (!supabaseUrl || !serviceKey) {
 
 const supabase = makeClient(supabaseUrl, serviceKey);
 
-renderScene({
-  supabase,
-  supabaseUrl,
-  serviceKey,
-  scriptId,
-  variant,
-  submissionIds: submissionIds.length ? submissionIds : undefined,
-})
+// variant "audio" skips Remotion entirely and just stitches the existing voice
+// clips into one MP3 — which is why audio export has no page limit.
+const job =
+  variant === "audio"
+    ? exportAudio({ supabase, supabaseUrl, serviceKey, scriptId })
+    : renderScene({
+        supabase,
+        supabaseUrl,
+        serviceKey,
+        scriptId,
+        variant,
+        submissionIds: submissionIds.length ? submissionIds : undefined,
+      });
+
+job
   .then((r) => {
     console.log("RENDER DONE", JSON.stringify(r));
     process.exit(0);

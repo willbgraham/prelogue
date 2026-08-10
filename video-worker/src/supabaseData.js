@@ -43,6 +43,19 @@ async function ensureVoiceCues(supabaseUrl, serviceKey, scriptId) {
   return last;
 }
 
+// Dry-run generate-voice-cues: resolves the manifest path and how many lines
+// are still ungenerated, without generating (or spending) anything.
+async function priceVoiceCues(supabaseUrl, serviceKey, scriptId) {
+  const res = await fetch(`${supabaseUrl}/functions/v1/generate-voice-cues`, {
+    method: "POST",
+    headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ script_id: scriptId, dry_run: true }),
+  });
+  const out = await res.json();
+  if (out.error) throw new Error("generate-voice-cues (dry run): " + out.error);
+  return out;
+}
+
 async function fetchManifest(supabase, manifestPath) {
   const { data, error } = await supabase.storage.from("scripts").download(manifestPath);
   if (error) throw error;
@@ -70,4 +83,12 @@ async function fetchClips(supabase, scriptId, submissionIds) {
   return byIdx;
 }
 
-module.exports = { makeClient, fetchScript, ensureVoiceCues, fetchManifest, signPaths, fetchClips };
+module.exports = {
+  makeClient,
+  fetchScript,
+  ensureVoiceCues,
+  priceVoiceCues,
+  fetchManifest,
+  signPaths,
+  fetchClips,
+};

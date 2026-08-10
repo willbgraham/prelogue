@@ -1,13 +1,12 @@
-// Writer MP4 export: render the script's table read as a downloadable video,
-// reusing the daily-render pipeline (render-one.yml → video-worker → the
-// daily-renders bucket + daily_renders table).
+// Writer export: render the script's table read as a downloadable video or a
+// single MP3, reusing the daily-render pipeline (render-one.yml →
+// video-worker → the daily-renders bucket + daily_renders table).
 //
-//   action "dispatch" → trigger a GitHub Actions render for the script
-//   action "status"   → latest render row + a signed download URL when ready
+//   action "dispatch" → trigger a GitHub Actions render (kind video|audio)
+//   action "status"   → latest render rows + signed download URLs when ready
 //
-// Gates: caller must be the script's writer; the script must have the full
-// read unlocked (the MP4 IS the full read — same $19 gate as generation); and
-// page_count is capped so renders fit the Actions job comfortably.
+// Gates: caller must be the script's writer, and the script must have the full
+// read unlocked (the export IS the full read — same $19 gate as generation).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
@@ -16,7 +15,12 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-const MAX_PAGES = 15;
+// Video only. Remotion renders at roughly 1:1 with the video's runtime and the
+// Actions job is capped at 60 minutes (render-one.yml), so a feature-length
+// script would be killed mid-render. ~0.87 min of read per page puts 40 pages
+// at ~35 min of video — comfortably inside the job even on a slow runner.
+// Audio has no cap: it's an ffmpeg concat of clips that already exist.
+const MAX_VIDEO_PAGES = 40;
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -30,10 +34,11 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { script_id, action } = await req.json();
+    const { script_id, action, kind: rawKind } = await req.json();
     if (!script_id || (action !== "dispatch" && action !== "status")) {
       return json({ error: "script_id and action (dispatch|status) required" }, 400);
     }
+    const kind: "video" | "audio" = rawKind === "audio" ? "audio" : "video";
 
     const admin = createClient(
       Deno.env.get("SUPABASE_URL")!,
@@ -64,48 +69,67 @@ Deno.serve(async (req) => {
     }
 
     if (action === "status") {
-      const { data: render } = await admin
-        .from("daily_renders")
-        .select("id, status, video_path, error, created_at, rendered_at")
-        .eq("script_id", script_id)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (!render) return json({ render: null });
+      // Video and audio exports are independent — each has its own latest row,
+      // so rendering one never blanks the other's download button.
+      const latest = async (variants: string[]) => {
+        const { data } = await admin
+          .from("daily_renders")
+          .select("id, status, video_path, error, created_at, rendered_at")
+          .eq("script_id", script_id)
+          .in("variant", variants)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        return data;
+      };
+      const sign = async (p: string) =>
+        (await admin.storage.from("daily-renders").createSignedUrl(p, 3600)).data?.signedUrl ??
+        null;
+
+      const video = await latest(["ai", "composite"]);
+      const audio = await latest(["audio"]);
+
       let url: string | null = null;
-      let audioUrl: string | null = null;
-      if (render.video_path && (render.status === "ready" || render.status === "posted")) {
-        const { data: signed } = await admin.storage
-          .from("daily-renders")
-          .createSignedUrl(render.video_path, 3600);
-        url = signed?.signedUrl ?? null;
-        // MP3 sibling (renders after 2026-08-04 carry one; older ones just 404
-        // the sign and the card hides the button).
-        const { data: signedMp3 } = await admin.storage
-          .from("daily-renders")
-          .createSignedUrl(render.video_path.replace(/\.mp4$/, ".mp3"), 3600);
-        audioUrl = signedMp3?.signedUrl ?? null;
+      let siblingMp3: string | null = null;
+      if (video?.video_path && (video.status === "ready" || video.status === "posted")) {
+        url = await sign(video.video_path);
+        // MP3 sibling of the video render (renders after 2026-08-04 carry one).
+        // Kept as a fallback so short scripts that already rendered an MP4 have
+        // an MP3 without waiting on a second job.
+        siblingMp3 = await sign(video.video_path.replace(/\.mp4$/, ".mp3"));
       }
+      let audioUrl: string | null = null;
+      if (audio?.video_path && (audio.status === "ready" || audio.status === "posted")) {
+        audioUrl = await sign(audio.video_path);
+      }
+
+      const shape = (r: typeof video, u: string | null) =>
+        r
+          ? {
+              id: r.id,
+              status: r.status,
+              error: r.error,
+              created_at: r.created_at,
+              rendered_at: r.rendered_at,
+              url: u,
+            }
+          : null;
+
       return json({
-        render: {
-          id: render.id,
-          status: render.status,
-          error: render.error,
-          created_at: render.created_at,
-          rendered_at: render.rendered_at,
-          url,
-          audio_url: audioUrl,
-        },
+        render: video ? { ...shape(video, url)!, audio_url: siblingMp3 } : null,
+        audio: shape(audio, audioUrl),
       });
     }
 
     // action === "dispatch"
     if (!script.full_read_unlocked) {
-      return json({ error: "Unlock the full read to export it as a video" }, 402);
+      return json({ error: "Unlock the full read to export it" }, 402);
     }
-    if ((script.page_count ?? 0) > MAX_PAGES) {
+    if (kind === "video" && (script.page_count ?? 0) > MAX_VIDEO_PAGES) {
       return json(
-        { error: `MP4 export currently supports scripts up to ${MAX_PAGES} pages` },
+        {
+          error: `MP4 export supports scripts up to ${MAX_VIDEO_PAGES} pages — download the MP3 instead, which has no length limit`,
+        },
         400
       );
     }
@@ -125,7 +149,7 @@ Deno.serve(async (req) => {
         },
         body: JSON.stringify({
           ref: "main",
-          inputs: { script_id: String(script_id), variant: "ai" },
+          inputs: { script_id: String(script_id), variant: kind === "audio" ? "audio" : "ai" },
         }),
       }
     );

@@ -4,7 +4,14 @@ const fs = require("fs");
 const crypto = require("crypto");
 const { bundle } = require("@remotion/bundler");
 const { selectComposition, renderMedia } = require("@remotion/renderer");
-const { fetchScript, ensureVoiceCues, fetchManifest, signPaths, fetchClips } = require("./supabaseData");
+const {
+  fetchScript,
+  ensureVoiceCues,
+  priceVoiceCues,
+  fetchManifest,
+  signPaths,
+  fetchClips,
+} = require("./supabaseData");
 const { probeAll } = require("./probe");
 const { buildRows, buildTimeline } = require("./timeline");
 
@@ -116,6 +123,112 @@ function postMixAmbience(inPath, outPath, ambience, fps) {
   );
   execFileSync("ffmpeg", args, { stdio: ["ignore", "ignore", "pipe"] });
   return outPath;
+}
+
+/**
+ * Audio-only export: concatenate the read's already-generated clips into one
+ * MP3. No Remotion, no video — which is why this has NO page limit. MP4 export
+ * is capped because rendering a feature-length video is genuinely heavy; audio
+ * is just ffmpeg stitching files that already exist, so a 101-page feature
+ * takes about as long as a 5-page scene.
+ */
+async function exportAudio({ supabase, supabaseUrl, serviceKey, scriptId }) {
+  const renderId = crypto.randomUUID();
+  await supabase
+    .from("daily_renders")
+    .insert({ id: renderId, script_id: scriptId, variant: "audio", status: "processing" });
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "audio-"));
+  try {
+    const script = await fetchScript(supabase, scriptId);
+
+    // Price the read WITHOUT generating. The worker authenticates as service
+    // role, which is exempt from credit metering — so calling the generator
+    // here would hand out free regeneration after any voice swap. Export only
+    // ever stitches audio the writer has already paid to generate.
+    const priced = await priceVoiceCues(supabaseUrl, serviceKey, scriptId);
+    if (!priced || !priced.manifest_path) throw new Error("voice manifest not available");
+    if ((priced.new_lines ?? 0) > 0) {
+      throw new Error(
+        `${priced.new_lines} line(s) haven't been generated yet — play the read to finish generating, then export`
+      );
+    }
+    // Everything is cached, so this writes the manifest (if a voice swap moved
+    // it to a new key) and generates nothing.
+    const cues = await ensureVoiceCues(supabaseUrl, serviceKey, scriptId);
+    const manifest = await fetchManifest(supabase, cues?.manifest_path || priced.manifest_path);
+    if (!manifest.length) throw new Error("no generated audio for this script yet");
+
+    // Manifest order IS playback order; sort defensively.
+    const ordered = [...manifest].sort((a, b) => a.element_index - b.element_index);
+    const signed = await signPaths(supabase, "scripts", ordered.map((m) => m.audio_path));
+
+    const { execFileSync } = require("child_process");
+    const listPath = path.join(tmp, "list.txt");
+    const lines = [];
+    let i = 0;
+    for (const m of ordered) {
+      const url = signed.get(m.audio_path);
+      if (!url) continue;
+      const clip = path.join(tmp, `${String(i++).padStart(6, "0")}.mp3`);
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      fs.writeFileSync(clip, Buffer.from(await res.arrayBuffer()));
+      // ffmpeg concat needs single quotes escaped in paths
+      lines.push(`file '${clip.replace(/'/g, "'\\''")}'`);
+    }
+    if (!lines.length) throw new Error("no clips could be fetched");
+    fs.writeFileSync(listPath, lines.join("\n"));
+
+    const outPath = path.join(tmp, "out.mp3");
+    // -c copy: every clip is the same codec/bitrate, so this is a fast stream
+    // copy rather than a re-encode.
+    execFileSync("ffmpeg", ["-y", "-f", "concat", "-safe", "0", "-i", listPath, "-c", "copy", outPath], {
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+
+    const storagePath = `${scriptId}/audio/${renderId}.mp3`;
+    const { error: upErr } = await supabase.storage
+      .from("daily-renders")
+      .upload(storagePath, fs.readFileSync(outPath), { contentType: "audio/mpeg", upsert: true });
+    if (upErr) throw upErr;
+
+    await supabase
+      .from("daily_renders")
+      .update({
+        status: "ready",
+        video_path: storagePath,
+        title: script.title,
+        rendered_at: new Date().toISOString(),
+      })
+      .eq("id", renderId);
+
+    // Supersede older audio exports for this script.
+    try {
+      const { data: stale } = await supabase
+        .from("daily_renders")
+        .select("id, video_path")
+        .eq("script_id", scriptId)
+        .eq("variant", "audio")
+        .neq("id", renderId);
+      const paths = (stale || []).map((s) => s.video_path).filter(Boolean);
+      if (paths.length) await supabase.storage.from("daily-renders").remove(paths);
+      const ids = (stale || []).map((s) => s.id);
+      if (ids.length) await supabase.from("daily_renders").delete().in("id", ids);
+    } catch (e) {
+      console.warn("audio cleanup failed (non-fatal):", (e && e.message) || e);
+    }
+
+    console.log(`✓ audio ${renderId} ready: ${storagePath} (${lines.length} clips)`);
+    return { renderId, video_path: storagePath, clips: lines.length };
+  } catch (e) {
+    await supabase
+      .from("daily_renders")
+      .update({ status: "failed", error: String((e && e.message) || e) })
+      .eq("id", renderId);
+    throw e;
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
 }
 
 // Render a script → MP4 → private daily-renders bucket → daily_renders row.
@@ -234,4 +347,4 @@ async function renderScene({ supabase, supabaseUrl, serviceKey, scriptId, varian
   }
 }
 
-module.exports = { renderScene, buildProps, getBundle, postMixAmbience };
+module.exports = { renderScene, exportAudio, buildProps, getBundle, postMixAmbience };

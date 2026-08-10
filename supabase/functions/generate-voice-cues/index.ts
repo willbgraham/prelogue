@@ -595,6 +595,10 @@ Deno.serve(async (req) => {
           new_lines: toDo.length,
           remaining_after_run: Math.max(0, allMisses.length - toDo.length),
           cached: allMisses.length === 0,
+          // Lets the export worker find the read's manifest without triggering
+          // generation (it runs as service role, which is credit-exempt).
+          manifest_path: manifestPath,
+          total_lines: entries.length,
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
