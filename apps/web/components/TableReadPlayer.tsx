@@ -43,6 +43,25 @@ function bumpVoiceChanges(): number {
 }
 
 /**
+ * iOS runs HTML5 <audio> in the "ambient" audio session by default, which the
+ * hardware ring/silent switch mutes. play() still resolves, the lines still
+ * type out, the counter still advances — and the reader hears nothing, with no
+ * error to catch. "playback" is the session music and podcast apps use: it
+ * ignores the silent switch. Safari 16.4+; a harmless no-op everywhere else.
+ *
+ * A paying customer reported "it has finished generating but I can't hear
+ * anything" — silent playback, not a failure — which is exactly this shape.
+ */
+function claimPlaybackAudioSession() {
+  try {
+    const s = (navigator as Navigator & { audioSession?: { type: string } }).audioSession;
+    if (s && s.type !== "playback") s.type = "playback";
+  } catch {
+    /* unsupported — the "No sound?" hint in the player bar is the fallback */
+  }
+}
+
+/**
  * Manifest-driven table-read player. Walks the voiced rows (buildRows), plays
  * each line's generated audio through one persistent <audio>, and types the
  * Courier "page" in sync (reveal ∝ currentTime/duration). Generation runs on
@@ -136,6 +155,7 @@ export function TableReadPlayer({
   const [playing, setPlaying] = useState(false);
   const [reveal, setReveal] = useState(0);
   const [needsTap, setNeedsTap] = useState(false);
+  const [showSoundHelp, setShowSoundHelp] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Lines the voice provider couldn't generate (e.g. out of credits). Surfaced
   // as a retryable banner instead of the read silently skipping those lines.
@@ -462,6 +482,7 @@ export function TableReadPlayer({
       }
 
       audio.src = cue.signedUrl;
+      claimPlaybackAudioSession();
       try {
         await audio.play();
       } catch {
@@ -812,11 +833,40 @@ export function TableReadPlayer({
               <span className={ambienceMuted ? "line-through" : ""}>♪</span>
             </button>
           )}
+          {playing && (
+            <button
+              onClick={() => setShowSoundHelp((v) => !v)}
+              className="rounded-lg border border-tan px-2.5 py-1.5 text-taupe hover:bg-elevated"
+            >
+              No sound?
+            </button>
+          )}
           <span>
             {Math.min(active + 1, rows.length)} / {rows.length}
           </span>
         </div>
       </div>
+
+      {showSoundHelp && (
+        <div className="border-t border-tan bg-elevated px-4 py-3 text-sm text-taupe">
+          <p className="font-medium text-ink">The read is playing — if you can&apos;t hear it:</p>
+          <ul className="mt-1 list-disc space-y-0.5 pl-5">
+            <li>
+              <strong>On iPhone</strong>, check the ring/silent switch on the left edge. Silent mode
+              can mute web audio even though the read looks like it&apos;s playing.
+            </li>
+            <li>Turn the volume up with the phone&apos;s side buttons while the read is playing.</li>
+            <li>If you&apos;re on Bluetooth, the sound may be going to headphones or a speaker.</li>
+          </ul>
+          <p className="mt-2">
+            Still nothing? Download the MP3 below and play it in your usual audio app — or email{" "}
+            <a className="underline" href="mailto:hello@prelogue.studio">
+              hello@prelogue.studio
+            </a>
+            .
+          </p>
+        </div>
+      )}
 
       {preparing && (
         <div className="h-1 w-full bg-tan/40">
