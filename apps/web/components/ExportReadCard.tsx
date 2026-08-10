@@ -156,8 +156,8 @@ export function ExportReadCard({
           </div>
           {audioInFlight && (
             <p className="-mt-2 text-taupe">
-              Building your MP3 — usually a couple of minutes. This updates on its own; you can
-              leave the page.
+              Building your MP3 — a few minutes, longer for a feature. This updates on its own;
+              you can leave the page.
             </p>
           )}
           {!audioInFlight && audio?.status === "failed" && (

@@ -163,20 +163,43 @@ async function exportAudio({ supabase, supabaseUrl, serviceKey, scriptId }) {
     const signed = await signPaths(supabase, "scripts", ordered.map((m) => m.audio_path));
 
     const { execFileSync } = require("child_process");
+
+    // Download concurrently — a feature is well over a thousand clips, and one
+    // at a time made the job eight minutes of pure waiting. Filenames carry the
+    // playback index so order survives out-of-order completion.
+    const targets = ordered
+      .map((m, idx) => ({ idx, url: signed.get(m.audio_path) }))
+      .filter((t) => t.url);
+    const got = new Array(targets.length).fill(null);
+    const DL_CONCURRENCY = 12;
+    let cursor = 0;
+    await Promise.all(
+      Array.from({ length: Math.min(DL_CONCURRENCY, targets.length) }, async () => {
+        for (;;) {
+          const n = cursor++;
+          if (n >= targets.length) return;
+          const t = targets[n];
+          const clip = path.join(tmp, `${String(t.idx).padStart(6, "0")}.mp3`);
+          try {
+            const res = await fetch(t.url);
+            if (!res.ok) continue;
+            const buf = Buffer.from(await res.arrayBuffer());
+            if (!buf.length) continue;
+            fs.writeFileSync(clip, buf);
+            got[n] = clip;
+          } catch (_) {
+            /* a dropped clip shouldn't sink the whole export */
+          }
+        }
+      })
+    );
+
     const listPath = path.join(tmp, "list.txt");
-    const lines = [];
-    let i = 0;
-    for (const m of ordered) {
-      const url = signed.get(m.audio_path);
-      if (!url) continue;
-      const clip = path.join(tmp, `${String(i++).padStart(6, "0")}.mp3`);
-      const res = await fetch(url);
-      if (!res.ok) continue;
-      fs.writeFileSync(clip, Buffer.from(await res.arrayBuffer()));
-      // ffmpeg concat needs single quotes escaped in paths
-      lines.push(`file '${clip.replace(/'/g, "'\\''")}'`);
-    }
+    // ffmpeg concat needs single quotes escaped in paths
+    const lines = got.filter(Boolean).map((c) => `file '${c.replace(/'/g, "'\\''")}'`);
     if (!lines.length) throw new Error("no clips could be fetched");
+    const missing = targets.length - lines.length;
+    if (missing) console.warn(`${missing} clip(s) couldn't be fetched — exporting without them`);
     fs.writeFileSync(listPath, lines.join("\n"));
 
     const outPath = path.join(tmp, "out.mp3");
