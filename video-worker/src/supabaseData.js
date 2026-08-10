@@ -63,13 +63,21 @@ async function fetchManifest(supabase, manifestPath) {
   return JSON.parse(text); // [{ element_index, audio_path, text, voice_id, type, character }]
 }
 
+// createSignedUrls rejects more than 1000 paths per call, and a feature-length
+// read runs to several thousand clips — so batch. (Same 1000-item ceiling that
+// made storage.list() silently under-report the audio cache.)
+const SIGN_BATCH = 500;
+
 async function signPaths(supabase, bucket, paths, ttl = 21600) {
   const uniq = [...new Set(paths.filter(Boolean))];
   const map = new Map();
   if (!uniq.length) return map;
-  const { data, error } = await supabase.storage.from(bucket).createSignedUrls(uniq, ttl);
-  if (error) throw error;
-  uniq.forEach((p, i) => map.set(p, (data && data[i] && data[i].signedUrl) || ""));
+  for (let i = 0; i < uniq.length; i += SIGN_BATCH) {
+    const batch = uniq.slice(i, i + SIGN_BATCH);
+    const { data, error } = await supabase.storage.from(bucket).createSignedUrls(batch, ttl);
+    if (error) throw error;
+    batch.forEach((p, j) => map.set(p, (data && data[j] && data[j].signedUrl) || ""));
+  }
   return map;
 }
 
