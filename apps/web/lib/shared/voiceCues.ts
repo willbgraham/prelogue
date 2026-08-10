@@ -1,4 +1,5 @@
 import type { VoiceConfig } from "./types";
+import { signPathsCached } from "./signedUrlCache";
 
 /**
  * Minimal structural type for the Supabase client methods this helper uses.
@@ -141,14 +142,11 @@ export async function prepareVoiceCues(
   const res = await fetch(signed.signedUrl);
   const cues: Omit<VoiceCueEntry, "signedUrl">[] = await res.json();
 
+  // Batched + reused: signing all of a feature's clips in one call exceeds
+  // Supabase's 1000-path limit, which used to blank every URL and leave the
+  // read silent. See signedUrlCache for the egress side of this.
   const uniquePaths = [...new Set(cues.map((c) => c.audio_path))];
-  const urlByPath = new Map<string, string>();
-  if (uniquePaths.length) {
-    const { data: fresh } = await client.storage
-      .from("scripts")
-      .createSignedUrls(uniquePaths, 86400);
-    uniquePaths.forEach((p, i) => urlByPath.set(p, fresh?.[i]?.signedUrl ?? ""));
-  }
+  const urlByPath = await signPathsCached(client, "scripts", uniquePaths);
   for (const c of cues) {
     map.set(c.element_index, { ...c, signedUrl: urlByPath.get(c.audio_path) ?? "" });
   }

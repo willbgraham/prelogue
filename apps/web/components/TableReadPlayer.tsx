@@ -5,6 +5,10 @@ import Link from "next/link";
 import { buildRows, prepareVoiceCues, DEFAULT_AMBIENCE_VOLUME } from "@/lib/shared";
 import type { AmbienceConfig, ParsedScript, VoiceCueEntry, VoiceConfig } from "@/lib/shared";
 import { getBrowserClient } from "@/lib/supabase/client";
+import { signPathsCached } from "@/lib/shared/signedUrlCache";
+
+// How many cast video clips to hold warm ahead of the playhead.
+const PRELOAD_WINDOW = 4;
 import { DEMO_VOICE_ALLOWLIST } from "@/lib/shared/demoVoices";
 import { VoicePicker } from "@/components/VoicePicker";
 import { CastIcon } from "@/components/icons";
@@ -191,9 +195,19 @@ export function TableReadPlayer({
   // first, so the first cast line is ready soonest). Idempotent per URL, and
   // silently falls back to on-demand streaming if a fetch fails. Re-run whenever
   // the cast changes; the previous run is aborted so we don't fetch stale clips.
-  const preloadClips = useCallback(async () => {
+  /**
+   * Warm cast video clips from `fromIndex` onward.
+   *
+   * This used to fetch every clip the moment the page mounted, so a visitor who
+   * bounced after three seconds still pulled the entire cast's video. With
+   * nothing cacheable that was pure repeat egress. Now it warms a window, and
+   * playback tops it up as it advances.
+   */
+  const preloadClips = useCallback(async (fromIndex = 0, window = PRELOAD_WINDOW) => {
     const urls = [...clipMapRef.current.entries()]
       .sort((a, b) => a[0] - b[0])
+      .filter(([idx]) => idx >= fromIndex)
+      .slice(0, window)
       .map(([, info]) => info.url);
     preloadAbortRef.current?.abort();
     const controller = new AbortController();
@@ -329,13 +343,7 @@ export function TableReadPlayer({
 
       const paths = new Set<string>();
       for (const s of subs) for (const c of s.clips ?? []) paths.add(c.clip_url);
-      const signedByPath = new Map<string, string>();
-      if (paths.size) {
-        const { data: signed } = await client.storage
-          .from("submissions")
-          .createSignedUrls([...paths], 86400);
-        [...paths].forEach((p, i) => signedByPath.set(p, signed?.[i]?.signedUrl ?? ""));
-      }
+      const signedByPath = await signPathsCached(client, "submissions", [...paths]);
 
       const clipsBySub = new Map<string, Map<number, ClipInfo>>();
       const byRole: Record<
@@ -389,8 +397,9 @@ export function TableReadPlayer({
         castMapRef.current = defaultCast;
         clipMapRef.current = defaultClips;
       }
-      // Warm the cast clips now so playback is instant when the viewer hits play.
-      preloadClips();
+      // Warm only the first few so the opening plays instantly; the rest load
+      // as playback reaches them rather than on every page view.
+      preloadClips(0);
     })();
     return () => {
       alive = false;
@@ -437,6 +446,10 @@ export function TableReadPlayer({
       const audio = audioRef.current;
       const video = videoRef.current;
       const clip = clipMapRef.current.get(row.elementIndex);
+
+      // Keep the cast-video window filled ahead of the playhead. Cheap when
+      // everything nearby is already warm (it filters what it has).
+      if (clipMapRef.current.size) void preloadClips(row.elementIndex);
 
       // An actor recorded this line — play their video clip (it carries its own
       // audio, replacing the AI voice). Honor the clip's trim + volume.
@@ -491,7 +504,7 @@ export function TableReadPlayer({
         setNeedsTap(true);
       }
     },
-    [rows, stop, syncAmbience]
+    [rows, stop, syncAmbience, preloadClips]
   );
 
   // Media events (AI audio AND the actor clip video): type the line ∝ playback,
