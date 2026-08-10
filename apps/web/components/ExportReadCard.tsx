@@ -13,10 +13,10 @@ type RenderRow = {
   audio_url?: string | null;
 };
 
-// Video only — Remotion renders about 1:1 with the video's runtime and the
-// Actions job dies at 60 minutes. MP3 export is an ffmpeg concat of clips that
-// already exist, so it has no length limit at all.
-const MAX_VIDEO_PAGES = 40;
+// Video only — Remotion renders about 1:1 with the video's runtime, so the
+// ceiling is the Actions job timeout (330 min). MP3 export is an ffmpeg concat
+// of clips that already exist, so it has no length limit at all.
+const MAX_VIDEO_PAGES = 250;
 
 /**
  * Writer export — MP4 (page-capped) and MP3 (uncapped) run as two independent

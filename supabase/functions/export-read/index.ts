@@ -15,12 +15,12 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-// Video only. Remotion renders at roughly 1:1 with the video's runtime and the
-// Actions job is capped at 60 minutes (render-one.yml), so a feature-length
-// script would be killed mid-render. ~0.87 min of read per page puts 40 pages
-// at ~35 min of video — comfortably inside the job even on a slow runner.
+// Video only. Remotion renders at roughly 1:1 with the video's runtime, so the
+// ceiling is the Actions job timeout (330 min in render-one.yml). At ~0.87 min
+// of read per page, 250 pages is ~218 min of video — inside the job even at a
+// pessimistic 1.5x realtime on a slow runner.
 // Audio has no cap: it's an ffmpeg concat of clips that already exist.
-const MAX_VIDEO_PAGES = 40;
+const MAX_VIDEO_PAGES = 250;
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
