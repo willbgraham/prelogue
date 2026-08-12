@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import { signOut } from "@/app/auth/actions";
+import { getBrowserClient } from "@/lib/supabase/client";
 import { BellIcon, MenuIcon } from "@/components/icons";
 
 const LINKS = [
@@ -20,10 +22,43 @@ type NavUser = { name: string; username: string | null } | null;
  */
 export function HeaderNav({ user }: { user: NavUser }) {
   const [open, setOpen] = useState(false);
+  const [unread, setUnread] = useState(0);
+  const signedIn = !!user;
+  const pathname = usePathname();
+
+  // Unread count on the bell. RLS scopes the count to the signed-in user.
+  // Refreshed on route change and tab focus, so reading /notifications (which
+  // marks rows read) clears the badge on the way out.
+  useEffect(() => {
+    if (!signedIn) return;
+    let alive = true;
+    const refresh = async () => {
+      const { count } = await getBrowserClient()
+        .from("notifications")
+        .select("id", { count: "exact", head: true })
+        .eq("read", false);
+      if (alive) setUnread(count ?? 0);
+    };
+    refresh();
+    window.addEventListener("focus", refresh);
+    return () => {
+      alive = false;
+      window.removeEventListener("focus", refresh);
+    };
+  }, [signedIn, pathname]);
 
   const bell = (
-    <Link href="/notifications" aria-label="Notifications" className="text-taupe hover:text-brick">
+    <Link
+      href="/notifications"
+      aria-label={unread > 0 ? `Notifications (${unread} unread)` : "Notifications"}
+      className="relative text-taupe hover:text-brick"
+    >
       <BellIcon className="h-5 w-5" />
+      {unread > 0 && (
+        <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-brick px-1 text-[10px] font-bold leading-none text-white">
+          {unread > 9 ? "9+" : unread}
+        </span>
+      )}
     </Link>
   );
 

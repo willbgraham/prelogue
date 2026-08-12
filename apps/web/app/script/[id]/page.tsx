@@ -164,8 +164,6 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
         <RequestListen
           scriptId={l.id}
           scriptSlug={l.slug}
-          scriptTitle={l.title}
-          writerId={l.writer_id}
           writerName={l.writer_name}
         />
       </main>
@@ -350,7 +348,7 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
             initialListenGated={!!s.listen_gated}
           />
           {s.listen_gated && (
-            <ListenRequests scriptId={s.id} scriptSlug={s.slug ?? null} scriptTitle={s.title} />
+            <ListenRequests scriptId={s.id} />
           )}
           <div className="mt-4 flex justify-end">
             <DeleteScriptButton scriptId={s.id} title={s.title} />

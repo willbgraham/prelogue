@@ -14,14 +14,10 @@ type ReqStatus = "pending" | "approved" | "denied";
 export function RequestListen({
   scriptId,
   scriptSlug,
-  scriptTitle,
-  writerId,
   writerName,
 }: {
   scriptId: string;
   scriptSlug: string | null;
-  scriptTitle: string;
-  writerId: string;
   writerName: string;
 }) {
   const supabase = getBrowserClient();
@@ -97,19 +93,11 @@ export function RequestListen({
       setBusy(false);
       return;
     }
-    // Notify the writer (fire-and-forget).
-    supabase
-      .from("notifications")
-      .insert({
-        user_id: writerId,
-        type: "listen_request",
-        payload: {
-          script_id: scriptId,
-          script_slug: scriptSlug,
-          script_title: scriptTitle,
-          requester_name: nm,
-        },
-      })
+    // Notify the writer — in-app row AND email, done server-side. (Clients
+    // can't insert notifications for other users since the RLS hardening, so
+    // a direct insert here would be silently dropped.)
+    supabase.functions
+      .invoke("notify-listen-request", { body: { script_id: scriptId, event: "created" } })
       .then(
         () => {},
         () => {}

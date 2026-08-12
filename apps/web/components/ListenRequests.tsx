@@ -24,15 +24,7 @@ const one = (r: Requester | Requester[] | null): Requester | null =>
 
 /** Writer's inbox for a showcase script: who's asking to listen, with their
  *  name/email/LinkedIn/IMDb, and Approve / Deny. */
-export function ListenRequests({
-  scriptId,
-  scriptSlug,
-  scriptTitle,
-}: {
-  scriptId: string;
-  scriptSlug: string | null;
-  scriptTitle: string;
-}) {
+export function ListenRequests({ scriptId }: { scriptId: string }) {
   const supabase = getBrowserClient();
   const [reqs, setReqs] = useState<Req[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -60,31 +52,15 @@ export function ListenRequests({
       .eq("id", req.id);
     if (!error) {
       setReqs((p) => p.map((r) => (r.id === req.id ? { ...r, status } : r)));
-      // Notify the requester (fire-and-forget). We need their user id — refetch
-      // minimal row including requester_id for the notification.
-      const { data: row } = await supabase
-        .from("listen_requests")
-        .select("requester_id")
-        .eq("id", req.id)
-        .single();
-      if (row?.requester_id) {
-        supabase
-          .from("notifications")
-          .insert({
-            user_id: row.requester_id,
-            type: "listen_request_decided",
-            payload: {
-              script_id: scriptId,
-              script_slug: scriptSlug,
-              script_title: scriptTitle,
-              status,
-            },
-          })
-          .then(
-            () => {},
-            () => {}
-          );
-      }
+      // Notify the requester — in-app row AND email (approved includes the
+      // listen link), done server-side. (Clients can't insert notifications
+      // for other users since the RLS hardening.)
+      supabase.functions
+        .invoke("notify-listen-request", { body: { request_id: req.id, event: "decided" } })
+        .then(
+          () => {},
+          () => {}
+        );
     }
     setBusy(null);
   }

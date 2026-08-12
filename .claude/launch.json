@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "web",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd apps/web && npm run dev"],
+      "port": 3000,
+      "autoPort": true
+    }
+  ]
+}
