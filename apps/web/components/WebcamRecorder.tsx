@@ -243,6 +243,15 @@ export function WebcamRecorder({
         setMode("review");
         return;
       }
+      // Tell the writer — in-app row always, email if this was an invited role.
+      // Server-side (service role): clients can't insert notifications for
+      // other users, and the invite status flip needs writer-table access.
+      supabase.functions
+        .invoke("notify-role-submission", { body: { submission_id: inserted.id } })
+        .then(
+          () => {},
+          () => {}
+        );
       setMode("done");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload failed.");
