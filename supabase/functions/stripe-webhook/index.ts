@@ -1,5 +1,6 @@
 import Stripe from "https://esm.sh/stripe@16.12.0?target=deno";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { sendCapiEvent } from "../_shared/metaCapi.ts";
 
 // NOTE: deploy this function with JWT verification DISABLED — Stripe calls it
 // directly (no Supabase auth). e.g. `supabase functions deploy stripe-webhook
@@ -125,11 +126,28 @@ Deno.serve(async (req) => {
         const paid = s.payment_status === "paid" || s.payment_status === "no_payment_required";
         if (!paid) break;
 
+        // Paid amount in whole currency units. 100%-off coupons complete with
+        // amount 0 — those must NOT reach Meta as Purchases, or delivery would
+        // optimize toward people who convert on freebies.
+        const paidValue = (s.amount_total ?? 0) / 100;
+        const buyerEmail = s.customer_details?.email ?? null;
+
         // Credit top-up pack.
         const topup = s.metadata?.topup as string | undefined;
         if (topup && TOPUPS[topup]) {
           const uid = await findUserId(s.metadata?.user_id, s.customer);
           if (uid) await grantCredits(uid, TOPUPS[topup], "topup", s.id);
+          if (paidValue > 0) {
+            await sendCapiEvent({
+              eventName: "Purchase",
+              eventId: s.id, // stable across Stripe retries → Meta dedups
+              email: buyerEmail,
+              userId: uid,
+              value: paidValue,
+              currency: s.currency ?? "USD",
+              contentName: "credit_topup",
+            });
+          }
           break;
         }
 
@@ -141,6 +159,17 @@ Deno.serve(async (req) => {
           await unlockScript(scriptId);
           const uid = await findUserId(s.metadata?.user_id, s.customer);
           if (uid) await grantCredits(uid, ONE_TIME_UNLOCK_CREDITS, "unlock_grant", scriptId);
+          if (paidValue > 0) {
+            await sendCapiEvent({
+              eventName: "Purchase",
+              eventId: s.id,
+              email: buyerEmail,
+              userId: uid,
+              value: paidValue,
+              currency: s.currency ?? "USD",
+              contentName: "script_unlock",
+            });
+          }
         }
         break;
       }
@@ -153,9 +182,30 @@ Deno.serve(async (req) => {
       }
 
       // Subscription lifecycle → users.plan / plan_status / budget.
-      case "customer.subscription.created":
-        await applySubscription(event.data.object as Stripe.Subscription, true);
+      case "customer.subscription.created": {
+        const sub = event.data.object as Stripe.Subscription;
+        await applySubscription(sub, true);
+        // Once per subscription (sub.id dedups retries). Value = tier price.
+        const planId = planFromSub(sub);
+        if (planId && PLANS[planId]) {
+          const uid = await findUserId(sub.metadata?.user_id, sub.customer);
+          let email: string | null = null;
+          if (uid) {
+            const { data: au } = await admin.auth.admin.getUserById(uid);
+            email = au?.user?.email ?? null;
+          }
+          await sendCapiEvent({
+            eventName: "Subscribe",
+            eventId: sub.id,
+            email,
+            userId: uid,
+            value: PLANS[planId].price_cents / 100,
+            currency: "USD",
+            contentName: planId,
+          });
+        }
         break;
+      }
       case "customer.subscription.updated":
         // Status / tier / renewal-date change; don't wipe mid-cycle usage.
         await applySubscription(event.data.object as Stripe.Subscription, false);

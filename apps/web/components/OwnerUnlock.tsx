@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { getBrowserClient } from "@/lib/supabase/client";
-import { trackOnce } from "@/lib/analytics";
 import {
   ONE_TIME_UNLOCK_CREDITS,
   creditsForPages,
@@ -40,14 +39,10 @@ export function OwnerUnlock({
   const [error, setError] = useState<string | null>(null);
   const [plan, setPlan] = useState<PlanState>(null);
 
-  // Stripe returns to ?unlocked=1 after a successful one-time purchase — the
-  // conversion event for the ads (once per script, so reloads don't re-count).
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (new URLSearchParams(window.location.search).get("unlocked") === "1") {
-      trackOnce(`unlock:${scriptId}`, "Purchase", { value: 19, currency: "USD" });
-    }
-  }, [scriptId]);
+  // Purchase is reported server-side now (stripe-webhook → Conversions API):
+  // the browser fire only worked if the buyer landed back here with
+  // ?unlocked=1 and no ad-blocker — a real sale went unreported that way.
+  // Firing here too would double-count, so the client stays quiet.
 
   useEffect(() => {
     if (initialUnlocked) return;

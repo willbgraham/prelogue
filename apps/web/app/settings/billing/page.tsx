@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { getBrowserClient } from "@/lib/supabase/client";
-import { trackOnce } from "@/lib/analytics";
 import {
   PLANS,
   TOPUPS,
@@ -93,13 +92,8 @@ export default function BillingPage() {
     const subscribed = params.get("subscribed") === "1";
     const topped = params.get("credits") === "1";
     setJustPaid(subscribed || topped);
-    if (subscribed) {
-      getBrowserClient()
-        .auth.getUser()
-        .then(({ data }) => {
-          if (data.user?.id) trackOnce(`sub:${data.user.id}`, "Subscribe");
-        });
-    }
+    // Subscribe is reported server-side now (stripe-webhook → Conversions
+    // API); firing it here too would double-count.
   }, [load]);
 
   async function openPortal() {
