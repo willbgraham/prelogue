@@ -60,10 +60,17 @@ export function ExportReadCard({
     const a = d?.audio ?? null;
     setRender(v);
     setAudio(a);
-    setWaiting((w) => ({
-      video: w.video && (!v || v.id === prevIdRef.current.video),
-      audio: w.audio && (!a || a.id === prevIdRef.current.audio),
-    }));
+    // Preserve object identity when nothing changed: this state is an effect
+    // dependency, and a fresh-but-equal object re-ran the effect, which polled
+    // again, which set fresh state — a hot loop that hammered export-read as
+    // fast as the network allowed (~83 req/min observed in prod logs).
+    setWaiting((w) => {
+      const next = {
+        video: w.video && (!v || v.id === prevIdRef.current.video),
+        audio: w.audio && (!a || a.id === prevIdRef.current.audio),
+      };
+      return next.video === w.video && next.audio === w.audio ? w : next;
+    });
   }, [supabase, scriptId]);
 
   useEffect(() => {
@@ -83,7 +90,8 @@ export function ExportReadCard({
       window.clearTimeout(first);
       window.clearInterval(t);
     };
-  }, [refresh, waiting, render?.status, audio?.status]);
+    // Primitive deps only — an object here is what caused the polling loop.
+  }, [refresh, waiting.video, waiting.audio, render?.status, audio?.status]);
 
   const dispatch = async (kind: "video" | "audio") => {
     setError(null);

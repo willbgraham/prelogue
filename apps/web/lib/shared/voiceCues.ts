@@ -88,6 +88,13 @@ export async function prepareVoiceCues(
     if (voiceConfig) body.voice_config = voiceConfig;
 
     const { data, error } = await client.functions.invoke("generate-voice-cues", { body });
+    // Another tab/surface is generating this same script (per-script server
+    // lock). Wait — its clips land in the shared cache, so when we get a turn
+    // our miss list has shrunk instead of duplicating (and double-billing).
+    if ((data as { error?: string } | null)?.error === "generation_in_progress") {
+      await new Promise((r) => setTimeout(r, 4000));
+      continue;
+    }
     if (error) throw new Error((error as any)?.message ?? String(error));
     if ((data as any)?.error === "insufficient_credits") {
       // Typed so the player can offer a top-up instead of showing a raw string.

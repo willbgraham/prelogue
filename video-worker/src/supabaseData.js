@@ -37,6 +37,12 @@ async function ensureVoiceCues(supabaseUrl, serviceKey, scriptId) {
       body: JSON.stringify({ script_id: scriptId }),
     });
     last = await res.json();
+    if (last.error === "generation_in_progress") {
+      // A user (or another render) holds this script's generation lock —
+      // wait for their clips to land in the shared cache, then resume.
+      await new Promise((r) => setTimeout(r, 4000));
+      continue;
+    }
     if (last.error) throw new Error("generate-voice-cues: " + last.error);
     if (last.done) return last;
   }

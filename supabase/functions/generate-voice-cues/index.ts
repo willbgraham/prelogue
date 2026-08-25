@@ -150,6 +150,12 @@ Deno.serve(async (req) => {
     return new Response("ok", { headers: corsHeaders });
   }
 
+  // Per-script generation mutex state (see claim below). Declared out here so
+  // the catch block can release on crash; the 4-minute staleness window in
+  // claim_generation_lock is the backstop if even that fails.
+  let lockHeld = false;
+  let lockScriptId: string | null = null;
+
   try {
     const { script_id, voice_config: voiceConfigOverride, dry_run } = await req.json();
     if (!script_id) {
@@ -510,6 +516,32 @@ Deno.serve(async (req) => {
         });
       }
     }
+    // Serialize generation per script. Two concurrent runs each saw the same
+    // cache misses, generated the same clips, and BOTH debited the writer —
+    // observed in prod as paired ledger entries and a double-spent balance.
+    // The miss computation below must happen under the lock, or the second
+    // run works from a stale list. Dry runs read-only, so they skip it.
+    // Fail-open on RPC *error* (e.g. migration not applied yet) — the lock is
+    // protection, not a dependency; only an explicit "false" means busy.
+    if (!dry_run) {
+      const { data: claimed, error: claimErr } = await supabase.rpc("claim_generation_lock", {
+        p_script: script_id,
+      });
+      if (!claimErr && claimed === false) {
+        // HTTP 200 deliberately: supabase-js functions.invoke() surfaces
+        // non-2xx as { data: null, error }, which would hide the body from
+        // clients. 200 + an error field flows through `data` cleanly.
+        return new Response(
+          JSON.stringify({ error: "generation_in_progress", retry_in: 4 }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      if (!claimErr) {
+        lockHeld = true;
+        lockScriptId = script_id;
+      }
+    }
+
     // Existence check against the voice_audio_cache index: ask only about the
     // keys this run needs, rather than listing whole storage folders (which
     // capped at 1000 objects and silently made cached audio look missing).
@@ -614,6 +646,10 @@ Deno.serve(async (req) => {
         .single();
       const balance = payer?.credits_balance ?? 0;
       if (balance < estimate) {
+        if (lockHeld && lockScriptId) {
+          lockHeld = false;
+          await supabase.rpc("release_generation_lock", { p_script: lockScriptId });
+        }
         return new Response(
           JSON.stringify({
             error: "insufficient_credits",
@@ -709,6 +745,11 @@ Deno.serve(async (req) => {
         upsert: true,
       });
 
+    if (lockHeld && lockScriptId) {
+      lockHeld = false;
+      await supabase.rpc("release_generation_lock", { p_script: lockScriptId });
+    }
+
     const remaining = allMisses.length - toDo.length;
     return new Response(
       JSON.stringify({
@@ -737,6 +778,18 @@ Deno.serve(async (req) => {
     );
   } catch (err) {
     console.error("Voice cue generation error:", err);
+    // The service client is try-scoped; mint a fresh one to release the lock.
+    // If even this fails, the 4-minute staleness window clears it.
+    if (lockHeld && lockScriptId) {
+      try {
+        await createClient(
+          Deno.env.get("SUPABASE_URL")!,
+          Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+        ).rpc("release_generation_lock", { p_script: lockScriptId });
+      } catch (_) {
+        /* stale-window backstop */
+      }
+    }
     return new Response(
       JSON.stringify({ error: "Internal error", details: String(err) }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
