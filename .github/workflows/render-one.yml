@@ -6,7 +6,7 @@ on:
         description: Script id to (re-)render
         required: true
       variant:
-        description: ai or composite
+        description: ai, composite, or audio
         required: false
         default: ai
       submission_ids:
@@ -33,6 +33,7 @@ jobs:
       - name: Re-render the scene
         working-directory: video-worker
         env:
+          NODE_OPTIONS: --max-old-space-size=8192
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/run-render.js "${{ inputs.script_id }}" "${{ inputs.variant }}" "${{ inputs.submission_ids }}"
