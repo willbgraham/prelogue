@@ -17,6 +17,27 @@ const { buildRows, buildTimeline } = require("./timeline");
 
 const ENTRY = path.join(__dirname, "..", "remotion", "src", "index.ts");
 
+// Long renders finish while nobody's watching — a feature MP4 takes hours.
+// Tell the writer by email (server-side fn signs a 30-day link). Fire-and-
+// forget: a notification failure must never fail a finished render.
+async function notifyExportReady(supabaseUrl, serviceKey, renderId) {
+  try {
+    const res = await fetch(`${supabaseUrl}/functions/v1/notify-export-ready`, {
+      method: "POST",
+      headers: {
+        apikey: serviceKey,
+        Authorization: `Bearer ${serviceKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ render_id: renderId }),
+    });
+    const out = await res.json().catch(() => ({}));
+    console.log(`export-ready email: ${JSON.stringify(out).slice(0, 120)}`);
+  } catch (e) {
+    console.warn("export-ready email failed (non-fatal):", (e && e.message) || e);
+  }
+}
+
 // Bundle the Remotion project once and reuse across renders.
 let bundlePromise = null;
 function getBundle() {
@@ -242,6 +263,7 @@ async function exportAudio({ supabase, supabaseUrl, serviceKey, scriptId }) {
     }
 
     console.log(`✓ audio ${renderId} ready: ${storagePath} (${lines.length} clips)`);
+    await notifyExportReady(supabaseUrl, serviceKey, renderId);
     return { renderId, video_path: storagePath, clips: lines.length };
   } catch (e) {
     await supabase
@@ -358,6 +380,7 @@ async function renderScene({ supabase, supabaseUrl, serviceKey, scriptId, varian
     }
 
     console.log(`✓ render ${renderId} ready: ${storagePath} (${composition.durationInFrames} frames)`);
+    await notifyExportReady(supabaseUrl, serviceKey, renderId);
     return { renderId, video_path: storagePath, duration_frames: composition.durationInFrames };
   } catch (e) {
     await supabase

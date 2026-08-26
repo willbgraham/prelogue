@@ -13,11 +13,13 @@ type RenderRow = {
   audio_url?: string | null;
 };
 
-// Video only — measured on a real 94-page render: ~3x realtime to render and
-// ~8MB per video-minute to store. 50 pages ≈ a two-hour render and a ~400MB
-// file; beyond that the MP3 (complete, uncapped, minutes to build) is the
-// deliverable.
-const MAX_VIDEO_PAGES = 50;
+// Video only — feature renders run ~3x realtime and GitHub kills jobs at 6h,
+// so ~110 pages is the physical wall (covers nearly every real feature).
+// Long renders resolve by email: the writer gets the download link when the
+// render lands, no open tab required.
+const MAX_VIDEO_PAGES = 110;
+// Above this, set the "this takes hours, we'll email you" expectation.
+const LONG_RENDER_PAGES = 40;
 
 /**
  * Writer export — MP4 (page-capped) and MP3 (uncapped) run as two independent
@@ -179,8 +181,12 @@ export function ExportReadCard({
           <div className="border-t border-tan pt-4">
             {videoTooLong ? (
               <p className="text-muted">
-                Video export is limited to {MAX_VIDEO_PAGES} pages — at {pageCount} pages, the MP3
-                above is the full read.
+                Video export tops out at {MAX_VIDEO_PAGES} pages — at {pageCount} pages, the MP3
+                above is the complete read. Want the video anyway? Email{" "}
+                <a className="text-brick hover:underline" href="mailto:hello@prelogue.studio">
+                  hello@prelogue.studio
+                </a>{" "}
+                and we&apos;ll render it for you.
               </p>
             ) : (
               <>
@@ -218,8 +224,9 @@ export function ExportReadCard({
                 </div>
                 {videoInFlight && (
                   <p className="mt-2 text-taupe">
-                    Rendering — usually a few minutes. This updates on its own; you can leave the
-                    page.
+                    {(pageCount ?? 0) > LONG_RENDER_PAGES
+                      ? "Rendering — a script this length takes a few hours. Close the tab; we'll email you the download link when it's ready."
+                      : "Rendering — usually a few minutes. This updates on its own; you can leave the page."}
                   </p>
                 )}
                 {!videoInFlight && render?.status === "failed" && (

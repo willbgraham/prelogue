@@ -15,13 +15,13 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-// Video only. The first real feature-length render (94pp) mapped the actual
-// ceilings: rendering runs ~3x realtime under memory pressure (4h38m for 85
-// minutes of video) and the file lands ~8MB per video-minute. 50 pages keeps
-// the render around two hours and the MP4 around 400MB — the honest limit for
-// "click a button, get a video". Longer scripts get the MP3, which is the
-// complete read, uncapped, and stitches in minutes.
-const MAX_VIDEO_PAGES = 50;
+// Video only. Feature renders run ~3x realtime under memory pressure (a real
+// 94pp render took 4h38m), and GitHub kills any job at 6 hours — so ~110
+// pages is the physical wall, which covers nearly every real feature script.
+// The UX cost of hours-long renders is handled by notify-export-ready: the
+// writer gets an email with the download link when it lands, no open tab
+// required. Audio has no cap at all (ffmpeg concat, minutes).
+const MAX_VIDEO_PAGES = 110;
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -81,6 +81,22 @@ Deno.serve(async (req) => {
           .order("created_at", { ascending: false })
           .limit(1)
           .maybeSingle();
+        // Zombie watchdog: a hard-killed render (OOM, runner death) never runs
+        // its failure handler, leaving the row "processing" forever and the
+        // card saying "Rendering…" for days. Nothing legitimate runs past the
+        // 6h GitHub job ceiling, so past that the row is dead — say so.
+        if (
+          data &&
+          data.status === "processing" &&
+          Date.now() - new Date(data.created_at).getTime() > 6.5 * 3600_000
+        ) {
+          await admin
+            .from("daily_renders")
+            .update({ status: "failed", error: "The render died without reporting back — try again" })
+            .eq("id", data.id)
+            .eq("status", "processing");
+          return { ...data, status: "failed", error: "The render died without reporting back — try again" };
+        }
         return data;
       };
       const sign = async (p: string) =>
@@ -129,7 +145,7 @@ Deno.serve(async (req) => {
     if (kind === "video" && (script.page_count ?? 0) > MAX_VIDEO_PAGES) {
       return json(
         {
-          error: `MP4 export supports scripts up to ${MAX_VIDEO_PAGES} pages — download the MP3 instead, which has no length limit`,
+          error: `Video export supports scripts up to ${MAX_VIDEO_PAGES} pages — the MP3 has no limit, and we can render longer videos on request (hello@prelogue.studio)`,
         },
         400
       );
