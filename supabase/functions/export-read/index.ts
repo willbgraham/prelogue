@@ -15,12 +15,13 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-// Video only. Remotion renders at roughly 1:1 with the video's runtime, so the
-// ceiling is the Actions job timeout (330 min in render-one.yml). At ~0.87 min
-// of read per page, 250 pages is ~218 min of video — inside the job even at a
-// pessimistic 1.5x realtime on a slow runner.
-// Audio has no cap: it's an ffmpeg concat of clips that already exist.
-const MAX_VIDEO_PAGES = 250;
+// Video only. The first real feature-length render (94pp) mapped the actual
+// ceilings: rendering runs ~3x realtime under memory pressure (4h38m for 85
+// minutes of video) and the file lands ~8MB per video-minute. 50 pages keeps
+// the render around two hours and the MP4 around 400MB — the honest limit for
+// "click a button, get a video". Longer scripts get the MP3, which is the
+// complete read, uncapped, and stitches in minutes.
+const MAX_VIDEO_PAGES = 50;
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {

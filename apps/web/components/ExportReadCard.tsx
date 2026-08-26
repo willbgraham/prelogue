@@ -13,10 +13,11 @@ type RenderRow = {
   audio_url?: string | null;
 };
 
-// Video only — Remotion renders about 1:1 with the video's runtime, so the
-// ceiling is the Actions job timeout (330 min). MP3 export is an ffmpeg concat
-// of clips that already exist, so it has no length limit at all.
-const MAX_VIDEO_PAGES = 250;
+// Video only — measured on a real 94-page render: ~3x realtime to render and
+// ~8MB per video-minute to store. 50 pages ≈ a two-hour render and a ~400MB
+// file; beyond that the MP3 (complete, uncapped, minutes to build) is the
+// deliverable.
+const MAX_VIDEO_PAGES = 50;
 
 /**
  * Writer export — MP4 (page-capped) and MP3 (uncapped) run as two independent
