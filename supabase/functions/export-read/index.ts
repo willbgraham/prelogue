@@ -78,6 +78,7 @@ Deno.serve(async (req) => {
           .select("id, status, video_path, error, created_at, rendered_at")
           .eq("script_id", script_id)
           .in("variant", variants)
+          .neq("status", "superseded") // breadcrumb rows for emailed links
           .order("created_at", { ascending: false })
           .limit(1)
           .maybeSingle();

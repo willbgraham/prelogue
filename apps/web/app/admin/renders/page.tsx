@@ -70,6 +70,9 @@ export default function AdminRendersPage() {
     const { data } = await supabase
       .from("daily_renders")
       .select("*, script:scripts(logline)")
+      // superseded = breadcrumb rows kept so emailed download links survive
+      // re-exports; their files are deleted, so there's nothing to show.
+      .neq("status", "superseded")
       .order("created_at", { ascending: false });
     const rows = (data as Render[]) ?? [];
     setRenders(rows);

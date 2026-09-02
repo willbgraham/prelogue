@@ -70,11 +70,11 @@ Deno.serve(async (req) => {
     if (!to) return json({ sent: false, reason: "writer has no email" });
     if (!RESEND_API_KEY) return json({ sent: false, reason: "email provider not configured" });
 
-    const { data: signed } = await admin.storage
-      .from("daily-renders")
-      .createSignedUrl(render.video_path, 30 * 24 * 3600);
-    const link = signed?.signedUrl;
-    if (!link) return json({ sent: false, reason: "could not sign download url" });
+    // Durable link: resolves to a fresh signed URL at click time and follows
+    // supersedes, so the email keeps working after re-exports and never
+    // expires. (A raw 30-day signed URL died within minutes for a real
+    // customer when their re-export's cleanup deleted the first file.)
+    const link = `${Deno.env.get("SUPABASE_URL")}/functions/v1/download-export?render=${render.id}`;
 
     const isAudio = render.variant === "audio";
     const kindLabel = isAudio ? "MP3" : "video";
@@ -92,7 +92,7 @@ Deno.serve(async (req) => {
           heading: `Your ${kindLabel} of “${script.title}” is ready`,
           bodyHtml: `<p style="margin:0 0 14px;">The export finished and your file is ready to download. It's also on your script page under the player.</p>`,
           cta: { label: isAudio ? "Download the MP3" : "Download the video", url: link },
-          footnote: "You're receiving this because you exported a table read on prelogue.studio. The download link is good for 30 days.",
+          footnote: "You're receiving this because you exported a table read on prelogue.studio. This link keeps working — it always serves your newest export.",
         }),
       }),
     });

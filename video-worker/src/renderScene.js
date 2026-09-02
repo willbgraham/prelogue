@@ -17,6 +17,40 @@ const { buildRows, buildTimeline } = require("./timeline");
 
 const ENTRY = path.join(__dirname, "..", "remotion", "src", "index.ts");
 
+// Retire older exports of the same kind: delete their FILES (a 942MB MP4 per
+// re-render would pile up) but keep the ROWS as 'superseded' breadcrumbs —
+// emailed download-export links resolve through them to the newest file. A
+// customer's emailed link once died minutes after sending because cleanup
+// deleted the row and file it pointed at. Falls back to hard delete until the
+// 'superseded' status migration is applied (breadcrumbs just don't survive).
+async function retireOldExports(supabase, { scriptId, variant, renderId, newerThanOnly }) {
+  let q = supabase
+    .from("daily_renders")
+    .select("id, video_path, created_at")
+    .eq("script_id", scriptId)
+    .eq("variant", variant)
+    .neq("id", renderId)
+    .in("status", ["ready", "posted", "failed", "processing"]);
+  if (newerThanOnly) q = q.lt("created_at", newerThanOnly);
+  const { data: stale } = await q;
+  if (!stale || !stale.length) return;
+  const files = stale
+    .map((s) => s.video_path)
+    .filter(Boolean)
+    .flatMap((p) => (p.endsWith(".mp4") ? [p, p.replace(/\.mp4$/, ".mp3")] : [p]));
+  if (files.length) await supabase.storage.from("daily-renders").remove(files);
+  const ids = stale.map((s) => s.id);
+  const { error } = await supabase
+    .from("daily_renders")
+    .update({ status: "superseded" })
+    .in("id", ids);
+  if (error) {
+    // Pre-migration constraint rejects 'superseded' — old behavior instead.
+    await supabase.from("daily_renders").delete().in("id", ids);
+  }
+  console.log(`  retired ${ids.length} superseded export(s)`);
+}
+
 // Long renders finish while nobody's watching — a feature MP4 takes hours.
 // Tell the writer by email (server-side fn signs a 30-day link). Fire-and-
 // forget: a notification failure must never fail a finished render.
@@ -246,18 +280,9 @@ async function exportAudio({ supabase, supabaseUrl, serviceKey, scriptId }) {
       })
       .eq("id", renderId);
 
-    // Supersede older audio exports for this script.
+    // Retire older audio exports for this script (files gone, rows kept).
     try {
-      const { data: stale } = await supabase
-        .from("daily_renders")
-        .select("id, video_path")
-        .eq("script_id", scriptId)
-        .eq("variant", "audio")
-        .neq("id", renderId);
-      const paths = (stale || []).map((s) => s.video_path).filter(Boolean);
-      if (paths.length) await supabase.storage.from("daily-renders").remove(paths);
-      const ids = (stale || []).map((s) => s.id);
-      if (ids.length) await supabase.from("daily_renders").delete().in("id", ids);
+      await retireOldExports(supabase, { scriptId, variant: "audio", renderId });
     } catch (e) {
       console.warn("audio cleanup failed (non-fatal):", (e && e.message) || e);
     }
@@ -359,22 +384,12 @@ async function renderScene({ supabase, supabaseUrl, serviceKey, scriptId, varian
         .select("created_at")
         .eq("id", renderId)
         .single();
-      const { data: stale } = await supabase
-        .from("daily_renders")
-        .select("id, video_path")
-        .eq("script_id", scriptId)
-        .eq("variant", variant)
-        .neq("id", renderId)
-        .lt("created_at", mine?.created_at ?? new Date(0).toISOString());
-      const mp4s = (stale || []).map((s) => s.video_path).filter(Boolean);
-      // Remove each stale video and its .mp3 sibling (missing siblings no-op).
-      const paths = mp4s.flatMap((p) => [p, p.replace(/\.mp4$/, ".mp3")]);
-      if (paths.length) await supabase.storage.from("daily-renders").remove(paths);
-      const ids = (stale || []).map((s) => s.id);
-      if (ids.length) {
-        await supabase.from("daily_renders").delete().in("id", ids);
-        console.log(`  cleaned up ${ids.length} superseded render(s)`);
-      }
+      await retireOldExports(supabase, {
+        scriptId,
+        variant,
+        renderId,
+        newerThanOnly: mine?.created_at ?? new Date(0).toISOString(),
+      });
     } catch (e) {
       console.warn("cleanup of old renders failed (non-fatal):", (e && e.message) || e);
     }
