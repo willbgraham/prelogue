@@ -21,8 +21,16 @@ type Render = {
   error: string | null;
   created_at: string;
   /** Joined from scripts — Claude writes a logline with every daily scene. */
-  script?: { logline: string | null } | null;
+  script?: { logline: string | null; writer_id?: string | null } | null;
 };
+
+// Renders of OUR content (the daily social scenes + the public demo) vs
+// exports customers made of their own scripts. The admin's job is the first
+// set; the second is theirs — visible for support, out of the way by default.
+const HOUSE_WRITERS = new Set([
+  "e13e3e11-e65a-4318-a96a-384b442f113a", // Prelogue Originals (daily scenes)
+  "b92f7084-d88e-40fd-9c2a-8f67ed8db102", // operator (Booth Nine demo)
+]);
 
 const badge: Record<Render["status"], string> = {
   processing: "bg-tan/50 text-taupe",
@@ -69,7 +77,7 @@ export default function AdminRendersPage() {
     setAllowed(true);
     const { data } = await supabase
       .from("daily_renders")
-      .select("*, script:scripts(logline)")
+      .select("*, script:scripts(logline, writer_id)")
       // superseded = breadcrumb rows kept so emailed download links survive
       // re-exports; their files are deleted, so there's nothing to show.
       .neq("status", "superseded")
@@ -100,6 +108,17 @@ export default function AdminRendersPage() {
     }
     return [...seen.values()];
   }, [renders]);
+
+  const [tab, setTab] = useState<"ours" | "customers">("ours");
+  const { ours, customers } = useMemo(() => {
+    const ours: Render[] = [];
+    const customers: Render[] = [];
+    for (const r of latest) {
+      (HOUSE_WRITERS.has(r.script?.writer_id ?? "") ? ours : customers).push(r);
+    }
+    return { ours, customers };
+  }, [latest]);
+  const shown = tab === "ours" ? ours : customers;
 
   // Clear a scene's "rendering…" flag once a newer render has landed for it.
   useEffect(() => {
@@ -255,8 +274,34 @@ export default function AdminRendersPage() {
       </div>
       {note && <p className="mt-3 rounded-lg bg-ivory px-3 py-2 text-sm text-taupe">{note}</p>}
 
+      <div className="mt-6 flex gap-2 border-b border-tan">
+        {(
+          [
+            ["ours", `Our content (${ours.length})`],
+            ["customers", `Customer exports (${customers.length})`],
+          ] as const
+        ).map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={`-mb-px rounded-t-lg border border-b-0 px-4 py-2 text-sm font-medium ${
+              tab === key
+                ? "border-tan bg-ivory text-brick"
+                : "border-transparent text-taupe hover:text-brick"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {tab === "customers" && (
+        <p className="mt-3 text-sm text-muted">
+          Exports customers made of their own scripts — shown for support, nothing to manage here.
+        </p>
+      )}
+
       <div className="mt-6 space-y-5">
-        {latest.map((r) => {
+        {shown.map((r) => {
           const rendering = r.script_id in pending || r.status === "processing";
           return (
             <div key={r.script_id} className="flex flex-col gap-4 rounded-xl border border-tan bg-ivory p-4 sm:flex-row">
