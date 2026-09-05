@@ -18,7 +18,7 @@ type DemoLine =
 const LINES: DemoLine[] = [
   { kind: "slug", text: "INT. THE BLUE HOUR DINER - 2:14 A.M." },
   { kind: "action", text: "Rain needles the window. A neon sign stutters pink." },
-  { kind: "cue", who: "DANNY", text: "I want out.", note: "AI voice - one of 900+" },
+  { kind: "cue", who: "DANNY", text: "I want out.", note: "AI voice - one of 1,000+" },
   {
     kind: "cue",
     who: "VERA",

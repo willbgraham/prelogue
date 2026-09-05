@@ -115,10 +115,13 @@ Deno.serve(async (req) => {
 
     // Page through the shared library for a large, diverse, browsable set
     // (the picker filters client-side by gender/accent/language/age/search).
+    // Page depth sets the marketing number: the site says "1,000+ voices",
+    // so serve comfortably past 1,000 after dedupe (the library itself is
+    // far larger; this caps what the picker has to render).
     const [account, female, male] = await Promise.all([
       fetchAccountVoices(),
-      fetchLibraryVoices("female", 5), // up to ~500
-      fetchLibraryVoices("male", 4), // up to ~400
+      fetchLibraryVoices("female", 6), // up to ~600
+      fetchLibraryVoices("male", 5), // up to ~500
     ]);
 
     // Drop library voices already in the account — by voice_id AND by name.

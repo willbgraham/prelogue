@@ -30,7 +30,7 @@ export default function Pricing() {
         </h1>
         <p className="mt-4 text-taupe">
           Listening is free. Pick a monthly plan and spend credits voicing whatever you like, or
-          pay once for a single script. Every plan includes the whole studio: 900+ voices, per-line
+          pay once for a single script. Every plan includes the whole studio: 1,000+ voices, per-line
           emotion, scene music, and MP4 export.
         </p>
       </section>
