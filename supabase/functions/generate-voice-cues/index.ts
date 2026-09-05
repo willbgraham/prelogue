@@ -204,10 +204,13 @@ Deno.serve(async (req) => {
 
     // ----- Unlock gate -----
     // A script's full read is unlocked by a purchase (scripts.full_read_unlocked,
-    // flipped by the Stripe webhook / subscription-unlock). A locked script
-    // voices NOTHING — the public demo is the free tryout; your own script is
-    // paid. Enforced here (service role) so it can't be bypassed from the client.
-    const FREE_PREVIEW_LIMIT = 0; // spoken elements voiced before unlock
+    // flipped by the Stripe webhook / subscription-unlock). On a locked script,
+    // the WRITER gets a free taste — the first OWNER_PREVIEW_LINES spoken
+    // elements, with full voice choice — because hearing your own pages is the
+    // best sales pitch we have (~1 credit ≈ 8¢ per cast, cached forever).
+    // Everyone else still gets nothing: the public demo is the visitor tryout.
+    // Enforced here (service role) so it can't be bypassed from the client.
+    const OWNER_PREVIEW_LINES = 10;
     const fullAccess = (script as any).full_read_unlocked === true;
     const locked = !fullAccess;
 
@@ -471,7 +474,11 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Free tier: voice only the opening of the script.
+    // Free tier: on a locked script, the writer hears the opening; everyone
+    // else hears nothing. (Service role never generates on locked scripts —
+    // exports require the unlock upstream.)
+    const isOwnerCaller = !!callerId && callerId === (script as any).writer_id;
+    const FREE_PREVIEW_LIMIT = locked ? (isOwnerCaller ? OWNER_PREVIEW_LINES : 0) : Infinity;
     if (locked && entries.length > FREE_PREVIEW_LIMIT) {
       entries.length = FREE_PREVIEW_LIMIT;
     }
@@ -603,7 +610,10 @@ Deno.serve(async (req) => {
     const CHARS_PER_CREDIT = 1000;
     const payerId = script.writer_id as string;
     const isDemoScript = script_id === DEMO_SCRIPT_ID;
-    const meterCredits = !isDemoScript && !serviceBearer && toDo.length > 0;
+    // Locked scripts are exempt: a locked run is at most the writer's 10-line
+    // free preview (entries were sliced above), and that's the sales sample —
+    // charging for it would 402 a writer with 0 credits out of their own taste.
+    const meterCredits = !isDemoScript && !serviceBearer && !locked && toDo.length > 0;
 
     // A dry run prices the job without generating anything, so the client can
     // warn "this will use N credits" BEFORE spending. Costs nothing to call.
@@ -757,7 +767,7 @@ Deno.serve(async (req) => {
         script_id,
         unlocked: fullAccess,
         locked,
-        preview_limit: FREE_PREVIEW_LIMIT,
+        preview_limit: locked ? FREE_PREVIEW_LIMIT : 0,
         voice_config_hash: voiceConfigHash,
         manifest_path: manifestPath,
         mode,
