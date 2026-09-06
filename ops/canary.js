@@ -214,18 +214,22 @@ async function checkLedger() {
     const rows = await rest(
       `credit_ledger?select=user_id,delta,created_at&reason=eq.generation&created_at=gte.${since}&order=user_id,created_at`
     );
+    // Race signature is TIMING, not amount: two concurrent loops land debits
+    // near-simultaneously (Susan's incident: 1-4s apart), while a single
+    // sequential loop can't debit twice inside ~6s — each batch is 10+ seconds
+    // of TTS. (v1 keyed on same-amount-within-30s and false-alarmed on one
+    // customer's ordinary run, where adjacent batches often cost the same.)
     let pairs = 0;
     for (let i = 1; i < rows.length; i++) {
       const a = rows[i - 1], b = rows[i];
       if (
         a.user_id === b.user_id &&
-        a.delta === b.delta &&
-        Math.abs(new Date(b.created_at) - new Date(a.created_at)) < 30_000
+        Math.abs(new Date(b.created_at) - new Date(a.created_at)) <= 5_000
       ) {
         pairs++;
       }
     }
-    if (pairs >= 2) return fail("billing", `${pairs} paired generation debits in 24h — double-billing race may have regressed`);
+    if (pairs >= 3) return fail("billing", `${pairs} near-simultaneous generation debits in 24h — double-billing race may have regressed`);
     ok("billing ledger", `${rows.length} debits, no pair pattern`);
   } catch (e) {
     fail("billing", e.message);
