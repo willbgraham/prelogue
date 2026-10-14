@@ -6,6 +6,7 @@ import { TableReadPlayer } from "@/components/TableReadPlayer";
 import { OwnerUnlock } from "@/components/OwnerUnlock";
 import { OwnerPanel } from "@/components/OwnerPanel";
 import { ExportReadCard } from "@/components/ExportReadCard";
+import { ChooseCastButton } from "@/components/ChooseCastButton";
 import { ShareButton } from "@/components/ShareButton";
 import { ReadForRole } from "@/components/ReadForRole";
 import { ScriptLiveReadings } from "@/components/ScriptLiveReadings";
@@ -268,6 +269,14 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
           initialCount={s.rating_count ?? 0}
         />
       </div>
+
+      {/* Demo hero CTA: casting is the demo's whole pitch, so offer it before
+          the visitor has scrolled to the player (opens the same picker). */}
+      {(script as Script).slug === "booth-nine" && (
+        <div className="mt-4">
+          <ChooseCastButton />
+        </div>
+      )}
 
       {/* The read comes first: it IS the product, and ad traffic used to have
           to scroll past the cast, actor sign-up and live readings to find the

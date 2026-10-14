@@ -72,7 +72,7 @@ export function ScriptCast({
         <h2 className="font-slab text-lg">Cast</h2>
         <button
           onClick={() => window.dispatchEvent(new CustomEvent("prelogue:choose-cast"))}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-tan px-3 py-1.5 text-sm text-taupe hover:bg-elevated"
+          className="inline-flex items-center gap-1.5 rounded-lg bg-brick px-3 py-1.5 text-sm font-medium text-white hover:bg-brick/90"
         >
           <CastIcon className="h-4 w-4" />
           Choose Cast

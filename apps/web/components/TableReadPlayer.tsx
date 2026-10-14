@@ -176,6 +176,15 @@ export function TableReadPlayer({
   // "unlock to continue" card instead of silently skipping the rest.
   const [previewStop, setPreviewStop] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
+
+  // The page can place "Choose Cast" buttons outside this component (e.g. the
+  // demo's hero button under the rating row); they open the same picker by
+  // dispatching this event rather than threading state through the server page.
+  useEffect(() => {
+    const open = () => setShowPicker(true);
+    window.addEventListener("prelogue:choose-cast", open);
+    return () => window.removeEventListener("prelogue:choose-cast", open);
+  }, []);
   const [changesUsed, setChangesUsed] = useState(0);
   const [showVideo, setShowVideo] = useState(false);
   // Preload progress for the cast video clips (0 → total). Transient UI cue.
@@ -821,7 +830,7 @@ export function TableReadPlayer({
             on real scripts visitors cast actors into the roles instead. */}
         <button
           onClick={() => setShowPicker(true)}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-tan px-3 py-2 text-sm text-taupe hover:bg-elevated"
+          className="inline-flex items-center gap-1.5 rounded-lg bg-brick px-3 py-2 text-sm font-medium text-white hover:bg-brick/90"
         >
           <CastIcon className="h-4 w-4" />
           Choose Cast
