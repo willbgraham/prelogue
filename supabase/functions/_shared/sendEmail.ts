@@ -171,8 +171,10 @@ const resend: Provider = {
 };
 
 function resendReason(body: { name?: string; message?: string }, status: number): string {
-  const detail = body?.name || body?.message;
-  return detail ? `resend ${String(detail).slice(0, 240)}` : `resend HTTP ${status}`;
+  // The name alone can mislead: a suspended account answers a send with
+  // "validation_error", and only the message says the key is the problem.
+  const detail = [body?.name, body?.message].filter(Boolean).join(": ");
+  return detail ? `resend ${detail.slice(0, 240)}` : `resend HTTP ${status}`;
 }
 
 // Order matters only when EMAIL_PROVIDER is unset: first one with a token wins.
