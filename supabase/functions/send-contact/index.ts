@@ -7,18 +7,15 @@
 // (never caller-supplied) so it can't be used as an open relay. Idempotent:
 // once a row is marked notified_at it won't send again.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { sendEmail } from "../_shared/sendEmail.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Reuses the same Resend setup as send-invite. CONTACT_TO / CONTACT_FROM can
-// override the defaults as function secrets.
-const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
+// CONTACT_TO can override the inbox as a function secret.
 const CONTACT_TO = Deno.env.get("CONTACT_TO") ?? "hello@prelogue.studio";
-const CONTACT_FROM =
-  Deno.env.get("CONTACT_FROM") ?? "Prelogue <notifications@send.prelogue.studio>";
 
 const json = (obj: unknown, status = 200) =>
   new Response(JSON.stringify(obj), {
@@ -54,31 +51,26 @@ Deno.serve(async (req) => {
     if (!msg) return json({ error: "not found" }, 404);
     if (msg.notified_at) return json({ sent: false, reason: "already notified" });
 
-    // No provider configured → succeed quietly; the message is stored either way
-    // and still shows up in /admin/messages.
-    if (!RESEND_API_KEY) return json({ sent: false, reason: "email provider not configured" });
+    // Hitting Reply in the inbox replies straight to the sender — unless what
+    // they typed isn't an address. A provider rejects the whole email over a
+    // malformed Reply-To, and the address is in the body either way.
+    const replyTo = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(msg.email ?? "") ? msg.email : undefined;
 
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${RESEND_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: CONTACT_FROM,
-        to: CONTACT_TO,
-        // Hitting Reply in the inbox replies straight to the sender.
-        reply_to: msg.email,
-        subject: `Prelogue ${msg.topic}: ${msg.name}`,
-        html: `<p><b>${esc(msg.name)}</b> &lt;${esc(msg.email)}&gt; sent a message (${esc(msg.topic)}):</p>
+    // An unsent notification isn't an error for the caller: the message is
+    // stored regardless and still shows up in /admin/messages.
+    const result = await sendEmail({
+      to: CONTACT_TO,
+      replyTo,
+      subject: `Prelogue ${msg.topic}: ${msg.name}`,
+      html: `<p><b>${esc(msg.name)}</b> &lt;${esc(msg.email)}&gt; sent a message (${esc(msg.topic)}):</p>
 <blockquote style="margin:0;padding:12px 16px;border-left:3px solid #BC4026;background:#F4EEDF;white-space:pre-wrap;">${esc(
-          msg.message
-        )}</blockquote>
+        msg.message
+      )}</blockquote>
 <p style="color:#7a7166;font-size:13px;">Reply to this email to answer them directly, or open
 <a href="https://prelogue.studio/admin/messages">the admin inbox</a>.</p>`,
-      }),
+      tag: "contact-form",
     });
-    if (!res.ok) return json({ sent: false, error: (await res.text()).slice(0, 300) });
+    if (!result.sent) return json(result);
 
     await admin
       .from("contact_messages")

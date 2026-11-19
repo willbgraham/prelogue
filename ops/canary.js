@@ -264,16 +264,19 @@ async function checkRenders() {
 // The check that was missing for nine weeks (Sep–Nov 2026): auth/health said
 // "alive" while every code email failed, ~150 signups bounced off a "{}"
 // error, and 14 people reported it into a contact form that couldn't notify.
-// This runs the real signup request against Resend's sink address
-// (delivered@resend.dev accepts mail and delivers nowhere), so it exercises
-// GoTrue → SMTP → provider end to end without spamming a real inbox.
-async function checkSignupEmail() {
+// This runs the real signup request against the email provider's sink address
+// (it accepts mail and delivers nowhere), so it exercises GoTrue → SMTP →
+// provider end to end without spamming a real inbox. Each provider has its own
+// sink, so the address comes from email-health (check 10) instead of living
+// here; the fallback covers an email-health that predates that field.
+const FALLBACK_SINK = "delivered@resend.dev";
+async function checkSignupEmail(sink) {
   try {
     const res = await timed(
       fetch(`${URL_BASE}/auth/v1/otp`, {
         method: "POST",
         headers: { apikey: KEY, "Content-Type": "application/json" },
-        body: JSON.stringify({ email: "delivered@resend.dev", create_user: true }),
+        body: JSON.stringify({ email: sink || FALLBACK_SINK, create_user: true }),
       }),
       20000,
       "signup otp"
@@ -290,7 +293,8 @@ async function checkSignupEmail() {
   }
 }
 
-// ── 10. Is the email provider key itself alive? (covers function emails) ──
+// ── 10. Is the email provider itself alive? (covers function emails) ──
+// Resolves to that provider's sink address for check 9, or null.
 async function checkEmailProvider() {
   try {
     const res = await timed(
@@ -303,10 +307,13 @@ async function checkEmailProvider() {
       "email-health"
     );
     const out = await res.json();
-    if (out.ok) return ok("email provider key");
-    fail("email provider", `${out.reason || "unhealthy"} — export emails, nudges, notifications and the contact form are not sending`);
+    const who = out.provider ? ` (${out.provider})` : "";
+    if (out.ok) ok(`email provider${who}`);
+    else fail("email provider", `${out.reason || "unhealthy"}${who} — export emails, nudges, notifications and the contact form are not sending`);
+    return out.sink || null;
   } catch (e) {
     fail("email provider", e.message);
+    return null;
   }
 }
 
@@ -367,7 +374,8 @@ async function alert() {
   await Promise.all([checkSite(), checkBackend(), checkWebhook()]);
   await checkDemoRead();
   await Promise.all([checkVoices(), checkDownloadLinks(), checkLedger(), checkRenders()]);
-  await Promise.all([checkSignupEmail(), checkEmailProvider(), checkContactBacklog()]);
+  const [sink] = await Promise.all([checkEmailProvider(), checkContactBacklog()]);
+  await checkSignupEmail(sink);
 
   if (process.env.CANARY_TEST_ALERT === "1") fail("test", "synthetic failure (CANARY_TEST_ALERT=1) — the alert path works");
 

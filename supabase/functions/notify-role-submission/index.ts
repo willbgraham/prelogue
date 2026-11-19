@@ -15,15 +15,13 @@
 // id; every piece of content and the recipient are derived from the database.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { brandEmail, esc } from "../_shared/brandEmail.ts";
+import { sendEmail } from "../_shared/sendEmail.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
-const FROM = Deno.env.get("NOTIFY_FROM") ?? "Prelogue <notifications@send.prelogue.studio>";
-const REPLY_TO = "hello@prelogue.studio";
 const SITE = "https://prelogue.studio";
 
 const json = (obj: unknown, status = 200) =>
@@ -94,27 +92,17 @@ Deno.serve(async (req) => {
       const { data: writerAuth } = await admin.auth.admin.getUserById(script.writer_id);
       const writerEmail = writerAuth?.user?.email;
       if (writerEmail) {
-        emailResult = await (async () => {
-          if (!RESEND_API_KEY) return { sent: false, reason: "email provider not configured" };
-          const res = await fetch("https://api.resend.com/emails", {
-            method: "POST",
-            headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
-            body: JSON.stringify({
-              from: FROM,
-              to: writerEmail,
-              reply_to: REPLY_TO,
-              subject: `${actorName} recorded ${charName} in "${script.title}"`,
-              html: brandEmail({
-                heading: `${actorName} answered your invite`,
-                bodyHtml: `<p style="margin:0 0 14px;"><strong style="color:#2A2420;">${esc(actorName)}</strong> just submitted a read for <strong style="color:#2A2420;">${esc(charName)}</strong> in <strong style="color:#2A2420;">&ldquo;${esc(script.title)}&rdquo;</strong>${sub.take_number > 1 ? ` (take ${sub.take_number})` : ""}.</p><p style="margin:0 0 14px;">Watch it in your casting studio — you can cast them in the role from there, and their take will play inside the table read.</p>`,
-                cta: { label: "Watch their take", url: `${SITE}/studio/${sub.script_id}` },
-                footnote: "You're receiving this because an actor you invited recorded on prelogue.studio.",
-              }),
-            }),
-          });
-          if (!res.ok) return { sent: false, error: (await res.text()).slice(0, 300) };
-          return { sent: true };
-        })();
+        emailResult = await sendEmail({
+          to: writerEmail,
+          subject: `${actorName} recorded ${charName} in "${script.title}"`,
+          html: brandEmail({
+            heading: `${actorName} answered your invite`,
+            bodyHtml: `<p style="margin:0 0 14px;"><strong style="color:#2A2420;">${esc(actorName)}</strong> just submitted a read for <strong style="color:#2A2420;">${esc(charName)}</strong> in <strong style="color:#2A2420;">&ldquo;${esc(script.title)}&rdquo;</strong>${sub.take_number > 1 ? ` (take ${sub.take_number})` : ""}.</p><p style="margin:0 0 14px;">Watch it in your casting studio — you can cast them in the role from there, and their take will play inside the table read.</p>`,
+            cta: { label: "Watch their take", url: `${SITE}/studio/${sub.script_id}` },
+            footnote: "You're receiving this because an actor you invited recorded on prelogue.studio.",
+          }),
+          tag: "role-submission",
+        });
       }
     }
     return json({ ok: true, invited, email: emailResult });

@@ -6,15 +6,13 @@
 //     address is inherently writer-chosen (that's what an invite is).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { brandEmail, esc } from "../_shared/brandEmail.ts";
+import { sendEmail } from "../_shared/sendEmail.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
-const INVITE_FROM = Deno.env.get("INVITE_FROM") ?? "Prelogue <invites@send.prelogue.studio>";
-const REPLY_TO = "hello@prelogue.studio";
 const SITE = "https://prelogue.studio";
 
 function json(obj: unknown, status = 200) {
@@ -52,10 +50,6 @@ Deno.serve(async (req) => {
       .eq("id", script_id)
       .single();
     if (!script || script.writer_id !== user.id) return json({ error: "Not authorized" }, 403);
-
-    // No provider configured yet → succeed quietly (the invite is already stored,
-    // so the person gets access on sign-in; this just skips the email).
-    if (!RESEND_API_KEY) return json({ sent: false, reason: "email provider not configured" });
 
     const { data: writer } = await admin
       .from("users")
@@ -107,16 +101,9 @@ Deno.serve(async (req) => {
       });
     }
 
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${RESEND_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ from: INVITE_FROM, to: email, reply_to: REPLY_TO, subject, html }),
-    });
-    if (!res.ok) return json({ sent: false, error: await res.text() });
-    return json({ sent: true });
+    // An unsent email isn't an error for the caller: the invite is already
+    // stored, so the person gets access when they sign in with this address.
+    return json(await sendEmail({ to: email, subject, html, from: "invites", tag: "invite" }));
   } catch (e) {
     return json({ error: String(e) }, 500);
   }

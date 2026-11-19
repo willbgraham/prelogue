@@ -8,6 +8,7 @@
 //   signed URL.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { brandEmail } from "../_shared/brandEmail.ts";
+import { sendEmail } from "../_shared/sendEmail.ts";
 import { isServiceRole } from "../_shared/serviceRole.ts";
 
 const corsHeaders = {
@@ -15,9 +16,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
-const FROM = Deno.env.get("NOTIFY_FROM") ?? "Prelogue <notifications@send.prelogue.studio>";
-const REPLY_TO = "hello@prelogue.studio";
 const SITE = "https://prelogue.studio";
 // House account: its scripts are ops content (daily scenes); no emails.
 const HOUSE_WRITER = "e13e3e11";
@@ -68,7 +66,6 @@ Deno.serve(async (req) => {
     const { data: writerAuth } = await admin.auth.admin.getUserById(script.writer_id);
     const to = writerAuth?.user?.email;
     if (!to) return json({ sent: false, reason: "writer has no email" });
-    if (!RESEND_API_KEY) return json({ sent: false, reason: "email provider not configured" });
 
     // Durable link: resolves to a fresh signed URL at click time and follows
     // supersedes, so the email keeps working after re-exports and never
@@ -80,24 +77,18 @@ Deno.serve(async (req) => {
     const kindLabel = isAudio ? "MP3" : "video";
     const pageLink = `${SITE}/script/${script.slug ?? render.script_id}`;
 
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        from: FROM,
-        to,
-        reply_to: REPLY_TO,
-        subject: `Your ${kindLabel} of "${script.title}" is ready`,
-        html: brandEmail({
-          heading: `Your ${kindLabel} of “${script.title}” is ready`,
-          bodyHtml: `<p style="margin:0 0 14px;">The export finished and your file is ready to download. It's also on your script page under the player.</p>`,
-          cta: { label: isAudio ? "Download the MP3" : "Download the video", url: link },
-          footnote: "You're receiving this because you exported a table read on prelogue.studio. This link keeps working — it always serves your newest export.",
-        }),
+    const result = await sendEmail({
+      to,
+      subject: `Your ${kindLabel} of "${script.title}" is ready`,
+      html: brandEmail({
+        heading: `Your ${kindLabel} of “${script.title}” is ready`,
+        bodyHtml: `<p style="margin:0 0 14px;">The export finished and your file is ready to download. It's also on your script page under the player.</p>`,
+        cta: { label: isAudio ? "Download the MP3" : "Download the video", url: link },
+        footnote: "You're receiving this because you exported a table read on prelogue.studio. This link keeps working — it always serves your newest export.",
       }),
+      tag: "export-ready",
     });
-    if (!res.ok) return json({ sent: false, error: (await res.text()).slice(0, 300) });
-    return json({ sent: true });
+    return json(result);
   } catch (err) {
     console.error("notify-export-ready error:", err);
     return json({ error: "Internal error" }, 500);

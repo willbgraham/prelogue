@@ -17,15 +17,13 @@
 // decided: one per request+status per 30s window, so re-decisions still send).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { brandEmail, esc } from "../_shared/brandEmail.ts";
+import { sendEmail } from "../_shared/sendEmail.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
-const FROM = Deno.env.get("NOTIFY_FROM") ?? "Prelogue <notifications@send.prelogue.studio>";
-const REPLY_TO = "hello@prelogue.studio";
 const SITE = "https://prelogue.studio";
 
 const json = (obj: unknown, status = 200) =>
@@ -34,16 +32,8 @@ const json = (obj: unknown, status = 200) =>
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 
-async function sendEmail(to: string, subject: string, html: string) {
-  if (!RESEND_API_KEY) return { sent: false, reason: "email provider not configured" };
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ from: FROM, to, reply_to: REPLY_TO, subject, html }),
-  });
-  if (!res.ok) return { sent: false, error: (await res.text()).slice(0, 300) };
-  return { sent: true };
-}
+const email = (to: string, subject: string, html: string) =>
+  sendEmail({ to, subject, html, tag: "listen-request" });
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -134,7 +124,7 @@ Deno.serve(async (req) => {
             : "",
           `<p style="margin:0 0 14px;">Approve or deny from your script page — they'll be emailed your decision.</p>`,
         ].join("");
-        emailResult = await sendEmail(
+        emailResult = await email(
           writerEmail,
           `${name} wants to listen to "${script.title}"`,
           brandEmail({
@@ -210,7 +200,7 @@ Deno.serve(async (req) => {
         .single();
       const writerName = writer?.display_name || "The writer";
       emailResult = approved
-        ? await sendEmail(
+        ? await email(
             to,
             `You're approved to listen to "${script.title}"`,
             brandEmail({
@@ -220,7 +210,7 @@ Deno.serve(async (req) => {
               footnote: "You're receiving this because you requested access to a script on prelogue.studio.",
             })
           )
-        : await sendEmail(
+        : await email(
             to,
             `About your listen request for "${script.title}"`,
             brandEmail({
