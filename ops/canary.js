@@ -260,6 +260,75 @@ async function checkRenders() {
   }
 }
 
+// ── 9. Can a new visitor actually receive a sign-in code? ──
+// The check that was missing for nine weeks (Sep–Nov 2026): auth/health said
+// "alive" while every code email failed, ~150 signups bounced off a "{}"
+// error, and 14 people reported it into a contact form that couldn't notify.
+// This runs the real signup request against Resend's sink address
+// (delivered@resend.dev accepts mail and delivers nowhere), so it exercises
+// GoTrue → SMTP → provider end to end without spamming a real inbox.
+async function checkSignupEmail() {
+  try {
+    const res = await timed(
+      fetch(`${URL_BASE}/auth/v1/otp`, {
+        method: "POST",
+        headers: { apikey: KEY, "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "delivered@resend.dev", create_user: true }),
+      }),
+      20000,
+      "signup otp"
+    );
+    if (res.ok) return ok("signup email (sign-in codes send)");
+    const body = await res.json().catch(() => ({}));
+    const why = body.msg || body.error_code || body.message || `HTTP ${res.status}`;
+    if (res.status === 429) {
+      return fail("signup email", `rate-limited (${why}) — some visitors can't get a sign-in code right now; raise the Auth email rate limit`);
+    }
+    fail("signup email", `${why} — NO ONE can sign up or log in`);
+  } catch (e) {
+    fail("signup email", e.message);
+  }
+}
+
+// ── 10. Is the email provider key itself alive? (covers function emails) ──
+async function checkEmailProvider() {
+  try {
+    const res = await timed(
+      fetch(`${URL_BASE}/functions/v1/email-health`, {
+        method: "POST",
+        headers: { ...svc, "Content-Type": "application/json" },
+        body: "{}",
+      }),
+      15000,
+      "email-health"
+    );
+    const out = await res.json();
+    if (out.ok) return ok("email provider key");
+    fail("email provider", `${out.reason || "unhealthy"} — export emails, nudges, notifications and the contact form are not sending`);
+  } catch (e) {
+    fail("email provider", e.message);
+  }
+}
+
+// ── 11. Contact-form messages that never reached hello@ ──
+// A stored message with no notified_at means a customer wrote in and nobody
+// was told. Bounded to a week so old history can't alarm forever.
+async function checkContactBacklog() {
+  try {
+    const since = new Date(Date.now() - 7 * 24 * 3600_000).toISOString();
+    const older = new Date(Date.now() - 3600_000).toISOString();
+    const rows = await rest(
+      `contact_messages?select=id,name&notified_at=is.null&topic=neq.ALERT&created_at=gte.${since}&created_at=lt.${older}`
+    );
+    if (rows.length) {
+      return fail("contact form", `${rows.length} customer message(s) in the last week were never emailed to hello@ — read them at /admin/messages`);
+    }
+    ok("contact form notifications");
+  } catch (e) {
+    fail("contact form", e.message);
+  }
+}
+
 // ── Alert via the contact-form plumbing (email to hello@ + admin panel) ──
 async function alert() {
   const body = [
@@ -298,6 +367,7 @@ async function alert() {
   await Promise.all([checkSite(), checkBackend(), checkWebhook()]);
   await checkDemoRead();
   await Promise.all([checkVoices(), checkDownloadLinks(), checkLedger(), checkRenders()]);
+  await Promise.all([checkSignupEmail(), checkEmailProvider(), checkContactBacklog()]);
 
   if (process.env.CANARY_TEST_ALERT === "1") fail("test", "synthetic failure (CANARY_TEST_ALERT=1) — the alert path works");
 

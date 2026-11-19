@@ -33,6 +33,22 @@ export default function SignInPage() {
     }
   }, []);
 
+  // Never show a raw auth error. When our email provider was down, the server
+  // answered 500 and the auth library's message was the literal string "{}" —
+  // which is what every new visitor saw for nine weeks, with no idea whether
+  // to retry, wait, or give up. Say what happened and give them a way in.
+  function sendCodeMessage(err: { message?: string; status?: number }): string {
+    if (err.status === 429) {
+      return "Too many attempts in a short time — give it a minute and try again.";
+    }
+    const m = (err.message ?? "").trim();
+    const unreadable = !m || m === "{}" || m.startsWith("{") || (err.status ?? 0) >= 500;
+    if (unreadable) {
+      return "We couldn't send your code — that's a problem on our side, not yours. Try again in a few minutes, or email hello@prelogue.studio and we'll get you in.";
+    }
+    return m;
+  }
+
   async function sendCode(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
@@ -43,7 +59,7 @@ export default function SignInPage() {
     });
     setLoading(false);
     if (error) {
-      setError(error.message);
+      setError(sendCodeMessage(error));
       return;
     }
     setStep("code");
