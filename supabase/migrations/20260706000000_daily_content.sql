@@ -2,12 +2,12 @@
 -- The private `daily-renders` storage bucket and the "Prelogue Originals" house
 -- account are created via the service role (scripts/seed-infra.js), not here.
 
--- 1. Admin flag (gates /admin). Grant it to the owner.
+-- 1. Admin flag (gates /admin). Grant it to the owner — named by account id,
+-- never by email address: this repository is public.
 alter table public.users add column if not exists is_admin boolean not null default false;
-update public.users u
+update public.users
   set is_admin = true
-  from auth.users a
-  where a.id = u.id and lower(a.email) = 'willg1@gmail.com';
+  where id = 'b92f7084-d88e-40fd-9c2a-8f67ed8db102';
 
 -- 2. One row per rendered social video (both variants, many per script).
 create table if not exists public.daily_renders (

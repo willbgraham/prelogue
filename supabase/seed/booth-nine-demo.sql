@@ -13,7 +13,7 @@ insert into public.scripts
   (id, writer_id, title, genre, logline, file_url, status, submission_deadline, visibility, full_read_unlocked, unlocked_at, voice_config, parsed_json)
 values (
   'b0078900-0000-4000-8000-000000000009',
-  (select id from auth.users where lower(email) = 'willg1@gmail.com'),
+  'b92f7084-d88e-40fd-9c2a-8f67ed8db102', -- the operator account, by id (no email addresses in a public repo)
   'Booth Nine',
   'Thriller',
   'A man who signed the wrong contract has one night to get out of it.',

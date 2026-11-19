@@ -1,7 +1,7 @@
 -- Actors signing up via email OTP had no name, so handle_new_user() defaulted
 -- display_name to the FULL email — which then rendered publicly everywhere (a
--- privacy leak). Default to the email's local part instead ("nuzzih2@gmail.com"
--- → "nuzzih2"), and backfill anyone currently showing an email. Users can still
+-- privacy leak). Default to the email's local part instead ("jane.doe@example.com"
+-- → "jane.doe"), and backfill anyone currently showing an email. Users can still
 -- set a real display name in their profile.
 
 create or replace function public.handle_new_user()
