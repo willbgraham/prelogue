@@ -16,7 +16,8 @@
 //   --out DIR                              where the dry run writes its files
 //
 // Safe to re-run: anyone Postmark has already logged this email for is
-// skipped, so a batch (--limit) can be continued the next day.
+// skipped, so a batch (--limit) can be continued the next day. Batches go to
+// the most recent signups first — the people likeliest to still want in.
 //
 // It stops at the first error that isn't about one recipient. Sign-in codes
 // share this Postmark account, so running into a plan limit or a suspension
@@ -171,7 +172,7 @@ async function buildList() {
       exists (select 1 from public.contact_messages c where lower(c.email) = lower(u.email)) as wrote_in
     from auth.users u
     where u.created_at >= '${OUTAGE_START}' and u.created_at < '${FIXED_AT}' and u.email is not null
-    order by u.created_at`);
+    order by u.created_at desc`);
   const sent = await alreadySent();
   const seen = new Set();
   const list = [];
