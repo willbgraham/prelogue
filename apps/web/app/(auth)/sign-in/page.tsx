@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { getBrowserClient } from "@/lib/supabase/client";
 import { trackOnce } from "@/lib/analytics";
+import { suggestEmail } from "@/lib/emailTypo";
 
 // Only allow same-origin relative redirects (no open-redirect to other sites).
 function safeNext(raw: string | null): string {
@@ -20,6 +21,7 @@ export default function SignInPage() {
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [suggestion, setSuggestion] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [next, setNext] = useState("/");
 
@@ -49,12 +51,11 @@ export default function SignInPage() {
     return m;
   }
 
-  async function sendCode(e: React.FormEvent) {
-    e.preventDefault();
+  async function requestCode(address: string) {
     setLoading(true);
     setError(null);
     const { error } = await getBrowserClient().auth.signInWithOtp({
-      email: email.trim(),
+      email: address,
       options: { shouldCreateUser: true },
     });
     setLoading(false);
@@ -62,7 +63,24 @@ export default function SignInPage() {
       setError(sendCodeMessage(error));
       return;
     }
+    setSuggestion(null);
+    setEmail(address);
     setStep("code");
+  }
+
+  function sendCode(e: React.FormEvent) {
+    e.preventDefault();
+    const typed = email.trim();
+    // A mistyped domain sends the code nowhere, and the visitor waits for an
+    // email that can't arrive. Ask first — the choice stays theirs, because
+    // real domains do sit one letter away from famous ones.
+    const meant = suggestEmail(typed);
+    if (meant) {
+      setError(null);
+      setSuggestion(meant);
+      return;
+    }
+    void requestCode(typed);
   }
 
   async function verify(e: React.FormEvent) {
@@ -105,16 +123,43 @@ export default function SignInPage() {
               required
               autoComplete="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                setSuggestion(null);
+              }}
               className={input}
             />
           </label>
-          <button
-            disabled={loading}
-            className="w-full rounded-lg bg-brick px-4 py-3 font-medium text-white disabled:opacity-60"
-          >
-            {loading ? "Sending…" : "Email me a code"}
-          </button>
+          {suggestion ? (
+            <div role="status" className="rounded-lg border border-tan bg-elevated px-4 py-3">
+              <p className="text-sm text-taupe">
+                Did you mean <strong className="break-words text-ink">{suggestion}</strong>?
+              </p>
+              <button
+                type="button"
+                disabled={loading}
+                onClick={() => requestCode(suggestion)}
+                className="mt-3 w-full rounded-lg bg-brick px-4 py-3 font-medium text-white disabled:opacity-60"
+              >
+                {loading ? "Sending…" : "Yes, send my code there"}
+              </button>
+              <button
+                type="button"
+                disabled={loading}
+                onClick={() => requestCode(email.trim())}
+                className="mt-1 w-full break-words px-4 py-2 text-sm text-taupe underline hover:text-ink disabled:opacity-60"
+              >
+                No, {email.trim()} is right
+              </button>
+            </div>
+          ) : (
+            <button
+              disabled={loading}
+              className="w-full rounded-lg bg-brick px-4 py-3 font-medium text-white disabled:opacity-60"
+            >
+              {loading ? "Sending…" : "Email me a code"}
+            </button>
+          )}
           <p className="text-center text-xs text-muted">
             We&rsquo;ll email you a 6-digit code — no password needed.
           </p>
@@ -168,7 +213,11 @@ export default function SignInPage() {
             >
               ← Use a different email
             </button>
-            <button type="button" onClick={sendCode} className="text-taupe hover:text-ink">
+            <button
+              type="button"
+              onClick={() => requestCode(email.trim())}
+              className="text-taupe hover:text-ink"
+            >
               Resend code
             </button>
           </div>
