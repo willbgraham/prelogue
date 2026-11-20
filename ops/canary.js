@@ -18,8 +18,7 @@
 // notification acts as a second channel.
 //
 // Env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY. Optional: CANARY_TEST_ALERT=1
-// injects a fake failure to prove the alert path end to end;
-// CANARY_SIGNUP_TEST=1 makes the real sign-in-code send outside its daily window.
+// injects a fake failure to prove the alert path end to end.
 
 const URL_BASE = (process.env.SUPABASE_URL || "").replace(/\/$/, "");
 const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
@@ -272,22 +271,12 @@ async function checkRenders() {
 // here; the fallback covers an email-health that predates that field.
 const FALLBACK_SINK = "delivered@resend.dev";
 
-// The real send costs one email per run, out of the same monthly allowance
-// that sign-in codes come from. On Postmark's free plan (100 a month, sending
-// stops at the cap) four runs a day would spend 120 — the monitor would be the
-// thing that takes sign-in down. So only runs that start inside this UTC
-// window make the real send; the others still check the provider credential
-// (check 10), which sends nothing. Set to null once the plan has room.
-// CANARY_SIGNUP_TEST=1 forces the real send on a manual run.
-const SIGNUP_TEST_UTC_HOURS = { from: 12, to: 18 };
-
+// This costs one real email per run, and it runs every time. A version that
+// rationed it to one daily time window (to fit a 100-a-month free plan) tested
+// nothing at all: GitHub delays and drops scheduled runs — about half of them —
+// so no run started inside the window. If the allowance is ever that tight
+// again, ration by time since the last real send, never by clock time.
 async function checkSignupEmail(sink) {
-  const hour = new Date().getUTCHours();
-  const inWindow = !SIGNUP_TEST_UTC_HOURS || (hour >= SIGNUP_TEST_UTC_HOURS.from && hour < SIGNUP_TEST_UTC_HOURS.to);
-  if (!inWindow && process.env.CANARY_SIGNUP_TEST !== "1") {
-    console.log("– signup email — real send skipped this run (one a day, to spare the email allowance)");
-    return;
-  }
   try {
     const res = await timed(
       fetch(`${URL_BASE}/auth/v1/otp`, {
