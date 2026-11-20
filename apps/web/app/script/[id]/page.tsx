@@ -18,6 +18,8 @@ import { RequestListen } from "@/components/RequestListen";
 import { ListenRequests } from "@/components/ListenRequests";
 import { InvitedToRead } from "@/components/InvitedToRead";
 import { WriterCTA } from "@/components/WriterCTA";
+import { UnreadableScript } from "@/components/UnreadableScript";
+import { buildRows } from "@/lib/shared";
 import type { Script, Character } from "@/lib/shared";
 import { labelOf, LISTING_STATUSES, FORMATS, AGE_RATINGS } from "@/lib/constants";
 
@@ -195,6 +197,10 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
     .order("line_count", { ascending: false });
 
   const s = script as Script;
+  const isOwner = user?.id === s.writer_id;
+  // Same test the player uses: a script with no dialogue or action rows has
+  // nothing to play, unlock or export (a scan, or a read that failed).
+  const readable = buildRows(s.parsed_json).length > 0;
   const statusLabel = labelOf(LISTING_STATUSES, s.listing_status);
   const formatLabel = labelOf(FORMATS, s.format);
   const ageLabel = labelOf(AGE_RATINGS, s.age_rating);
@@ -282,17 +288,23 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
           to scroll past the cast, actor sign-up and live readings to find the
           play button. */}
       <div className="mt-6">
-        <TableReadPlayer
-          scriptId={(script as Script).id}
-          parsed={(script as Script).parsed_json}
-          voiceConfig={(script as Script).voice_config}
-          ambience={(script as Script).ambience_config ?? null}
-          canChangeVoices={
-            (script as Script).slug === "booth-nine" ||
-            user?.id === (script as Script).writer_id
-          }
-          isOwner={user?.id === (script as Script).writer_id}
-        />
+        {isOwner && !readable ? (
+          // The writer gets a way forward, not the player's "hasn't been
+          // parsed yet" box with nothing to press.
+          <UnreadableScript scriptId={s.id} />
+        ) : (
+          <TableReadPlayer
+            scriptId={(script as Script).id}
+            parsed={(script as Script).parsed_json}
+            voiceConfig={(script as Script).voice_config}
+            ambience={(script as Script).ambience_config ?? null}
+            canChangeVoices={
+              (script as Script).slug === "booth-nine" ||
+              user?.id === (script as Script).writer_id
+            }
+            isOwner={user?.id === (script as Script).writer_id}
+          />
+        )}
       </div>
 
       {/* Then the ask, while they've just heard it. */}
@@ -301,7 +313,7 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
       {/* Download sits right under the player because that's where a writer who
           just listened looks for it. It used to live only on the casting page —
           a paying customer emailed that she couldn't find it at all. */}
-      {user?.id === s.writer_id && s.full_read_unlocked && (
+      {user?.id === s.writer_id && s.full_read_unlocked && readable && (
         <ExportReadCard
           scriptId={s.id}
           title={s.title}
@@ -346,11 +358,14 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
               Live readings →
             </Link>
           </div>
-          <OwnerUnlock
-            scriptId={s.id}
-            unlocked={!!s.full_read_unlocked}
-            pageCount={s.page_count}
-          />
+          {/* Nothing to unlock until there are lines to read. */}
+          {readable && (
+            <OwnerUnlock
+              scriptId={s.id}
+              unlocked={!!s.full_read_unlocked}
+              pageCount={s.page_count}
+            />
+          )}
           <OwnerPanel
             scriptId={s.id}
             initialVisibility={(s.visibility ?? "public") as "public" | "hidden" | "private"}

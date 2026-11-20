@@ -88,7 +88,9 @@ export function OwnerUnlock({
       setError(
         data?.error === "no_active_plan"
           ? "No active plan — subscribe or use a one-time unlock."
-          : data?.error ?? error?.message ?? "Couldn't unlock."
+          : data?.error === "unreadable_script"
+            ? (data?.message ?? "We couldn't read any lines from this PDF yet, so there is nothing to unlock.")
+            : data?.error ?? error?.message ?? "Couldn't unlock."
       );
       setBusy(null);
       return;

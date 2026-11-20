@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { getBrowserClient } from "@/lib/supabase/client";
 import { GENRES } from "@/lib/constants";
 import { useRoles } from "@/lib/useRoles";
 import { ScriptDetailsForm, type ScriptDetailsValues } from "@/components/ScriptDetailsForm";
+import { MAX_SCRIPT_BYTES, megabytes, parseScript } from "@/lib/parseScript";
 
 const input =
   "w-full rounded-lg border border-tan bg-elevated px-4 py-3 outline-none focus:border-brick";
@@ -23,11 +24,26 @@ export default function UploadPage() {
   const [status, setStatus] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [details, setDetails] = useState<ScriptDetailsValues>({});
+  // The form is long and the writer is looking at the button at the bottom, so
+  // the reason an upload failed goes there, and is brought into view. (It used
+  // to appear at the top, off screen: the button just went back to normal.)
+  const errorRef = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    if (error) errorRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [error]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!file) {
       setError("Choose a screenplay PDF.");
+      return;
+    }
+    if (file.size > MAX_SCRIPT_BYTES) {
+      // A text PDF of a feature is a megabyte or two; one this size is nearly
+      // always a scan, which the voices can't read anyway.
+      setError(
+        `That file is ${megabytes(file.size)} and the limit is ${megabytes(MAX_SCRIPT_BYTES)}. PDFs that large are usually scans. Export a PDF from your writing app and upload that instead.`
+      );
       return;
     }
     setBusy(true);
@@ -81,17 +97,28 @@ export default function UploadPage() {
       });
       if (insErr) throw insErr;
 
-      setStatus("Parsing the screenplay…");
-      const { data: parsed, error: parseErr } = await supabase.functions.invoke("parse-script", {
-        body: { script_id: scriptId },
-      });
-      // Surface a failed parse here instead of dumping the writer on a script
-      // page with zero lines and no way to retry (scanned/image PDFs mostly).
-      const parseMsg = (parsed as { error?: string } | null)?.error ?? parseErr?.message;
-      if (parseMsg) {
-        throw new Error(
-          "We couldn't read that PDF — it may be a scan or image-based. Export a text PDF from your writing app and try again."
-        );
+      setStatus("Reading the screenplay…");
+      // Long scripts are read in several passes; say so rather than look stuck.
+      const slow = window.setTimeout(
+        () => setStatus("Still reading. Long scripts take a little longer…"),
+        7000
+      );
+      const outcome = await parseScript(supabase, scriptId, { discardIfUnreadable: true }).finally(
+        () => window.clearTimeout(slow)
+      );
+      if (!outcome.ok) {
+        if (outcome.ours) {
+          // Our failure, their file is fine and already saved. Send them to the
+          // script, where "Try again" re-reads it — staying here would invite
+          // a second upload and a duplicate script.
+          router.push(`/script/${scriptId}`);
+          return;
+        }
+        // Their file can't be read (a scan, a password…). Say exactly why, and
+        // leave nothing behind: an unreadable script in the studio is a dead
+        // end that someone once unlocked and tried to export.
+        if (!outcome.discarded) await supabase.rpc("delete_script", { p_script_id: scriptId });
+        throw new Error(outcome.message);
       }
 
       router.push(`/script/${scriptId}`);
@@ -136,7 +163,6 @@ export default function UploadPage() {
       </p>
 
       <form onSubmit={onSubmit} className="mt-6 flex flex-col gap-4">
-        {error && <p className="rounded-lg bg-brick/10 px-3 py-2 text-sm text-brick">{error}</p>}
         <label className="flex flex-col gap-1">
           <span className={label}>Title</span>
           <input required value={title} onChange={(e) => setTitle(e.target.value)} className={input} />
@@ -192,6 +218,15 @@ export default function UploadPage() {
             I own this screenplay or have the rights to upload it and have it performed here.
           </span>
         </label>
+        {error && (
+          <p
+            ref={errorRef}
+            role="alert"
+            className="rounded-lg bg-brick/10 px-3 py-2 text-sm leading-relaxed text-brick"
+          >
+            {error}
+          </p>
+        )}
         <button
           disabled={busy}
           className="w-full rounded-lg bg-brick px-4 py-3 font-medium text-white disabled:opacity-60"

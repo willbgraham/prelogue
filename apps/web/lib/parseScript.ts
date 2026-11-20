@@ -1,0 +1,121 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+/** Largest file the scripts bucket accepts. */
+export const MAX_SCRIPT_BYTES = 50 * 1024 * 1024;
+
+export const HELP_EMAIL = "hello@prelogue.studio";
+
+export type ParseFailure = {
+  ok: false;
+  code: string;
+  /** Plain-English reason, ready to show the writer. */
+  message: string;
+  /** True when the failure is on our side: the writer's file is fine. */
+  ours: boolean;
+  /** True when the server already removed the unusable upload. */
+  discarded: boolean;
+};
+export type ParseOutcome =
+  | { ok: true; pages: number | null; imagePages: number }
+  | ParseFailure;
+
+// What a writer can fix themselves, by failure code. KEEP IN STEP with FAILS in
+// supabase/functions/parse-script/index.ts — the codes are the contract; the
+// wording here is the site's (it can say more than the function's fallback).
+const FIXABLE: Record<string, string> = {
+  scanned_pdf: `This PDF is a scan: pictures of the pages, with no text in it for the voices to read. Open the script in the app you wrote it in (Final Draft, Fade In, WriterDuet, Highland and so on), export it as a PDF, and upload that. If a scan is all you have, email ${HELP_EMAIL} and we'll help.`,
+  password_protected:
+    "This PDF is password-protected, so we can't open it. Save a copy without the password and upload that.",
+  not_a_pdf:
+    "That file isn't a PDF we can open. Export your script as a PDF from your writing app and try again.",
+  too_long: `That file is longer than 400 pages, which is more than we can read as one script. If it really is one script, email ${HELP_EMAIL} and we'll sort it out.`,
+  empty_script:
+    "We opened the PDF but couldn't find any script text in it. Check it's the right file, then export it again from your writing app.",
+};
+
+const OUR_SIDE =
+  "Something went wrong on our side while reading this PDF. Your file is fine, and we've been alerted. Please try again in a few minutes.";
+
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Ask the server to read a stored screenplay PDF into scenes and lines.
+ *
+ * Two kinds of failure, and they need different handling:
+ *   • the file (a scan, a password, not a PDF): told plainly, once — trying
+ *     again can't help, a different file can;
+ *   • us (a crashed worker, a dropped connection): retried here, quietly,
+ *     because the writer did nothing wrong and a second go usually works.
+ *
+ * `discardIfUnreadable` asks the server to remove an upload that turned out to
+ * be unusable, so it doesn't sit in the studio as a script that never plays.
+ * Use it only for a brand-new upload.
+ */
+export async function parseScript(
+  supabase: SupabaseClient,
+  scriptId: string,
+  opts: { discardIfUnreadable?: boolean } = {}
+): Promise<ParseOutcome> {
+  const ATTEMPTS = 3;
+  let last: ParseFailure = {
+    ok: false,
+    code: "unreachable",
+    message: OUR_SIDE,
+    ours: true,
+    discarded: false,
+  };
+
+  for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
+    let d: Record<string, unknown> | null = null;
+    let transportFailed = false;
+    try {
+      const { data, error } = await supabase.functions.invoke("parse-script", {
+        body: {
+          script_id: scriptId,
+          ...(opts.discardIfUnreadable ? { discard_if_unreadable: true } : {}),
+        },
+      });
+      transportFailed = !!error;
+      d = data && typeof data === "object" ? (data as Record<string, unknown>) : null;
+    } catch {
+      transportFailed = true;
+    }
+
+    if (!transportFailed && d?.success === true) {
+      // A server from before scans were refused reports a scan as a success
+      // with nothing in it. Never treat that as a script.
+      if (d.elements === 0) {
+        return {
+          ok: false,
+          code: "scanned_pdf",
+          message: FIXABLE.scanned_pdf,
+          ours: false,
+          discarded: false,
+        };
+      }
+      return {
+        ok: true,
+        pages: typeof d.pages === "number" ? d.pages : null,
+        imagePages: typeof d.image_pages === "number" ? d.image_pages : 0,
+      };
+    }
+
+    const code = typeof d?.error === "string" ? d.error : "unreachable";
+    if (FIXABLE[code]) {
+      return {
+        ok: false,
+        code,
+        message: FIXABLE[code],
+        ours: false,
+        discarded: d?.discarded === true,
+      };
+    }
+
+    last = { ok: false, code, message: OUR_SIDE, ours: true, discarded: false };
+    if (attempt < ATTEMPTS) await wait(1500 * attempt);
+  }
+  return last;
+}
+
+/** "36 MB" */
+export const megabytes = (bytes: number) => `${Math.max(1, Math.round(bytes / (1024 * 1024)))} MB`;
