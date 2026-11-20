@@ -7,6 +7,7 @@
 // enough remaining budget. Idempotent: re-unlocking an already-unlocked script
 // costs nothing.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { countElements } from "../_shared/screenplay.ts";
 
 // KEEP IN SYNC with apps/web/lib/shared/plans.ts
 const PLAN_LABEL: Record<string, string> = {
@@ -49,13 +50,24 @@ Deno.serve(async (req) => {
 
     const { data: script } = await admin
       .from("scripts")
-      .select("id, title, writer_id, page_count, full_read_unlocked")
+      .select("id, title, writer_id, page_count, full_read_unlocked, scenes:parsed_json->scenes")
       .eq("id", script_id)
       .single();
     if (!script) return json({ error: "Script not found" }, 404);
     if (script.writer_id !== user.id) return json({ error: "Not your script" }, 403);
     if (script.full_read_unlocked) {
       return json({ ok: true, already_unlocked: true });
+    }
+    // Nothing to unlock on a script we couldn't read. A subscriber once
+    // unlocked a scanned PDF this way and then spent a quarter of an hour
+    // trying to play and export a read that could never exist. (HTTP 200 so
+    // the page can show the reason; supabase-js hides the body of a non-2xx.)
+    if (countElements(script.scenes) === 0) {
+      return json({
+        error: "unreadable_script",
+        message:
+          "We couldn't read any lines from this PDF yet, so there is nothing to unlock. Upload a PDF exported from your writing app first.",
+      });
     }
 
     const { data: profile } = await admin

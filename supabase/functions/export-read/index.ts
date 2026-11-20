@@ -8,6 +8,7 @@
 // Gates: caller must be the script's writer, and the script must have the full
 // read unlocked (the export IS the full read — same $19 gate as generation).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { countElements } from "../_shared/screenplay.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -142,6 +143,21 @@ Deno.serve(async (req) => {
     // action === "dispatch"
     if (!script.full_read_unlocked) {
       return json({ error: "Unlock the full read to export it" }, 402);
+    }
+    // A render of a script with no lines fails minutes later with an error
+    // only we can read. Say so now. Looked up here, on dispatch only: the
+    // status poll runs every 20 seconds and must not haul the parse around.
+    // (HTTP 200 so the card can show the reason.)
+    const { data: body } = await admin
+      .from("scripts")
+      .select("scenes:parsed_json->scenes")
+      .eq("id", script_id)
+      .single();
+    if (countElements(body?.scenes) === 0) {
+      return json({
+        error:
+          "We couldn't read any lines from this PDF yet, so there is nothing to export. Upload a PDF exported from your writing app first.",
+      });
     }
     if (kind === "video" && (script.page_count ?? 0) > MAX_VIDEO_PAGES) {
       return json(

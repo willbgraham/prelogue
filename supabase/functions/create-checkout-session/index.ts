@@ -1,5 +1,6 @@
 import Stripe from "https://esm.sh/stripe@16.12.0?target=deno";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { countElements } from "../_shared/screenplay.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -163,12 +164,20 @@ Deno.serve(async (req) => {
     // The buyer must own the script, and it can't already be unlocked.
     const { data: script } = await admin
       .from("scripts")
-      .select("id, title, writer_id, full_read_unlocked")
+      .select("id, title, writer_id, full_read_unlocked, scenes:parsed_json->scenes")
       .eq("id", script_id)
       .single();
     if (!script) return json({ error: "Script not found" }, 404);
     if (script.writer_id !== user.id) return json({ error: "Not your script" }, 403);
     if (script.full_read_unlocked) return json({ error: "Script is already unlocked" }, 409);
+    // Never take $19 for a script we couldn't read. (HTTP 200 so the page can
+    // show the reason; supabase-js hides the body of a non-2xx.)
+    if (countElements(script.scenes) === 0) {
+      return json({
+        error:
+          "We couldn't read any lines from this PDF yet, so there is nothing to unlock. Upload a PDF exported from your writing app first.",
+      });
+    }
 
     const checkoutSession = await stripe.checkout.sessions.create({
       mode: "payment",
