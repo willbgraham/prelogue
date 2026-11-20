@@ -9,6 +9,8 @@
 //   paired ledger debits  → the concurrent-generation double-billing race
 //   zombie renders        → the OOM'd MP4 stuck "processing" for hours
 //   dead download links   → the emailed NoSuchKey after a re-export
+//   unreadable upload     → the scan a subscriber unlocked and tried to export,
+//                           and the print-to-PDF scripts the parser died on
 //
 // Read-only by design: never generates audio, never spends credits, never
 // touches customer rows. Alerts ride the existing contact-form plumbing
@@ -260,6 +262,33 @@ async function checkRenders() {
   }
 }
 
+// ── 8b. Is a writer sitting on an upload we couldn't read? ──
+// parse-script emails the owner the moment a read fails, but that email is
+// sent by the same code that just failed. This is the independent look: any
+// script uploaded in the last two days that still has no lines means someone
+// is stuck on a page with nothing to play. (A scan refused at upload is
+// removed and never shows here; what shows is ours to fix or follow up.)
+async function checkUploads() {
+  try {
+    const since = new Date(Date.now() - 48 * 3600_000).toISOString();
+    const rows = await rest(
+      `scripts?select=id,created_at,scenes:parsed_json->scenes&file_url=not.is.null&created_at=gte.${since}&order=created_at.desc&limit=50`
+    );
+    const stuck = rows.filter(
+      (r) => !Array.isArray(r.scenes) || !r.scenes.some((sc) => Array.isArray(sc?.elements) && sc.elements.length > 0)
+    );
+    if (stuck.length) {
+      return fail(
+        "uploads",
+        `${stuck.length} script(s) uploaded in the last 48h have no readable lines (${stuck.map((r) => r.id.slice(0, 8)).join(", ")}) — the writer can't play, unlock or export; re-read it or contact them`
+      );
+    }
+    ok("uploads", `${rows.length} in 48h, all readable`);
+  } catch (e) {
+    fail("uploads", e.message);
+  }
+}
+
 // ── 9. Can a new visitor actually receive a sign-in code? ──
 // The check that was missing for nine weeks (Sep–Nov 2026): auth/health said
 // "alive" while every code email failed, ~150 signups bounced off a "{}"
@@ -379,7 +408,7 @@ async function alert() {
 (async () => {
   await Promise.all([checkSite(), checkBackend(), checkWebhook()]);
   await checkDemoRead();
-  await Promise.all([checkVoices(), checkDownloadLinks(), checkLedger(), checkRenders()]);
+  await Promise.all([checkVoices(), checkDownloadLinks(), checkLedger(), checkRenders(), checkUploads()]);
   const [sink] = await Promise.all([checkEmailProvider(), checkContactBacklog()]);
   await checkSignupEmail(sink);
 
