@@ -24,6 +24,21 @@ const corsHeaders = {
 // required. Audio has no cap at all (ffmpeg concat, minutes).
 const MAX_VIDEO_PAGES = 110;
 
+// The override exists for the test rig, which stands in for GitHub (as in parse-script).
+const GH_API = Deno.env.get("GH_API_BASE") ?? "https://api.github.com";
+
+/** A job's place on the export card's bar. */
+type Progress = { pct: number; stage: string; eta_seconds: number | null; age_seconds: number };
+type RenderRow = {
+  id: string;
+  status: string;
+  video_path: string | null;
+  error: string | null;
+  created_at: string;
+  rendered_at: string | null;
+  progress?: Progress | null;
+};
+
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
     status,
@@ -71,9 +86,38 @@ Deno.serve(async (req) => {
     }
 
     if (action === "status") {
+      // How far along a job is, from the note its worker keeps beside the
+      // export's files (video-worker/src/progress.js). The time left is brought
+      // up to date for the note's age, so the card needs no clock of its own.
+      // Missing or unreadable → null, and the card shows its estimate alone.
+      const progressOf = async (renderId: string): Promise<Progress | null> => {
+        try {
+          const { data: note, error } = await admin.storage
+            .from("daily-renders")
+            .download(`${script_id}/progress/${renderId}.json`);
+          if (error || !note) return null;
+          const n = JSON.parse(await note.text());
+          const written = new Date(n?.updated_at).getTime();
+          if (typeof n?.pct !== "number" || !isFinite(n.pct) || !isFinite(written)) return null;
+          const age = Math.max(0, Math.round((Date.now() - written) / 1000));
+          const eta =
+            typeof n.eta_seconds === "number" && isFinite(n.eta_seconds)
+              ? Math.max(0, Math.round(n.eta_seconds - age))
+              : null;
+          return {
+            pct: Math.min(99, Math.max(0, Math.floor(n.pct))),
+            stage: typeof n.stage === "string" ? n.stage.slice(0, 20) : "",
+            eta_seconds: eta,
+            age_seconds: age,
+          };
+        } catch {
+          return null;
+        }
+      };
+
       // Video and audio exports are independent — each has its own latest row,
       // so rendering one never blanks the other's download button.
-      const latest = async (variants: string[]) => {
+      const latest = async (variants: string[]): Promise<RenderRow | null> => {
         const { data } = await admin
           .from("daily_renders")
           .select("id, status, video_path, error, created_at, rendered_at")
@@ -98,6 +142,9 @@ Deno.serve(async (req) => {
             .eq("id", data.id)
             .eq("status", "processing");
           return { ...data, status: "failed", error: "The render died without reporting back — try again" };
+        }
+        if (data && data.status === "processing") {
+          return { ...data, progress: await progressOf(data.id) };
         }
         return data;
       };
@@ -131,6 +178,14 @@ Deno.serve(async (req) => {
               created_at: r.created_at,
               rendered_at: r.rendered_at,
               url: u,
+              // While it runs: where it is on the bar (null until the worker
+              // first reports), and how long it has been going — which is what
+              // the card falls back on for a job that never reports at all.
+              progress: r.status === "processing" ? r.progress ?? null : null,
+              elapsed_seconds:
+                r.status === "processing"
+                  ? Math.max(0, Math.round((Date.now() - new Date(r.created_at).getTime()) / 1000))
+                  : null,
             }
           : null;
 
@@ -172,7 +227,7 @@ Deno.serve(async (req) => {
     if (!ghPat) return json({ error: "Export isn't configured (no GH_PAT)" }, 500);
     const repo = Deno.env.get("GH_REPO") || "willbgraham/prelogue";
     const res = await fetch(
-      `https://api.github.com/repos/${repo}/actions/workflows/render-one.yml/dispatches`,
+      `${GH_API}/repos/${repo}/actions/workflows/render-one.yml/dispatches`,
       {
         method: "POST",
         headers: {

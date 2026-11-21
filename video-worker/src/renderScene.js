@@ -14,6 +14,7 @@ const {
 } = require("./supabaseData");
 const { probeAll } = require("./probe");
 const { buildRows, buildTimeline } = require("./timeline");
+const { createReporter, renderFraction } = require("./progress");
 
 const ENTRY = path.join(__dirname, "..", "remotion", "src", "index.ts");
 
@@ -192,6 +193,9 @@ async function exportAudio({ supabase, supabaseUrl, serviceKey, scriptId }) {
   await supabase
     .from("daily_renders")
     .insert({ id: renderId, script_id: scriptId, variant: "audio", status: "processing" });
+  // The export card's percentage and time left (see progress.js).
+  const reporter = createReporter({ supabase, scriptId, renderId, kind: "audio" });
+  reporter.stage("preparing");
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "audio-"));
   try {
     const script = await fetchScript(supabase, scriptId);
@@ -228,6 +232,9 @@ async function exportAudio({ supabase, supabaseUrl, serviceKey, scriptId }) {
     const got = new Array(targets.length).fill(null);
     const DL_CONCURRENCY = 12;
     let cursor = 0;
+    let fetched = 0;
+    reporter.setLines(targets.length);
+    reporter.stage("collecting", 0);
     await Promise.all(
       Array.from({ length: Math.min(DL_CONCURRENCY, targets.length) }, async () => {
         for (;;) {
@@ -244,6 +251,8 @@ async function exportAudio({ supabase, supabaseUrl, serviceKey, scriptId }) {
             got[n] = clip;
           } catch (_) {
             /* a dropped clip shouldn't sink the whole export */
+          } finally {
+            reporter.progress(++fetched / targets.length);
           }
         }
       })
@@ -258,12 +267,14 @@ async function exportAudio({ supabase, supabaseUrl, serviceKey, scriptId }) {
     fs.writeFileSync(listPath, lines.join("\n"));
 
     const outPath = path.join(tmp, "out.mp3");
+    reporter.stage("stitching");
     // -c copy: every clip is the same codec/bitrate, so this is a fast stream
     // copy rather than a re-encode.
     execFileSync("ffmpeg", ["-y", "-f", "concat", "-safe", "0", "-i", listPath, "-c", "copy", outPath], {
       stdio: ["ignore", "ignore", "pipe"],
     });
 
+    reporter.stage("uploading");
     const storagePath = `${scriptId}/audio/${renderId}.mp3`;
     const { error: upErr } = await supabase.storage
       .from("daily-renders")
@@ -297,6 +308,7 @@ async function exportAudio({ supabase, supabaseUrl, serviceKey, scriptId }) {
       .eq("id", renderId);
     throw e;
   } finally {
+    await reporter.close();
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 }
@@ -305,12 +317,17 @@ async function exportAudio({ supabase, supabaseUrl, serviceKey, scriptId }) {
 async function renderScene({ supabase, supabaseUrl, serviceKey, scriptId, variant = "ai", submissionIds }) {
   const renderId = crypto.randomUUID();
   await supabase.from("daily_renders").insert({ id: renderId, script_id: scriptId, variant, status: "processing" });
+  // The export card's percentage and time left (see progress.js).
+  const reporter = createReporter({ supabase, scriptId, renderId, kind: "video" });
+  reporter.stage("preparing");
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "render-"));
   try {
     const { script, ambience, props } = await buildProps({ supabase, supabaseUrl, serviceKey, scriptId, variant, submissionIds });
     const serveUrl = await getBundle();
     const composition = await selectComposition({ serveUrl, id: "DailyScene", inputProps: props });
     let outPath = path.join(tmp, "out.mp4");
+    reporter.setVideoSeconds(composition.durationInFrames / props.fps);
+    reporter.stage("rendering", 0);
     await renderMedia({
       serveUrl,
       composition,
@@ -319,8 +336,11 @@ async function renderScene({ supabase, supabaseUrl, serviceKey, scriptId, varian
       inputProps: props,
       concurrency: Math.min(os.cpus().length, 4),
       chromiumOptions: { gl: "swiftshader", headless: true },
+      onProgress: (frames) =>
+        reporter.progress(renderFraction(frames, composition.durationInFrames)),
     });
 
+    reporter.stage("finishing");
     // Scene beds (music/ambience) mix in AFTER the render — a plain ffmpeg
     // pass we fully control. A bed failure shouldn't kill the render.
     if (ambience.length) {
@@ -332,11 +352,13 @@ async function renderScene({ supabase, supabaseUrl, serviceKey, scriptId, varian
       }
     }
 
+    reporter.stage("uploading");
     const storagePath = `${scriptId}/${variant}/${renderId}.mp4`;
     const { error: upErr } = await supabase.storage
       .from("daily-renders")
       .upload(storagePath, fs.readFileSync(outPath), { contentType: "video/mp4", upsert: true });
     if (upErr) throw upErr;
+    reporter.stage("uploading", 0.6);
 
     // Audio-only sibling (same path, .mp3) so the writer export offers an MP3
     // download alongside the MP4. Best-effort — an extract failure never kills
@@ -404,6 +426,7 @@ async function renderScene({ supabase, supabaseUrl, serviceKey, scriptId, varian
       .eq("id", renderId);
     throw e;
   } finally {
+    await reporter.close();
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 }

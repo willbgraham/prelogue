@@ -200,7 +200,11 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
   const isOwner = user?.id === s.writer_id;
   // Same test the player uses: a script with no dialogue or action rows has
   // nothing to play, unlock or export (a scan, or a read that failed).
-  const readable = buildRows(s.parsed_json).length > 0;
+  const rows = buildRows(s.parsed_json);
+  const readable = rows.length > 0;
+  // What is read aloud, for the export card's time estimates.
+  const spokenLines = rows.length;
+  const spokenChars = rows.reduce((n, r) => n + r.text.replace(/\s+/g, " ").trim().length, 0);
   const statusLabel = labelOf(LISTING_STATUSES, s.listing_status);
   const formatLabel = labelOf(FORMATS, s.format);
   const ageLabel = labelOf(AGE_RATINGS, s.age_rating);
@@ -319,6 +323,8 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
           title={s.title}
           unlocked={!!s.full_read_unlocked}
           pageCount={s.page_count ?? null}
+          spokenChars={spokenChars}
+          spokenLines={spokenLines}
         />
       )}
 

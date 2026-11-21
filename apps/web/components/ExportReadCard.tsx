@@ -2,6 +2,20 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getBrowserClient } from "@/lib/supabase/client";
+import {
+  audioExportSeconds,
+  roughly,
+  timeLeft,
+  videoExportSeconds,
+} from "@/lib/exportEstimate";
+
+/** Where a job is on its bar, as the worker last reported it (export-read brings the time left up to date). */
+type Progress = {
+  pct: number;
+  stage: string;
+  eta_seconds: number | null;
+  age_seconds: number;
+};
 
 type RenderRow = {
   id: string;
@@ -11,30 +25,121 @@ type RenderRow = {
   rendered_at: string | null;
   url: string | null;
   audio_url?: string | null;
+  /** While processing: the worker's last report (null until it first reports)… */
+  progress?: Progress | null;
+  /** …and how long the job has been running. */
+  elapsed_seconds?: number | null;
 };
 
-// Video only — feature renders run ~3x realtime and GitHub kills jobs at 6h,
-// so ~110 pages is the physical wall (covers nearly every real feature).
+// Video only — feature renders run ~2x realtime and the job is stopped at 5½
+// hours, so ~110 pages is the physical wall (covers nearly every real feature).
 // Long renders resolve by email: the writer gets the download link when the
 // render lands, no open tab required.
 const MAX_VIDEO_PAGES = 110;
-// Above this, set the "this takes hours, we'll email you" expectation.
+// Without a character count to estimate from, above this many pages set the
+// "this takes hours, we'll email you" expectation.
 const LONG_RENDER_PAGES = 40;
+// An export that takes longer than this is one to walk away from.
+const LONG_EXPORT_SECONDS = 600;
+
+const STAGE_WORDS: Record<string, string> = {
+  preparing: "Getting ready",
+  rendering: "Rendering",
+  finishing: "Finishing",
+  uploading: "Saving the file",
+  collecting: "Collecting the lines",
+  stitching: "Joining them up",
+};
+
+/**
+ * The bar under a running export. Three states, and it never invents a figure:
+ *  - not reporting yet (the job is starting): the estimate for the whole job;
+ *  - reporting: the worker's own percentage and time left;
+ *  - gone quiet, or a job that never reports: the time left by the estimate
+ *    alone, with no percentage claimed.
+ */
+function ExportProgress({
+  what,
+  row,
+  estimate,
+}: {
+  what: "MP3" | "MP4";
+  row: RenderRow | null;
+  estimate: number | null;
+}) {
+  const p = row?.status === "processing" ? row.progress ?? null : null;
+  // No word from the worker in three minutes: say so rather than freeze a figure.
+  const quiet = !!p && p.age_seconds > 180;
+  // A job two minutes in that has never reported is one that isn't going to
+  // (a worker from before reporting existed, or one whose notes aren't landing).
+  const elapsed = row?.status === "processing" ? row.elapsed_seconds ?? 0 : 0;
+  const silentJob = row?.status === "processing" && !p && elapsed > 120;
+
+  let words: string;
+  let detail: string;
+  let pct: number | null = null;
+  if (p && !quiet) {
+    pct = p.pct;
+    words = STAGE_WORDS[p.stage] ?? "Working";
+    detail = p.eta_seconds == null ? `${p.pct}%` : `${p.pct}% · ${timeLeft(p.eta_seconds)}`;
+  } else if (p) {
+    pct = p.pct;
+    words = STAGE_WORDS[p.stage] ?? "Working";
+    detail = `${p.pct}% · still working`;
+  } else if (silentJob) {
+    words = "Working";
+    detail = estimate && estimate > elapsed ? timeLeft(estimate - elapsed) : "nearly there";
+  } else {
+    words = "Starting up";
+    detail = estimate ? `${roughly(estimate)} in all` : "";
+  }
+
+  return (
+    <div className="mt-2">
+      <div
+        role="progressbar"
+        aria-label={`${what} export progress`}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={pct ?? undefined}
+        aria-valuetext={detail ? `${words}, ${detail}` : words}
+        className="h-2 w-full overflow-hidden rounded-full bg-tan/40"
+      >
+        <div
+          className={`h-full rounded-full bg-brick transition-[width] duration-700 ${
+            pct == null ? "w-1/4 animate-pulse" : ""
+          }`}
+          style={pct == null ? undefined : { width: `${Math.max(pct, 2)}%` }}
+        />
+      </div>
+      <p className="mt-1.5 text-taupe">
+        <span className="font-medium text-ink">{words}</span>
+        {detail ? ` · ${detail}` : ""}
+      </p>
+    </div>
+  );
+}
 
 /**
  * Writer export — MP4 (page-capped) and MP3 (uncapped) run as two independent
- * jobs through the daily-render pipeline. This card dispatches and polls each.
+ * jobs through the daily-render pipeline. This card dispatches and polls each,
+ * says beforehand how long each will take, and shows how far along it is.
  */
 export function ExportReadCard({
   scriptId,
   title,
   unlocked,
   pageCount,
+  spokenChars,
+  spokenLines,
 }: {
   scriptId: string;
   title: string;
   unlocked: boolean;
   pageCount: number | null;
+  /** Characters and lines that are read aloud: what the time estimates are made from. */
+  spokenChars?: number;
+  spokenLines?: number;
 }) {
   const supabase = getBrowserClient();
   const [render, setRender] = useState<RenderRow | null>(null);
@@ -53,6 +158,12 @@ export function ExportReadCard({
   });
 
   const videoTooLong = (pageCount ?? 0) > MAX_VIDEO_PAGES;
+  const videoEstimate = spokenChars ? videoExportSeconds(spokenChars) : null;
+  const audioEstimate = spokenLines ? audioExportSeconds(spokenLines) : null;
+  const longVideo =
+    videoEstimate != null
+      ? videoEstimate > LONG_EXPORT_SECONDS
+      : (pageCount ?? 0) > LONG_RENDER_PAGES;
 
   const refresh = useCallback(async () => {
     const { data } = await supabase.functions.invoke("export-read", {
@@ -76,25 +187,23 @@ export function ExportReadCard({
     });
   }, [supabase, scriptId]);
 
+  const videoInFlight = waiting.video || render?.status === "processing";
+  const audioInFlight = waiting.audio || audio?.status === "processing";
+  // An MP3 is done in a minute or so: poll often enough that its bar is worth
+  // watching. A video takes hours; every fifteen seconds is plenty.
+  const pollMs = audioInFlight ? 5_000 : 15_000;
+
   useEffect(() => {
-    // Initial fetch (async boundary), then poll while a render is in flight.
+    // Initial fetch (async boundary), then poll while an export is in flight.
     const first = window.setTimeout(refresh, 0);
-    const t = window.setInterval(() => {
-      if (
-        waiting.video ||
-        waiting.audio ||
-        render?.status === "processing" ||
-        audio?.status === "processing"
-      ) {
-        refresh();
-      }
-    }, 20_000);
+    const t =
+      videoInFlight || audioInFlight ? window.setInterval(refresh, pollMs) : undefined;
     return () => {
       window.clearTimeout(first);
       window.clearInterval(t);
     };
     // Primitive deps only — an object here is what caused the polling loop.
-  }, [refresh, waiting.video, waiting.audio, render?.status, audio?.status]);
+  }, [refresh, videoInFlight, audioInFlight, pollMs]);
 
   const dispatch = async (kind: "video" | "audio") => {
     setError(null);
@@ -110,8 +219,6 @@ export function ExportReadCard({
     setWaiting((w) => ({ ...w, [kind]: true }));
   };
 
-  const videoInFlight = waiting.video || render?.status === "processing";
-  const audioInFlight = waiting.audio || audio?.status === "processing";
   const base = (title || "table-read").replace(/[^a-z0-9]+/gi, "-").toLowerCase();
   // Prefer the dedicated MP3 export; fall back to the sibling track of an
   // already-rendered MP4 so short scripts don't wait on a second job.
@@ -137,45 +244,56 @@ export function ExportReadCard({
       {unlocked && (
         <div className="mt-4 space-y-4 text-sm">
           {/* MP3 — no page limit */}
-          <div className="flex flex-wrap items-center gap-2">
-            {mp3Url && !audioInFlight ? (
-              <a
-                href={mp3Url}
-                download={`${base}.mp3`}
-                className="inline-flex items-center gap-2 rounded-lg bg-brick px-4 py-2 font-medium text-white"
-              >
-                ⬇ Download MP3
-              </a>
-            ) : (
-              <button
-                onClick={() => dispatch("audio")}
-                disabled={audioInFlight}
-                className="rounded-lg bg-brick px-4 py-2 font-medium text-white disabled:opacity-60"
-              >
-                {audioInFlight ? "Preparing MP3…" : "Prepare MP3"}
-              </button>
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              {mp3Url && !audioInFlight ? (
+                <a
+                  href={mp3Url}
+                  download={`${base}.mp3`}
+                  className="inline-flex items-center gap-2 rounded-lg bg-brick px-4 py-2 font-medium text-white"
+                >
+                  ⬇ Download MP3
+                </a>
+              ) : (
+                <button
+                  onClick={() => dispatch("audio")}
+                  disabled={audioInFlight}
+                  className="rounded-lg bg-brick px-4 py-2 font-medium text-white disabled:opacity-60"
+                >
+                  {audioInFlight ? "Preparing MP3…" : "Prepare MP3"}
+                </button>
+              )}
+              {mp3Url && !audioInFlight && (
+                <button
+                  onClick={() => dispatch("audio")}
+                  className="rounded-lg border border-tan px-3 py-2 text-taupe hover:bg-elevated"
+                >
+                  Rebuild
+                </button>
+              )}
+              <span className="text-xs text-muted">
+                The whole read, any length.
+                {audioEstimate && !audioInFlight ? ` Takes ${roughly(audioEstimate)}.` : ""}
+              </span>
+            </div>
+            {audioInFlight && (
+              <>
+                <ExportProgress
+                  what="MP3"
+                  row={waiting.audio ? null : audio}
+                  estimate={audioEstimate}
+                />
+                <p className="mt-1 text-xs text-muted">
+                  This updates on its own; you can leave the page.
+                </p>
+              </>
             )}
-            {mp3Url && !audioInFlight && (
-              <button
-                onClick={() => dispatch("audio")}
-                className="rounded-lg border border-tan px-3 py-2 text-taupe hover:bg-elevated"
-              >
-                Rebuild
-              </button>
+            {!audioInFlight && audio?.status === "failed" && (
+              <p className="mt-2 text-brick">
+                MP3 export failed{audio.error ? ` — ${audio.error}` : ""}. Try again.
+              </p>
             )}
-            <span className="text-xs text-muted">The whole read, any length.</span>
           </div>
-          {audioInFlight && (
-            <p className="-mt-2 text-taupe">
-              Building your MP3 — a few minutes, longer for a feature. This updates on its own;
-              you can leave the page.
-            </p>
-          )}
-          {!audioInFlight && audio?.status === "failed" && (
-            <p className="-mt-2 text-brick">
-              MP3 export failed{audio.error ? ` — ${audio.error}` : ""}. Try again.
-            </p>
-          )}
 
           {/* MP4 — capped, because rendering video scales with runtime */}
           <div className="border-t border-tan pt-4">
@@ -221,13 +339,29 @@ export function ExportReadCard({
                       Re-render
                     </button>
                   )}
+                  {/* Said before they press it: a feature is hours, not minutes. */}
+                  {videoEstimate && !videoInFlight && !render?.url && (
+                    <span className="text-xs text-muted">
+                      Takes {roughly(videoEstimate)}
+                      {longVideo
+                        ? " for a read this long. We email you the link when it’s ready."
+                        : "."}
+                    </span>
+                  )}
                 </div>
                 {videoInFlight && (
-                  <p className="mt-2 text-taupe">
-                    {(pageCount ?? 0) > LONG_RENDER_PAGES
-                      ? "Rendering — a script this length takes a few hours. Close the tab; we'll email you the download link when it's ready."
-                      : "Rendering — usually a few minutes. This updates on its own; you can leave the page."}
-                  </p>
+                  <>
+                    <ExportProgress
+                      what="MP4"
+                      row={waiting.video ? null : render}
+                      estimate={videoEstimate}
+                    />
+                    <p className="mt-1 text-xs text-muted">
+                      {longVideo
+                        ? "Close the tab if you like — we’ll email you the download link when it’s ready."
+                        : "This updates on its own; you can leave the page."}
+                    </p>
+                  </>
                 )}
                 {!videoInFlight && render?.status === "failed" && (
                   <p className="mt-2 text-brick">
