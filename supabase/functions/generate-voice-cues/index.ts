@@ -211,6 +211,14 @@ Deno.serve(async (req) => {
     // Everyone else still gets nothing: the public demo is the visitor tryout.
     // Enforced here (service role) so it can't be bypassed from the client.
     const OWNER_PREVIEW_LINES = 10;
+    // …and no more than this many characters. Ten lines of a screenplay run
+    // about a thousand; but "line" here means a parsed block, and a document
+    // that isn't laid out as a screenplay (prose printed from a browser) parses
+    // into blocks of up to 2,500 characters each. Three such uploads were given
+    // 24,000+ characters of free audio apiece — a quarter of a paid month's
+    // credits. Measured across every script on file, this cap leaves 56 of 64
+    // tastes at their full ten lines and none can cost more than one block.
+    const OWNER_PREVIEW_CHARS = 2500;
     const fullAccess = (script as any).full_read_unlocked === true;
     const locked = !fullAccess;
 
@@ -481,6 +489,19 @@ Deno.serve(async (req) => {
     const FREE_PREVIEW_LIMIT = locked ? (isOwnerCaller ? OWNER_PREVIEW_LINES : 0) : Infinity;
     if (locked && entries.length > FREE_PREVIEW_LIMIT) {
       entries.length = FREE_PREVIEW_LIMIT;
+    }
+    if (locked && entries.length > 0) {
+      // The first block always plays, so a taste is never silent; after that,
+      // stop before the block that would take it past the cap.
+      let chars = 0;
+      let keep = 0;
+      for (const e of entries) {
+        const len = (e.tts_text ?? e.text ?? "").length;
+        if (keep > 0 && chars + len > OWNER_PREVIEW_CHARS) break;
+        chars += len;
+        keep++;
+      }
+      entries.length = keep;
     }
 
     // Content digest over the ordered audible stream (index/type/character/text)
