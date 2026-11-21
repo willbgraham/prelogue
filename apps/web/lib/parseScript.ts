@@ -14,6 +14,11 @@ export type ParseFailure = {
   ours: boolean;
   /** True when the server already removed the unusable upload. */
   discarded: boolean;
+  /**
+   * True when the PDF is a scan and is being read in the background: not a
+   * failure to report, a wait. The writer is emailed when it's ready.
+   */
+  reading?: boolean;
 };
 export type ParseOutcome =
   | { ok: true; pages: number | null; imagePages: number }
@@ -32,6 +37,9 @@ const FIXABLE: Record<string, string> = {
   empty_script:
     "We opened the PDF but couldn't find any script text in it. Check it's the right file, then export it again from your writing app.",
 };
+
+const READING =
+  "This PDF is a scan, so we're reading the pages with text recognition. It usually takes about five minutes. We'll email you when your script is ready.";
 
 const OUR_SIDE =
   "Something went wrong on our side while reading this PDF. Your file is fine, and we've been alerted. Please try again in a few minutes.";
@@ -101,6 +109,9 @@ export async function parseScript(
     }
 
     const code = typeof d?.error === "string" ? d.error : "unreachable";
+    if (code === "scanned_pdf" && d?.ocr === "reading") {
+      return { ok: false, code, message: READING, ours: false, discarded: false, reading: true };
+    }
     if (FIXABLE[code]) {
       return {
         ok: false,
@@ -115,6 +126,22 @@ export async function parseScript(
     if (attempt < ATTEMPTS) await wait(1500 * attempt);
   }
   return last;
+}
+
+export type ScanState = "reading" | "failed" | "done" | "none";
+
+/** Is a scanned upload being read right now? Never throws; "none" if unknown. */
+export async function scanStatus(supabase: SupabaseClient, scriptId: string): Promise<ScanState> {
+  try {
+    const { data, error } = await supabase.functions.invoke("parse-script", {
+      body: { script_id: scriptId, action: "status" },
+    });
+    const state = (data as { ocr?: string } | null)?.ocr;
+    if (error) return "none";
+    return state === "reading" || state === "failed" || state === "done" ? state : "none";
+  } catch {
+    return "none";
+  }
 }
 
 /** "36 MB" */

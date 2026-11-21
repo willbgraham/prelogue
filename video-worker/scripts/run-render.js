@@ -1,8 +1,10 @@
 // Re-renders an EXISTING script (admin "Re-render" / "Change voices"), invoked by
 // the render-one GitHub Actions workflow with a script_id. Env: SUPABASE_URL,
 // SUPABASE_SERVICE_ROLE_KEY. Args: <script_id> [variant] [submission_ids csv].
-const { makeClient } = require("../src/supabaseData");
-const { renderScene, exportAudio } = require("../src/renderScene");
+//
+// variant "ocr" is not a render at all: it reads a scanned PDF into script
+// lines (src/ocr.js). It rides this workflow because the workflow already
+// exists and already has the credentials; nothing Remotion is loaded for it.
 
 const scriptId = process.argv[2];
 const variant = process.argv[3] || "ai";
@@ -23,12 +25,17 @@ if (!supabaseUrl || !serviceKey) {
   process.exit(1);
 }
 
-const supabase = makeClient(supabaseUrl, serviceKey);
-
-// variant "audio" skips Remotion entirely and just stitches the existing voice
-// clips into one MP3 — which is why audio export has no page limit.
-const job =
-  variant === "audio"
+function startJob() {
+  if (variant === "ocr") {
+    const { readScan } = require("../src/ocr");
+    return readScan({ supabaseUrl, serviceKey, scriptId });
+  }
+  const { makeClient } = require("../src/supabaseData");
+  const { renderScene, exportAudio } = require("../src/renderScene");
+  const supabase = makeClient(supabaseUrl, serviceKey);
+  // variant "audio" skips Remotion entirely and just stitches the existing voice
+  // clips into one MP3 — which is why audio export has no page limit.
+  return variant === "audio"
     ? exportAudio({ supabase, supabaseUrl, serviceKey, scriptId })
     : renderScene({
         supabase,
@@ -38,13 +45,15 @@ const job =
         variant,
         submissionIds: submissionIds.length ? submissionIds : undefined,
       });
+}
 
-job
+const label = variant === "ocr" ? "SCAN" : "RENDER";
+startJob()
   .then((r) => {
-    console.log("RENDER DONE", JSON.stringify(r));
+    console.log(`${label} DONE`, JSON.stringify(r));
     process.exit(0);
   })
   .catch((e) => {
-    console.error("RENDER FAIL", (e && e.message) || e);
+    console.error(`${label} FAIL`, (e && e.message) || e);
     process.exit(1);
   });

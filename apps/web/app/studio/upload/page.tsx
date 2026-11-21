@@ -107,6 +107,12 @@ export default function UploadPage() {
         () => window.clearTimeout(slow)
       );
       if (!outcome.ok) {
+        if (outcome.reading) {
+          // A scan, being read in the background. Their script page shows the
+          // progress and they'll get an email; nothing here to fix.
+          router.push(`/script/${scriptId}`);
+          return;
+        }
         if (outcome.ours) {
           // Our failure, their file is fine and already saved. Send them to the
           // script, where "Try again" re-reads it — staying here would invite

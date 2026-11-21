@@ -1,10 +1,16 @@
 // Turn an uploaded screenplay PDF into scenes, characters and lines.
 //
 // Body:    { script_id, debug?, discard_if_unreadable? }
-//          { script_id, lines: [text, x][], pages }   service role / admin only:
-//            text already lifted off the pages by other means (OCR of a scan).
-//            Skips extraction; everything after it is the normal path.
+//          { script_id, lines: [text, x][], pages, notify_writer? }   service
+//            role / admin only: text already lifted off the pages by other
+//            means (OCR of a scan). Skips extraction; everything after it is
+//            the normal path. notify_writer emails them that it's ready.
+//          { script_id, ocr_failed: reason }   service role only: the scan
+//            reader gave up.
+//          { script_id, action: "status" }     is a scan being read right now?
 // Returns: { success: true, mode, pages, scenes, elements, dialogue, characters, … }
+//      or  { error: "scanned_pdf", ocr: "reading", message, pages }   a scan,
+//          handed to the scan reader; the writer is emailed when it's done
 //      or  { error: <code>, message, ours, pages?, discarded? }   (HTTP 200 —
 //          supabase-js hides the body of a non-2xx, and the message is the point)
 //
@@ -24,7 +30,7 @@ import { isServiceRole } from "../_shared/serviceRole.ts";
 import { type Line, linesFromItems, inkChars, parseLines } from "../_shared/screenplay.ts";
 import { signTicket } from "../_shared/extractTicket.ts";
 import { sendEmail } from "../_shared/sendEmail.ts";
-import { esc } from "../_shared/brandEmail.ts";
+import { brandEmail, esc } from "../_shared/brandEmail.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -57,6 +63,133 @@ const SCAN_MEDIAN_INK = 100;
 const SCAN_TOTAL_INK = 200;
 // discard_if_unreadable only ever removes an upload that is this fresh.
 const DISCARD_WINDOW_MS = 30 * 60_000;
+
+// ---- Scans ---------------------------------------------------------------
+// A scanned PDF has no text to extract. Instead of turning the writer away, we
+// hand it to the scan reader: a job on the render worker (GitHub Actions, the
+// same one that makes exports) that runs OCR and posts the lines back here.
+// It takes a few minutes, so the writer is told and emailed when it's done.
+const SITE = "https://prelogue.studio";
+const GH_API = Deno.env.get("GH_API_BASE") ?? "https://api.github.com";
+// A reading that hasn't reported back in this long has died.
+const SCAN_STALE_MS = 30 * 60_000;
+// Scan readings one writer may start in a day (each is minutes of compute).
+const SCAN_DAILY_CAP = 6;
+// Past this size a PDF is all but certainly a scan — and the page reader would
+// need more memory than it has to find that out (a 36 MB scan took 165 MB of
+// its 256). Send it straight to the scan reader.
+const BIG_FILE_BYTES = 40 * 1024 * 1024;
+const READING_MESSAGE =
+  "This PDF is a scan, so we're reading the pages with text recognition. It usually takes about five minutes. We'll email you when your script is ready.";
+
+type ScanJob = {
+  state: "reading" | "done" | "failed";
+  started_at: string;
+  finished_at?: string;
+  pages?: number;
+  detail?: string;
+};
+// Job notes live in the private bucket, outside every writer's own folder, so
+// only the service role can read or write them. One small file per script.
+const jobPath = (writerId: string, scriptId: string) => `ocr-jobs/${writerId}/${scriptId}.json`;
+
+// deno-lint-ignore no-explicit-any
+async function readJob(supabase: any, writerId: string, scriptId: string): Promise<ScanJob | null> {
+  try {
+    const { data, error } = await supabase.storage.from("scripts").download(jobPath(writerId, scriptId));
+    if (error || !data) return null;
+    const job = JSON.parse(await data.text());
+    return job && typeof job.state === "string" ? (job as ScanJob) : null;
+  } catch {
+    return null;
+  }
+}
+
+// deno-lint-ignore no-explicit-any
+async function writeJob(supabase: any, writerId: string, scriptId: string, job: ScanJob): Promise<boolean> {
+  const { error } = await supabase.storage
+    .from("scripts")
+    .upload(jobPath(writerId, scriptId), JSON.stringify(job), { contentType: "application/json", upsert: true });
+  if (error) console.error("scan job note not saved:", error.message);
+  return !error;
+}
+
+/** Is a reading in flight for this script? A stale one counts as dead. */
+function stillReading(job: ScanJob | null): boolean {
+  return !!job && job.state === "reading" && Date.now() - new Date(job.started_at).getTime() < SCAN_STALE_MS;
+}
+
+/** Ask the render worker to read a scan. Resolves with why not, if not. */
+async function dispatchScanReader(scriptId: string): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const ghPat = Deno.env.get("GH_PAT");
+  if (!ghPat) return { ok: false, reason: "no GH_PAT configured" };
+  const repo = Deno.env.get("GH_REPO") || "willbgraham/prelogue";
+  try {
+    const res = await fetch(`${GH_API}/repos/${repo}/actions/workflows/render-one.yml/dispatches`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${ghPat}`,
+        Accept: "application/vnd.github+json",
+        "Content-Type": "application/json",
+        "User-Agent": "prelogue-scan-reader",
+      },
+      body: JSON.stringify({ ref: "main", inputs: { script_id: scriptId, variant: "ocr" } }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (res.status === 204) return { ok: true };
+    try {
+      await res.body?.cancel();
+    } catch {
+      /* nothing to drain */
+    }
+    return { ok: false, reason: `the worker answered HTTP ${res.status}` };
+  } catch (err) {
+    return { ok: false, reason: String(err).slice(0, 120) };
+  }
+}
+
+/**
+ * Start reading a scan, unless one is already being read or the writer has
+ * started too many today.
+ */
+async function startScanReading(
+  // deno-lint-ignore no-explicit-any
+  supabase: any,
+  writerId: string,
+  scriptId: string,
+  pages: number | undefined
+): Promise<{ started: true } | { started: false; reason: string }> {
+  if (stillReading(await readJob(supabase, writerId, scriptId))) return { started: true };
+  const { data: notes } = await supabase.storage.from("scripts").list(`ocr-jobs/${writerId}`, { limit: 100 });
+  const dayAgo = Date.now() - 24 * 3600_000;
+  const today = (notes ?? []).filter(
+    // deno-lint-ignore no-explicit-any
+    (n: any) => new Date(n.updated_at ?? n.created_at ?? 0).getTime() > dayAgo
+  ).length;
+  if (today >= SCAN_DAILY_CAP) return { started: false, reason: `${today} scans already read for this writer today` };
+  const sent = await dispatchScanReader(scriptId);
+  if (!sent.ok) return { started: false, reason: sent.reason };
+  // The worker is on its way either way; the note is what the writer's page reads.
+  await writeJob(supabase, writerId, scriptId, { state: "reading", started_at: new Date().toISOString(), pages });
+  return { started: true };
+}
+
+/** How big is the stored file? null if we can't tell. */
+// deno-lint-ignore no-explicit-any
+async function storedSize(supabase: any, fileUrl: string): Promise<number | null> {
+  try {
+    const cut = fileUrl.lastIndexOf("/");
+    const { data } = await supabase.storage
+      .from("scripts")
+      .list(cut > 0 ? fileUrl.slice(0, cut) : "", { search: fileUrl.slice(cut + 1), limit: 5 });
+    // deno-lint-ignore no-explicit-any
+    const hit = (data ?? []).find((o: any) => o.name === fileUrl.slice(cut + 1));
+    const size = Number(hit?.metadata?.size);
+    return Number.isFinite(size) ? size : null;
+  } catch {
+    return null;
+  }
+}
 
 type FailCode =
   | "scanned_pdf"
@@ -324,7 +457,17 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { script_id, debug, discard_if_unreadable, lines: givenLines, pages: givenPages } = await req.json();
+    const {
+      script_id,
+      debug,
+      discard_if_unreadable,
+      lines: givenLines,
+      pages: givenPages,
+      notify_writer,
+      source_file,
+      ocr_failed,
+      action,
+    } = await req.json();
     if (!script_id) return json({ error: "script_id required" }, 400);
 
     const supabase = createClient(
@@ -459,13 +602,67 @@ Deno.serve(async (req) => {
       return json({ error: code, message: f.message, ours: f.ours, pages, discarded });
     };
 
+    const writerId = script.writer_id as string;
+    // "It's a scan, and it's being read": still an error to a client that
+    // doesn't know about scan reading, a pending state to one that does.
+    const readingReply = (pageCount?: number) =>
+      json({ error: "scanned_pdf", ocr: "reading", message: READING_MESSAGE, ours: false, pages: pageCount, discarded: false });
+
+    // ---- Is a scan being read? (the writer's script page asks) ---------------
+    if (action === "status") {
+      const job = await readJob(supabase, writerId, script_id);
+      if (!job) return json({ ocr: "none" });
+      // A reading that never reported back is a failure the writer should see
+      // as one, not a spinner that turns forever.
+      const state = job.state === "reading" && !stillReading(job) ? "failed" : job.state;
+      return json({ ocr: state, started_at: job.started_at, pages: job.pages ?? null });
+    }
+
+    // ---- The scan reader gave up ---------------------------------------------
+    if (ocr_failed !== undefined) {
+      if (!isService) return json({ error: "forbidden" }, 403);
+      const reason = String(ocr_failed).slice(0, 300);
+      const job = await readJob(supabase, writerId, script_id);
+      await writeJob(supabase, writerId, script_id, {
+        state: "failed",
+        started_at: job?.started_at ?? new Date().toISOString(),
+        finished_at: new Date().toISOString(),
+        pages: job?.pages,
+        detail: reason,
+      });
+      console.error(`scan reading failed script=${script_id} ${reason}`);
+      alertOwner(
+        "a scan could not be read automatically",
+        reason,
+        "Their script page says we couldn't read the scan automatically, that we've been alerted, and offers a different PDF."
+      );
+      return json({ ok: true });
+    }
+
     // ---- 1. Text out of the PDF ---------------------------------------------
     const started = Date.now();
     let ext: Extracted;
+    // A file this large goes straight to the scan reader (see BIG_FILE_BYTES).
+    // If that can't be started, carry on and let the page reader try.
+    if (givenLines === undefined && !allowDebug) {
+      const size = await storedSize(supabase, script.file_url as string);
+      if (size !== null && size > BIG_FILE_BYTES) {
+        const scan = await startScanReading(supabase, writerId, script_id, undefined);
+        if (scan.started) return readingReply();
+        console.error(`large file (${Math.round(size / 1048576)} MB) not sent to the scan reader: ${scan.reason}`);
+      }
+    }
     if (givenLines !== undefined) {
       // Text read off the pages by other means. Ours to supply, not a
       // browser's: it replaces what the PDF says.
       if (!isService && !isAdmin) return json({ error: "forbidden" }, 403);
+      // The scan reader takes minutes. If the writer swapped in a different
+      // PDF meanwhile, what it read is yesterday's file: don't let it replace
+      // the script they have now.
+      if (typeof source_file === "string" && source_file !== script.file_url) {
+        console.log(`scan result ignored script=${script_id}: the file was replaced while it was being read`);
+        return json({ error: "superseded", message: "The file was replaced while it was being read." });
+      }
       const supplied = suppliedLines(givenLines, givenPages);
       if (!supplied) return json({ error: "lines must be [text, x] pairs, with a page count" }, 400);
       ext = supplied;
@@ -511,7 +708,15 @@ Deno.serve(async (req) => {
     }
 
     if (scanned || !parsed) {
-      return await fail("scanned_pdf", `${textPages} of ${pages} pages have text (${totalInk} characters in all)`, pages);
+      const what = `${textPages} of ${pages} pages have text (${totalInk} characters in all)`;
+      // Text we were handed that still isn't a script: nothing more to try.
+      if (ext.via === "supplied") return await fail("scanned_pdf", what, pages);
+      const scan = await startScanReading(supabase, writerId, script_id, pages);
+      if (scan.started) {
+        console.log(`scan handed to the reader script=${script_id} pages=${pages}`);
+        return readingReply(pages);
+      }
+      return await fail("scanned_pdf", `${what} · automatic reading not started: ${scan.reason}`, pages);
     }
     if (parsed.totalElements === 0) {
       return await fail("empty_script", `${totalInk} characters of text but nothing readable as a script`, pages);
@@ -561,6 +766,54 @@ Deno.serve(async (req) => {
           .eq("script_id", script_id)
           .eq("name", c.name);
       }
+    }
+
+    // Read from the PDF's own text while a scan reading was still open (the
+    // writer replaced a scan with a proper PDF): that job no longer matters,
+    // and the script page must stop saying "reading".
+    if (ext.via !== "supplied") {
+      const open = await readJob(supabase, writerId, script_id);
+      if (open && open.state === "reading") {
+        await writeJob(supabase, writerId, script_id, { ...open, state: "done", finished_at: new Date().toISOString(), detail: "replaced by a readable PDF" });
+      }
+    }
+
+    // Text that came from the scan reader: close the job and tell the writer.
+    if (ext.via === "supplied" && notify_writer === true && isService) {
+      const job = await readJob(supabase, writerId, script_id);
+      await writeJob(supabase, writerId, script_id, {
+        state: "done",
+        started_at: job?.started_at ?? new Date().toISOString(),
+        finished_at: new Date().toISOString(),
+        pages,
+      });
+      inBackground(
+        (async () => {
+          let to = "";
+          try {
+            const { data } = await supabase.auth.admin.getUserById(writerId);
+            to = data?.user?.email ?? "";
+          } catch (err) {
+            console.error("scan ready: email lookup failed:", String(err).slice(0, 120));
+          }
+          if (!to) return console.log("scan ready: writer has no email; nothing sent");
+          const title = String(script.title ?? "Your script");
+          const sent = await sendEmail({
+            to,
+            subject: `"${title}" is ready to cast and play`,
+            html: brandEmail({
+              heading: "Your script is ready",
+              bodyHtml:
+                `<p style="margin:0 0 14px;">We've finished reading the scanned pages of <strong>${esc(title)}</strong>. It's in your studio, ready to cast and play.</p>` +
+                `<p style="margin:0 0 14px;">Because it came from a scan, a few words may be slightly off. You can fix any line under <strong>Edit lines</strong> on the script's page.</p>`,
+              cta: { label: "Open your studio", url: `${SITE}/studio` },
+              footnote: "You're receiving this because you uploaded a scanned script on prelogue.studio.",
+            }),
+            tag: "scan-ready",
+          });
+          console.log(`scan ready email: ${sent.sent ? "sent" : `NOT sent: ${sent.reason}`}`);
+        })()
+      );
     }
 
     // Things that worked but the owner should still hear about.
