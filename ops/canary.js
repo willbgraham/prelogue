@@ -268,11 +268,15 @@ async function checkRenders() {
 // script uploaded in the last two days that still has no lines means someone
 // is stuck on a page with nothing to play. (A scan refused at upload is
 // removed and never shows here; what shows is ours to fix or follow up.)
+// The newest twenty minutes are left alone: a scan takes about five to read,
+// and that is a wait, not a failure. One still unread after twenty is exactly
+// what this is for — a scan reader that died without saying so.
 async function checkUploads() {
   try {
     const since = new Date(Date.now() - 48 * 3600_000).toISOString();
+    const settled = new Date(Date.now() - 20 * 60_000).toISOString();
     const rows = await rest(
-      `scripts?select=id,created_at,scenes:parsed_json->scenes&file_url=not.is.null&created_at=gte.${since}&order=created_at.desc&limit=50`
+      `scripts?select=id,created_at,scenes:parsed_json->scenes&file_url=not.is.null&created_at=gte.${since}&created_at=lt.${settled}&order=created_at.desc&limit=50`
     );
     const stuck = rows.filter(
       (r) => !Array.isArray(r.scenes) || !r.scenes.some((sc) => Array.isArray(sc?.elements) && sc.elements.length > 0)
@@ -320,6 +324,13 @@ async function checkSignupEmail(sink) {
     const body = await res.json().catch(() => ({}));
     const why = body.msg || body.error_code || body.message || `HTTP ${res.status}`;
     if (res.status === 429) {
+      // "…you can only request this after N seconds" is the one-minute cooldown
+      // on a single address, and the only address asking twice in a minute is
+      // this check itself (two runs back to back). It says nothing about real
+      // visitors; a run that hit it once alerted the owner for no reason.
+      if (/after \d+ seconds?/i.test(why)) {
+        return ok("signup email", "not re-tested: the last test was under a minute ago");
+      }
       return fail("signup email", `rate-limited (${why}) — some visitors can't get a sign-in code right now; raise the Auth email rate limit`);
     }
     fail("signup email", `${why} — NO ONE can sign up or log in`);
