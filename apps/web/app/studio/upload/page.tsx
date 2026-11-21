@@ -7,7 +7,14 @@ import { getBrowserClient } from "@/lib/supabase/client";
 import { GENRES } from "@/lib/constants";
 import { useRoles } from "@/lib/useRoles";
 import { ScriptDetailsForm, type ScriptDetailsValues } from "@/components/ScriptDetailsForm";
-import { MAX_SCRIPT_BYTES, megabytes, parseScript } from "@/lib/parseScript";
+import {
+  MAX_SCRIPT_BYTES,
+  megabytes,
+  parseScript,
+  pasteProblem,
+  uploadScriptText,
+} from "@/lib/parseScript";
+import { PasteScriptBox } from "@/components/PasteScriptBox";
 
 const input =
   "w-full rounded-lg border border-tan bg-elevated px-4 py-3 outline-none focus:border-brick";
@@ -20,6 +27,9 @@ export default function UploadPage() {
   const [genre, setGenre] = useState<string>(GENRES[6]); // Drama
   const [logline, setLogline] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  // No PDF to hand? The script can be pasted in as text instead.
+  const [pasting, setPasting] = useState(false);
+  const [pasted, setPasted] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string>("");
   const [busy, setBusy] = useState(false);
@@ -34,11 +44,16 @@ export default function UploadPage() {
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!file) {
+    if (pasting) {
+      const problem = pasteProblem(pasted);
+      if (problem) {
+        setError(problem);
+        return;
+      }
+    } else if (!file) {
       setError("Choose a screenplay PDF.");
       return;
-    }
-    if (file.size > MAX_SCRIPT_BYTES) {
+    } else if (file.size > MAX_SCRIPT_BYTES) {
       // A text PDF of a feature is a megabyte or two; one this size is nearly
       // always a scan, which the voices can't read anyway.
       setError(
@@ -58,12 +73,18 @@ export default function UploadPage() {
       return;
     }
     try {
-      setStatus("Uploading PDF…");
-      const path = `${user.id}/${Date.now()}.pdf`;
-      const up = await supabase.storage
-        .from("scripts")
-        .upload(path, file, { contentType: "application/pdf" });
-      if (up.error) throw up.error;
+      let path: string;
+      if (pasting) {
+        setStatus("Saving your script…");
+        path = await uploadScriptText(supabase, user.id, pasted);
+      } else {
+        setStatus("Uploading PDF…");
+        path = `${user.id}/${Date.now()}.pdf`;
+        const up = await supabase.storage
+          .from("scripts")
+          .upload(path, file!, { contentType: "application/pdf" });
+        if (up.error) throw up.error;
+      }
 
       setStatus("Saving script…");
       // Generate the id client-side so we don't need INSERT…RETURNING — a
@@ -209,15 +230,33 @@ export default function UploadPage() {
           />
         )}
 
-        <label className="flex flex-col gap-1">
-          <span className={label}>Screenplay PDF</span>
-          <input
-            type="file"
-            accept="application/pdf"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            className="text-sm text-taupe file:mr-3 file:rounded-lg file:border file:border-tan file:bg-elevated file:px-4 file:py-2 file:text-sm"
-          />
-        </label>
+        {pasting ? (
+          <div className="flex flex-col gap-1">
+            <span className={label}>Script text</span>
+            <PasteScriptBox value={pasted} onChange={setPasted} disabled={busy} />
+          </div>
+        ) : (
+          <label className="flex flex-col gap-1">
+            <span className={label}>Screenplay PDF</span>
+            <input
+              type="file"
+              accept="application/pdf"
+              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              className="text-sm text-taupe file:mr-3 file:rounded-lg file:border file:border-tan file:bg-elevated file:px-4 file:py-2 file:text-sm"
+            />
+          </label>
+        )}
+        <button
+          type="button"
+          onClick={() => {
+            setPasting((p) => !p);
+            setError(null);
+          }}
+          disabled={busy}
+          className="self-start text-sm text-taupe underline decoration-tan underline-offset-4 hover:text-brick disabled:opacity-60"
+        >
+          {pasting ? "Upload a PDF instead" : "No PDF? Paste the script text instead"}
+        </button>
         <label className="flex items-start gap-2 text-sm text-taupe">
           <input type="checkbox" required className="mt-1 accent-brick" />
           <span>
@@ -237,7 +276,7 @@ export default function UploadPage() {
           disabled={busy}
           className="w-full rounded-lg bg-brick px-4 py-3 font-medium text-white disabled:opacity-60"
         >
-          {busy ? status || "Working…" : "Upload & parse"}
+          {busy ? status || "Working…" : pasting ? "Save & read the script" : "Upload & parse"}
         </button>
         <p className="text-center text-xs leading-relaxed text-muted">
           Your upload is <span className="font-medium text-taupe">private</span> — only you can see

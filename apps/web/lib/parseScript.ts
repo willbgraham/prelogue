@@ -36,6 +36,8 @@ const FIXABLE: Record<string, string> = {
   too_long: `That file is longer than 400 pages, which is more than we can read as one script. If it really is one script, email ${HELP_EMAIL} and we'll sort it out.`,
   empty_script:
     "We opened the PDF but couldn't find any script text in it. Check it's the right file, then export it again from your writing app.",
+  empty_text:
+    "We couldn't find a script in that text. Paste the whole script, with each character's name in capitals on its own line and what they say underneath.",
 };
 
 const READING =
@@ -142,6 +144,44 @@ export async function scanStatus(supabase: SupabaseClient, scriptId: string): Pr
   } catch {
     return "none";
   }
+}
+
+// ---- Pasted script text -----------------------------------------------------
+// The fallback for a writer with no usable PDF: the script lives in Google Docs
+// or Word, is a Fountain file, or the only PDF is one we can't read. The text is
+// stored as a .txt beside where a PDF would go, so everything downstream
+// (reading it again, replacing it, deleting it) works the same way.
+
+/** Shorter than this isn't a script; it's a slip of the paste. */
+export const MIN_PASTE_CHARS = 200;
+/** A long feature is about 200,000 characters. */
+export const MAX_PASTE_CHARS = 900_000;
+
+/** Why this text can't be used, or null if it can. */
+export function pasteProblem(text: string): string | null {
+  const length = text.trim().length;
+  if (length === 0) return "Paste your script into the box first.";
+  if (length < MIN_PASTE_CHARS) return "That's only a few lines. Paste the whole script.";
+  if (length > MAX_PASTE_CHARS) {
+    return "That's more text than one script. Paste one script at a time (up to about 400 pages).";
+  }
+  return null;
+}
+
+/** Store pasted script text; resolves with its storage path. Throws on failure. */
+export async function uploadScriptText(
+  supabase: SupabaseClient,
+  userId: string,
+  text: string
+): Promise<string> {
+  const path = `${userId}/${Date.now()}.txt`;
+  const { error } = await supabase.storage
+    .from("scripts")
+    .upload(path, new Blob([text], { type: "text/plain;charset=utf-8" }), {
+      contentType: "text/plain;charset=utf-8",
+    });
+  if (error) throw error;
+  return path;
 }
 
 /** "36 MB" */

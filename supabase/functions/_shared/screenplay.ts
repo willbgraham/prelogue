@@ -127,6 +127,222 @@ export function countElements(scenes: unknown): number {
   return n;
 }
 
+/**
+ * Pasted script text → the same lines a PDF page yields.
+ *
+ * For a writer with no usable PDF: the script lives in Google Docs or Word, or
+ * is a Fountain file, or the only PDF is one we can't read. There is no page
+ * geometry in pasted text, but where the paste kept its indentation (a "text
+ * with layout" export) the leading spaces stand in for it: one space is one
+ * tenth of an inch in screenplay Courier, so they convert straight to the
+ * x-positions the parser classifies by. Without indentation everything sits
+ * at the margin and the parser falls back to reading by shape (a name in
+ * capitals on its own line, then what they say).
+ *
+ * Fountain's markup is taken off, since read aloud it's noise: the title block,
+ * [[notes]], boneyard comments, # sections, = synopses, forcing characters and
+ * emphasis marks.
+ */
+export function linesFromText(raw: string): { lines: Line[]; pages: number; inkByPage: number[] } {
+  const LEFT = 108; // 1.5" left margin, in points
+  const CHAR_W = 7.2; // one character of 12pt Courier
+  const TAB = 8;
+  const LINES_PER_PAGE = 56;
+
+  let text = raw.replace(/\r\n?/g, "\n").replace(/[\u00a0\u2007\u202f]/g, " ");
+  text = text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\[\[[\s\S]*?\]\]/g, "");
+  let rows = text.split("\n");
+
+  // Fountain title page: "Key: value" lines from the very top to the first blank.
+  if (/^\s*(title|credit|author|authors|source|draft date|contact|copyright|notes)\s*:/i.test(rows[0] ?? "")) {
+    const end = rows.findIndex((r) => !r.trim());
+    rows = end >= 0 ? rows.slice(end + 1) : [];
+  }
+
+  const pagesOfLines: Line[][] = [[]];
+  const push = (l: Line) => pagesOfLines[pagesOfLines.length - 1].push(l);
+  const explicitBreaks = text.includes("\f");
+  for (const row of rows) {
+    // A form feed is a page break in a text export.
+    const parts = row.split("\f");
+    parts.forEach((part, i) => {
+      if (i > 0) pagesOfLines.push([]);
+      const expanded = part.replace(/\t/g, " ".repeat(TAB));
+      let body = expanded.trim();
+      if (!body) return push({ text: "", x: 0 });
+      if (/^#{1,6}\s/.test(body) || /^=(?!=)/.test(body) || /^={3,}$/.test(body)) return; // sections, synopses, page breaks
+      const indent = expanded.length - expanded.trimStart().length;
+      if (/^>.*<$/.test(body)) body = body.slice(1, -1).trim(); // centred
+      else if (body.startsWith(">")) body = body.slice(1).trim(); // forced transition
+      if (body.startsWith("@")) body = body.slice(1).trim().toUpperCase(); // forced character
+      else if (/^[!~]/.test(body)) body = body.slice(1).trim(); // forced action, lyric
+      else if (/^\.(?=[A-Za-z0-9])/.test(body)) body = body.slice(1).trim(); // forced scene heading
+      // Emphasis marks around words: **bold**, *italic*, _underline_.
+      body = body.replace(/(\*{1,3})(\S(?:.*?\S)?)\1/g, "$2").replace(/(^|\s)_(\S(?:.*?\S)?)_(?=\s|[.,;:!?]|$)/g, "$1$2");
+      if (body) push({ text: body, x: LEFT + indent * CHAR_W });
+    });
+  }
+
+  // No page breaks in the paste: count pages the way a screenplay fills them.
+  let pages = pagesOfLines;
+  if (!explicitBreaks) {
+    const all = pagesOfLines[0];
+    pages = [];
+    for (let i = 0; i < all.length; i += LINES_PER_PAGE) pages.push(all.slice(i, i + LINES_PER_PAGE));
+    if (!pages.length) pages = [[]];
+  }
+  const lines: Line[] = [];
+  const inkByPage: number[] = [];
+  for (const pg of pages) {
+    for (const l of pg) lines.push(l);
+    // A real page break separates blocks. A counted one must not: it falls
+    // wherever line 56 happens to be, often between a name and their speech.
+    if (explicitBreaks) lines.push({ text: "", x: 0 });
+    inkByPage.push(inkChars(pg));
+  }
+  return { lines, pages: pages.length, inkByPage };
+}
+
+// ---- Pasted text without indentation ---------------------------------------
+// With no positions to go by, structure has to come from the text itself.
+// Three shapes cover what people paste:
+//   • blocks separated by blank lines (Fountain, plain-text exports): a line in
+//     capitals with text straight under it is a speaker, per the Fountain spec;
+//   • one paragraph per line with no blank lines (copied out of Word or Google
+//     Docs): a speaker's name, then exactly one paragraph of speech;
+//   • "NAME: what they say" on one line (stage and radio scripts, hand-typed).
+const TEXT_HEADING_RE = /^(INT\.?\s*\/\s*EXT|EXT\.?\s*\/\s*INT|INT|EXT|EST|I\s*\/\s*E)[.\s]/i;
+// Capitals on their own line that are directions, not people.
+const TEXT_NOT_A_NAME_RE =
+  /^(INT|EXT|FADE|CUT TO|DISSOLVE|SMASH CUT|MATCH CUT|JUMP CUT|THE END|END OF|CONTINUED|MORE|TITLE|SUPER|INSERT|INTERCUT|BACK TO|MONTAGE|SERIES OF|LATER|MOMENTS LATER|CONTINUOUS|MEANWHILE|FLASHBACK|BLACK|OVER BLACK)\b/;
+const TEXT_TRANSITION_RE = /^(FADE (IN|OUT|TO)|CUT TO|SMASH CUT|MATCH CUT|JUMP CUT|DISSOLVE TO|BACK TO|THE END)\b|TO:$/;
+const INLINE_CUE_RE = /^([A-Z][A-Z0-9 .'’&#-]{1,30}?)(?:\s*\((.{1,24})\))?:\s+(\S.*)$/;
+// "WORD: text" lines that are directions or labels, never someone speaking.
+const INLINE_NOT_A_NAME_RE =
+  /^(NOTE|NOTES|WARNING|TITLE|SUPER|SCENE|ACT|CHAPTER|SETTING|TIME|PLACE|AT RISE|CAST|CHARACTERS|SOUND|MUSIC|LIGHTS|SFX|FX|CUT TO|FADE)\b/;
+
+/** "MRS. LINDQVIST (V.O.)", "COP 2 ^", "ALEX:" → the name, or null if the line isn't shaped like a cue. */
+function textCueName(t: string): string | null {
+  const m = t.replace(/\s*\^$/, "").replace(/:$/, "").trim().match(CUE_RE);
+  if (!m) return null;
+  const name = m[1].trim();
+  if (name.length < 2 || !/[A-Z]{2}/.test(name) || /^\d/.test(name) || TEXT_NOT_A_NAME_RE.test(name)) return null;
+  return name;
+}
+
+/** Classify pasted, unindented text. See the three shapes above. */
+export function classifyPlainText(lines: Line[]): ParsedScene[] {
+  const rows = lines.map((l) => l.text.trim());
+  const filled = rows.filter(Boolean).length;
+  // Blank lines between blocks, or one paragraph per line with none?
+  const blockStyle = rows.length > 0 && (rows.length - filled) / rows.length > 0.12;
+  const blank = (k: number) => k < 0 || k >= rows.length || !rows[k];
+
+  // "NAME: speech" is only trusted once the script shows it's written that
+  // way — several such lines, with a name that keeps coming back — so one
+  // stray "WARNING: wet floor" in an action line isn't taken for a speaker.
+  // Once it is, a name that appears a single time still counts: bit parts.
+  const inlineName = (t: string): RegExpMatchArray | null => {
+    const m = t.match(INLINE_CUE_RE);
+    return m && !TEXT_NOT_A_NAME_RE.test(m[1]) && !INLINE_NOT_A_NAME_RE.test(m[1]) && !TEXT_HEADING_RE.test(t) ? m : null;
+  };
+  const inlineCounts = new Map<string, number>();
+  for (const t of rows) {
+    const m = inlineName(t);
+    if (m) inlineCounts.set(m[1].trim(), (inlineCounts.get(m[1].trim()) || 0) + 1);
+  }
+  const inlineStyle =
+    [...inlineCounts.values()].reduce((a, b) => a + b, 0) >= 3 && [...inlineCounts.values()].some((n) => n >= 2);
+
+  // Lines broken at the page's width with no blank lines between blocks: text
+  // copied out of a PDF viewer. A speech's column is narrow (about 35
+  // characters) and action runs to 60, so line length is the only clue to
+  // where a speech ends. Best effort; the PDF itself reads better.
+  const lengths = rows.filter(Boolean).map((r) => r.length).sort((a, b) => a - b);
+  const hardWrapped = !blockStyle && lengths.length >= 30 && lengths[Math.floor(lengths.length * 0.95)] <= 64;
+  const SPEECH_WIDTH = 40;
+
+  // Without blank lines a name must recur to count: a single line in capitals
+  // could as easily be a sound effect.
+  const recurring = new Set<string>();
+  if (!blockStyle) {
+    const seen = new Map<string, number>();
+    for (let i = 0; i < rows.length; i++) {
+      const name = rows[i] ? textCueName(rows[i]) : null;
+      const next = rows.slice(i + 1).find(Boolean) ?? "";
+      if (name && !CUE_EXCLUDE_RE.test(name) && next && !textCueName(next) && !TEXT_HEADING_RE.test(next)) {
+        seen.set(name, (seen.get(name) || 0) + 1);
+      }
+    }
+    for (const [name, n] of seen) if (n >= 2) recurring.add(name);
+  }
+
+  const scenes: ParsedScene[] = [];
+  let current: ParsedScene = { heading: "", scene_index: 0, elements: [] };
+  scenes.push(current);
+  let speaker: string | null = null;
+  let owed = 0; // paragraph style: paragraphs of speech still due to this speaker
+
+  for (let i = 0; i < rows.length; i++) {
+    const t = rows[i];
+    if (!t) {
+      if (blockStyle) speaker = null; // a blank line ends the speech
+      continue;
+    }
+    if (ARTIFACT_RE.test(t)) continue;
+
+    if (TEXT_HEADING_RE.test(t) && (!speaker || !blockStyle)) {
+      current = { heading: t, scene_index: scenes.length, elements: [] };
+      scenes.push(current);
+      speaker = null;
+      owed = 0;
+      continue;
+    }
+    if (TEXT_TRANSITION_RE.test(t) && t === t.toUpperCase() && (!blockStyle || !speaker)) {
+      speaker = null;
+      owed = 0;
+      continue;
+    }
+
+    if (inlineStyle) {
+      const m = inlineName(t);
+      if (m) {
+        const name = m[1].trim();
+        current.elements.push({ type: "character", character_name: name, text: name });
+        current.elements.push({ type: "dialogue", character_name: name, text: m[3].trim() });
+        speaker = blockStyle ? name : null; // wrapped lines under it stay theirs
+        owed = 0;
+        continue;
+      }
+    }
+
+    const name = textCueName(t);
+    const isCue = !!name && (blockStyle ? blank(i - 1) && !blank(i + 1) : recurring.has(name) && !blank(i + 1));
+    if (isCue) {
+      speaker = name;
+      owed = 1;
+      current.elements.push({ type: "character", character_name: name!, text: name! });
+      continue;
+    }
+
+    if (speaker) {
+      if (/^\(.*\)$/.test(t)) {
+        current.elements.push({ type: "parenthetical", character_name: speaker, text: t });
+        owed = 1; // a direction mid-speech is followed by more speech
+        continue;
+      }
+      if (blockStyle || owed > 0 || (hardWrapped && t.length <= SPEECH_WIDTH)) {
+        current.elements.push({ type: "dialogue", character_name: speaker, text: t });
+        owed = 0;
+        continue;
+      }
+      speaker = null; // their speech is said; this is something else
+    }
+    current.elements.push({ type: "action", text: t });
+  }
+  return scenes;
+}
+
 /** Letters, digits and punctuation on a set of lines — whitespace doesn't count. */
 export function inkChars(lines: Line[]): number {
   let n = 0;
@@ -321,7 +537,7 @@ export function classifyLegacy(lines: Line[]): ParsedScene[] {
 }
 
 export interface ParseResult {
-  mode: "geometric" | "legacy";
+  mode: "geometric" | "legacy" | "text";
   grid: IndentGrid | null;
   scenes: ParsedScene[];
   /** Every speaking character, most lines first. */
@@ -335,8 +551,22 @@ export function parseLines(lines: Line[]): ParseResult {
   // Prefer indent-aware classification (standard screenplay format encodes
   // element type in indentation); fall back to text heuristics otherwise.
   const grid = inferIndents(lines);
-  const mode = grid ? "geometric" : "legacy";
   const scenes = grid ? classifyGeometric(lines, grid) : classifyLegacy(lines);
+  return assemble(grid ? "geometric" : "legacy", grid, scenes);
+}
+
+/**
+ * The same, for lines that came from pasted text (linesFromText). A paste that
+ * kept its indentation is read by position like a PDF; one that didn't is read
+ * by the shapes pasted text actually takes, not by the PDF fallback rules.
+ */
+export function parseText(lines: Line[]): ParseResult {
+  const grid = inferIndents(lines);
+  return grid ? assemble("geometric", grid, classifyGeometric(lines, grid)) : assemble("text", null, classifyPlainText(lines));
+}
+
+/** Everything after classification: who says what, runs joined up, the tallies. */
+function assemble(mode: ParseResult["mode"], grid: IndentGrid | null, scenes: ParsedScene[]): ParseResult {
 
   // Per-character dialogue index (built uniformly from the classified stream).
   const charDialogue: Record<string, { scene_index: number; text: string }[]> = {};

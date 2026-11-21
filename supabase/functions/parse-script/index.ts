@@ -1,6 +1,8 @@
 // Turn an uploaded screenplay PDF into scenes, characters and lines.
 //
 // Body:    { script_id, debug?, discard_if_unreadable? }
+//            The stored file is a PDF, or pasted script text saved as .txt
+//            (the fallback for a writer with no usable PDF).
 //          { script_id, lines: [text, x][], pages, notify_writer? }   service
 //            role / admin only: text already lifted off the pages by other
 //            means (OCR of a scan). Skips extraction; everything after it is
@@ -27,7 +29,7 @@
 //     same minute rather than found in the logs days later.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isServiceRole } from "../_shared/serviceRole.ts";
-import { type Line, linesFromItems, inkChars, parseLines } from "../_shared/screenplay.ts";
+import { type Line, linesFromItems, linesFromText, inkChars, parseLines, parseText } from "../_shared/screenplay.ts";
 import { signTicket } from "../_shared/extractTicket.ts";
 import { sendEmail } from "../_shared/sendEmail.ts";
 import { brandEmail, esc } from "../_shared/brandEmail.ts";
@@ -197,6 +199,7 @@ type FailCode =
   | "not_a_pdf"
   | "too_long"
   | "empty_script"
+  | "empty_text"
   | "extract_failed"
   | "save_failed";
 
@@ -226,6 +229,11 @@ const FAILS: Record<FailCode, { ours: boolean; message: string }> = {
     message:
       "We opened the PDF but couldn't find any script text in it. Check it's the right file, then export it again from your writing app.",
   },
+  empty_text: {
+    ours: false,
+    message:
+      "We couldn't find a script in that text. Paste the whole script, with each character's name in capitals on its own line and what they say underneath.",
+  },
   extract_failed: {
     ours: true,
     message:
@@ -239,7 +247,7 @@ const FAILS: Record<FailCode, { ours: boolean; message: string }> = {
 };
 
 type Extracted =
-  | { ok: true; lines: Line[]; pages: number; ink: number[]; slices: number; via: "slices" | "inline" | "supplied" }
+  | { ok: true; lines: Line[]; pages: number; ink: number[]; slices: number; via: "slices" | "inline" | "supplied" | "text" }
   | { ok: false; code: FailCode; detail?: string; pages?: number };
 
 // Bounds on text handed to us instead of extracted by us.
@@ -266,6 +274,22 @@ function suppliedLines(raw: unknown, rawPages: unknown): Extracted | null {
   // "is there any text here at all" check still means something.
   const total = inkChars(lines);
   return { ok: true, lines, pages, ink: Array.from({ length: pages }, () => Math.round(total / pages)), slices: 0, via: "supplied" };
+}
+
+// A script pasted as text is stored as a .txt (or uploaded as .fountain).
+const TEXT_FILE_RE = /\.(txt|fountain)$/i;
+// A long feature is ~200,000 characters; this is room for five.
+const MAX_TEXT_BYTES = 1_000_000;
+
+/** Read a stored text file into lines. Cheap enough to do here: no page reader. */
+// deno-lint-ignore no-explicit-any
+async function readTextFile(path: string, supabase: any): Promise<Extracted> {
+  const { data: file, error } = await supabase.storage.from("scripts").download(path);
+  if (error || !file) return { ok: false, code: "extract_failed", detail: "text: download failed" };
+  if (file.size > MAX_TEXT_BYTES) return { ok: false, code: "too_long", detail: `${file.size} bytes of text` };
+  const read = linesFromText(await file.text());
+  if (read.pages > MAX_PAGES) return { ok: false, code: "too_long", pages: read.pages };
+  return { ok: true, lines: read.lines, pages: read.pages, ink: read.inkByPage, slices: 0, via: "text" };
 }
 
 type SliceBody = {
@@ -644,7 +668,8 @@ Deno.serve(async (req) => {
     let ext: Extracted;
     // A file this large goes straight to the scan reader (see BIG_FILE_BYTES).
     // If that can't be started, carry on and let the page reader try.
-    if (givenLines === undefined && !allowDebug) {
+    const isTextFile = TEXT_FILE_RE.test(String(script.file_url));
+    if (givenLines === undefined && !allowDebug && !isTextFile) {
       const size = await storedSize(supabase, script.file_url as string);
       if (size !== null && size > BIG_FILE_BYTES) {
         const scan = await startScanReading(supabase, writerId, script_id, undefined);
@@ -666,6 +691,8 @@ Deno.serve(async (req) => {
       const supplied = suppliedLines(givenLines, givenPages);
       if (!supplied) return json({ error: "lines must be [text, x] pairs, with a page count" }, 400);
       ext = supplied;
+    } else if (isTextFile) {
+      ext = await readTextFile(script.file_url as string, supabase);
     } else {
       ext = await extractText(script.file_url as string, req, supabase);
     }
@@ -680,7 +707,7 @@ Deno.serve(async (req) => {
     const scanned = totalInk < SCAN_TOTAL_INK || median(ink) < SCAN_MEDIAN_INK;
 
     // ---- 2. Lines into scenes -------------------------------------------------
-    const parsed = scanned ? null : parseLines(lines);
+    const parsed = scanned ? null : ext.via === "text" ? parseText(lines) : parseLines(lines);
 
     // Debug mode: inspect extraction without writing to the DB (echoes raw
     // script text, so admin/service-role only).
@@ -709,6 +736,8 @@ Deno.serve(async (req) => {
 
     if (scanned || !parsed) {
       const what = `${textPages} of ${pages} pages have text (${totalInk} characters in all)`;
+      // Pasted text with next to nothing in it isn't a scan; say what it is.
+      if (ext.via === "text") return await fail("empty_text", `${totalInk} characters of pasted text`, pages);
       // Text we were handed that still isn't a script: nothing more to try.
       if (ext.via === "supplied") return await fail("scanned_pdf", what, pages);
       const scan = await startScanReading(supabase, writerId, script_id, pages);
@@ -719,7 +748,7 @@ Deno.serve(async (req) => {
       return await fail("scanned_pdf", `${what} · automatic reading not started: ${scan.reason}`, pages);
     }
     if (parsed.totalElements === 0) {
-      return await fail("empty_script", `${totalInk} characters of text but nothing readable as a script`, pages);
+      return await fail(ext.via === "text" ? "empty_text" : "empty_script", `${totalInk} characters of text but nothing readable as a script`, pages);
     }
 
     // ---- 3. Save ----------------------------------------------------------------

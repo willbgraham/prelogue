@@ -8,9 +8,12 @@ import {
   MAX_SCRIPT_BYTES,
   megabytes,
   parseScript,
+  pasteProblem,
   scanStatus,
+  uploadScriptText,
   type ScanState,
 } from "@/lib/parseScript";
+import { PasteScriptBox } from "@/components/PasteScriptBox";
 
 /**
  * Shown to a script's writer in place of the player when the script has no
@@ -21,12 +24,15 @@ import {
  * Three situations look the same from the outside and must not read the same:
  *   • a scan that is being read right now (a wait, with an email at the end);
  *   • a scan the reader gave up on (ours to follow up, theirs to replace);
- *   • anything else: read the same file again, or swap in a different PDF.
+ *   • anything else: read the same file again, swap in a different PDF, or —
+ *     when there is no PDF we can read at all — paste the script in as text.
  */
 export function UnreadableScript({ scriptId }: { scriptId: string }) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = useState<null | "retry" | "replace">(null);
+  const [busy, setBusy] = useState<null | "retry" | "replace" | "paste">(null);
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasted, setPasted] = useState("");
   const [status, setStatus] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   // "unknown" until the first answer, so a scan in progress never flashes the
@@ -124,6 +130,37 @@ export function UnreadableScript({ scriptId }: { scriptId: string }) {
     }
   }
 
+  async function submitPasted() {
+    const problem = pasteProblem(pasted);
+    if (problem) {
+      setMessage(problem);
+      return;
+    }
+    setMessage(null);
+    setBusy("paste");
+    setStatus("Saving your script…");
+    try {
+      const supabase = getBrowserClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) throw new Error("Please sign in first.");
+      const path = await uploadScriptText(supabase, user.id, pasted);
+      const { error: updErr } = await supabase
+        .from("scripts")
+        .update({ file_url: path })
+        .eq("id", scriptId);
+      if (updErr) throw updErr;
+      await read();
+    } catch (e) {
+      setMessage(
+        (e as { message?: string } | null)?.message || "Saving the text failed. Please try again."
+      );
+      setBusy(null);
+      setStatus("");
+    }
+  }
+
   if (scan === "unknown") {
     return (
       <div className="rounded-xl border border-tan bg-ivory p-5 text-sm text-muted">
@@ -193,6 +230,15 @@ export function UnreadableScript({ scriptId }: { scriptId: string }) {
         >
           {busy === "retry" ? status || "Working…" : "Try reading it again"}
         </button>
+        {!pasteOpen && (
+          <button
+            onClick={() => setPasteOpen(true)}
+            disabled={!!busy}
+            className="text-sm font-medium text-taupe underline decoration-tan underline-offset-4 hover:text-brick disabled:opacity-60"
+          >
+            Paste the script text instead
+          </button>
+        )}
         <input
           ref={fileRef}
           type="file"
@@ -205,6 +251,28 @@ export function UnreadableScript({ scriptId }: { scriptId: string }) {
           }}
         />
       </div>
+
+      {pasteOpen && (
+        <div className="mt-4">
+          <PasteScriptBox value={pasted} onChange={setPasted} disabled={!!busy} />
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <button
+              onClick={submitPasted}
+              disabled={!!busy}
+              className="rounded-lg bg-brick px-5 py-2.5 font-medium text-white disabled:opacity-60"
+            >
+              {busy === "paste" ? status || "Working…" : "Use this text"}
+            </button>
+            <button
+              onClick={() => setPasteOpen(false)}
+              disabled={!!busy}
+              className="text-sm text-taupe hover:text-ink disabled:opacity-60"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       <p className="mt-4 text-xs leading-relaxed text-muted">
         A PDF exported straight from your writing app (Final Draft, Fade In, WriterDuet, Highland
