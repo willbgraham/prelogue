@@ -97,10 +97,14 @@ async function pageImages(pdf, dir, pages, cpus, log) {
     const { stdout: info } = await run("pdfinfo", ["-f", "1", "-l", String(pages), pdf], { maxBuffer: 16 * 1024 * 1024 });
     const rotated = /Page\s+\d+\s+rot:\s+(?!0\b)\d+/.test(info);
     if (simple && !rotated) {
-      await run("pdfimages", ["-png", pdf, path.join(dir, "img")], { maxBuffer: 16 * 1024 * 1024 });
-      const files = fs.readdirSync(dir).filter((f) => /^img-\d+\.png$/.test(f)).sort();
+      // A scanner's JPEGs come out exactly as they went in: no decoding, no
+      // re-compressing (re-saving them as PNG took 33 of the 41 seconds a
+      // 30-page scan needed). Anything else is converted.
+      const allJpeg = rows.every((c) => c[8] === "jpeg");
+      await run("pdfimages", [allJpeg ? "-all" : "-png", pdf, path.join(dir, "img")], { maxBuffer: 16 * 1024 * 1024 });
+      const files = fs.readdirSync(dir).filter((f) => /^img-\d+\.(jpg|png)$/.test(f)).sort();
       if (files.length === pages) {
-        log(`lifted ${pages} page images straight out of the PDF`);
+        log(`lifted ${pages} page images straight out of the PDF${allJpeg ? " (as stored)" : ""}`);
         return files.map((f, i) => ({ file: path.join(dir, f), dpi: Number(rows[i][12]) }));
       }
     }
@@ -115,23 +119,31 @@ async function renderPages(pdf, dir, pages, cpus, log) {
   const chunk = Math.ceil(pages / Math.max(1, cpus));
   const ranges = [];
   for (let from = 1; from <= pages; from += chunk) ranges.push([from, Math.min(pages, from + chunk - 1)]);
+  // JPEG, not PNG: compressing a 300 dpi page as PNG costs more than reading it.
   await pool(ranges, cpus, ([from, to]) =>
-    run("pdftoppm", ["-r", String(DPI), "-gray", "-png", "-f", String(from), "-l", String(to), pdf, path.join(dir, "ren")], {
+    run("pdftoppm", ["-r", String(DPI), "-gray", "-jpeg", "-jpegopt", "quality=92", "-f", String(from), "-l", String(to), pdf, path.join(dir, "ren")], {
       maxBuffer: 16 * 1024 * 1024,
     })
   );
   const files = fs
     .readdirSync(dir)
-    .filter((f) => /^ren-\d+\.png$/.test(f))
+    .filter((f) => /^ren-\d+\.jpg$/.test(f))
     .sort((a, b) => Number(a.match(/\d+/)[0]) - Number(b.match(/\d+/)[0]));
   if (files.length !== pages) throw new Error(`rendered ${files.length} of ${pages} pages`);
   log(`rendered ${pages} pages at ${DPI} dpi`);
   return files.map((f) => ({ file: path.join(dir, f), dpi: DPI }));
 }
 
+// Tesseract is built with OpenMP on Linux and will start a thread per core for
+// each page. We already run one process per core, so that is cores² threads
+// fighting over the same cores: on a 4-core GitHub runner the first real scan
+// (30 pages) was still going after ten minutes, against 40 seconds locally.
+// One thread per process, and the processes do the parallelism.
+const TESSERACT_ENV = { ...process.env, OMP_THREAD_LIMIT: "1", OMP_NUM_THREADS: "1" };
+
 async function tesseract(image) {
   const base = image.replace(/\.[a-z0-9]+$/i, "") + "-ocr";
-  await run("tesseract", [image, base, "-l", "eng", "--psm", "6", "tsv"], { maxBuffer: 16 * 1024 * 1024 });
+  await run("tesseract", [image, base, "-l", "eng", "--psm", "6", "tsv"], { maxBuffer: 16 * 1024 * 1024, env: TESSERACT_ENV });
   const tsv = fs.readFileSync(`${base}.tsv`, "utf8");
   fs.rmSync(`${base}.tsv`, { force: true });
   return tsv;
@@ -146,7 +158,7 @@ async function recognise(images, cpus, log) {
   await pool(pages, workers, async (pg) => {
     const tilt = straighten(pageFromTsv(pg.tsv, pg.dpi));
     if (Math.abs(tilt) < REREAD_TILT) return;
-    const upright = pg.file.replace(/\.png$/i, "-upright.png");
+    const upright = pg.file.replace(/\.[a-z0-9]+$/i, "-upright.png");
     try {
       await run("ffmpeg", ["-loglevel", "error", "-y", "-i", pg.file, "-vf", `rotate=${tilt.toFixed(5)}:fillcolor=white`, upright]);
       const again = await tesseract(upright);
@@ -173,11 +185,14 @@ async function readPdf(pdf, workDir, log = () => {}) {
   const pages = await pageCount(pdf);
   if (pages > MAX_PAGES) throw Object.assign(new Error(`${pages} pages is more than we read as one script`), { code: "too_long" });
 
+  const t0 = Date.now();
   let images = await pageImages(pdf, workDir, pages, cpus, log);
+  const t1 = Date.now();
   let read = linesFromOcr(await recognise(images, cpus, log));
+  log(`timing: page images ${Math.round((t1 - t0) / 1000)}s, recognition ${Math.round((Date.now() - t1) / 1000)}s on ${cpus} cores`);
   // Photos stored sideways or mirrored inside the PDF read as nonsense; a
   // render applies the page's own orientation. Worth one more try.
-  if (read.quality.meanConfidence < MIN_CONFIDENCE && images[0] && /img-\d+\.png$/.test(images[0].file)) {
+  if (read.quality.meanConfidence < MIN_CONFIDENCE && images[0] && /img-\d+\.[a-z]+$/.test(images[0].file)) {
     log(`first reading was poor (confidence ${read.quality.meanConfidence}); rendering the pages instead`);
     images = await renderPages(pdf, workDir, pages, cpus, log);
     read = linesFromOcr(await recognise(images, cpus, log));
