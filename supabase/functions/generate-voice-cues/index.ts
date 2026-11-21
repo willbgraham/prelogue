@@ -8,7 +8,8 @@ const corsHeaders = {
 };
 
 const ELEVENLABS_API_KEY = Deno.env.get("ELEVENLABS_API_KEY");
-const ELEVENLABS_BASE = "https://api.elevenlabs.io/v1";
+// The override exists for the test rig, which points it at a stand-in provider.
+const ELEVENLABS_BASE = Deno.env.get("ELEVENLABS_API_BASE") ?? "https://api.elevenlabs.io/v1";
 
 // Default voice pool (ElevenLabs). Used as fallbacks when the writer hasn't
 // configured voice_config yet.
@@ -24,6 +25,79 @@ const FALLBACK_VOICES = [
 const BUCKET = "scripts";
 const BATCH_SIZE = 5; // parallel TTS per batch
 const MAX_NEW_PER_RUN = 80; // generation cap per invocation (resumable)
+
+// ---------------------------------------------------------------------------
+// When the provider says no
+// ---------------------------------------------------------------------------
+// Two things were found in production (Nov 2026), both of which left lines of
+// a read silent under a banner blaming "voice credits":
+//
+//  1. A community voice's very FIRST use. The provider adds the voice to the
+//     account on the first request; the other lines of the same five-line batch
+//     arrive while that is happening and are answered 409. One line was voiced,
+//     four were not — and on a locked script's ten-line taste, which is a single
+//     run, nothing ever asked again. Seen for every one of eight voices on their
+//     first day. The answer is to wait a moment and ask again.
+//
+//  2. A community voice that will not read a particular line. Its owner can
+//     restrict what it says, and the provider then answers 403 for that text on
+//     that voice, every time, while other voices read the same words. Two lines
+//     of a 1,292-line read stayed silent. The answer is a stand-in: a house
+//     voice of the same sort reads the line, stored where the chosen voice's
+//     clip would be, and the writer is told (stand_ins in the reply).
+const TTS_TRIES = 4; // one request plus three more for answers that pass in a moment
+const LINE_WAIT_MS = 8_000; // …but never more than this much waiting on one line
+// Stop starting new batches after this long and hand the rest back as
+// `remaining`: the caller asks again. Keeps a provider brown-out (every line
+// waiting and retrying) well inside the platform's wall-clock limit.
+const RUN_BUDGET_MS = Number(Deno.env.get("VOICE_RUN_BUDGET_MS")) || 60_000;
+// The voice list the picker is built from, kept by list-voices. Read only when a
+// voice has refused a line, to learn what sort of voice needs standing in for.
+const CATALOG_PATH = "voice-cues/_catalog/voices.json";
+
+// House voices (the provider's own, always in the account, and not subject to
+// an owner's restrictions), in order of preference for each sort of voice.
+const STAND_INS: Record<string, Record<string, string[]>> = {
+  male: {
+    young: ["bIHbv24MWmeRgasZH58o", "TX3LPaxmHKxFdv7VOQHJ"], // Will, Liam
+    middle_aged: ["iP95p4xoKVk53GoZ742B", "CwhRBWXzGAHq8TQ4Fs17", "cjVigY5qzO86Huf0OWal"], // Chris, Roger, Eric
+    old: ["pqHfZKP75CvOlQylNhV4", "nPczCjzI2devNBz1zQrb"], // Bill, Brian
+    british: ["JBFqnCBsd6RMkjVDRZzb", "onwK4e9ZLuTAKqWW03F9"], // George, Daniel
+  },
+  female: {
+    young: ["cgSgspJ2msm6clMCkdW9", "EXAVITQu4vr4xnSDxMaL", "FGY2WhTYpPnrIDTdsKH5"], // Jessica, Sarah, Laura
+    middle_aged: ["XrExE9yKIg1WjnnlVkGX", "hpp4J3VqNfWAUOO0d1Us"], // Matilda, Bella
+    old: ["XrExE9yKIg1WjnnlVkGX", "hpp4J3VqNfWAUOO0d1Us"],
+    british: ["Xb7hH8MSUJpSbSDYk0k2", "pFZP5JQG7iQjIQuC4Bku"], // Alice, Lily
+  },
+};
+const STAND_IN_NEUTRAL = ["SAz9YHcvj6GT2YYXdXww"]; // River
+
+/** House voices suited to stand in for a voice with these labels, best first. */
+function standInCandidates(labels: Record<string, string> | null): string[] {
+  const gender = (labels?.gender ?? "").toLowerCase();
+  if (gender === "neutral" || gender === "non-binary") return STAND_IN_NEUTRAL;
+  const sort = STAND_INS[gender];
+  if (!sort) return [];
+  if (/brit|engl|scot|irish|wel/.test((labels?.accent ?? "").toLowerCase())) return sort.british;
+  const age = (labels?.age ?? "").toLowerCase();
+  return sort[age === "young" ? "young" : age === "old" ? "old" : "middle_aged"];
+}
+
+/** True when the answer means "this voice will not (or cannot) read this", as opposed to "not now". */
+function voiceDeclined(status: number, reason: string): boolean {
+  // 403: the voice's owner restricts it. 404 (400 on older API versions): the
+  // voice has been withdrawn from the library since the writer chose it.
+  return status === 403 || status === 404 || (status === 400 && /voice/i.test(reason));
+}
+
+type FailKind = "quota" | "declined" | "storage" | "busy";
+function failKind(status: number, reason: string): FailKind {
+  if (status === 401 || status === 402 || /quota|credit|payment|subscription/i.test(reason)) return "quota";
+  if (status === -1) return "storage";
+  if (voiceDeclined(status, reason)) return "declined";
+  return "busy";
+}
 
 // ElevenLabs generation settings (mirror the picker's sliders). Defaults match
 // the historical hardcoded values so existing cached audio stays valid.
@@ -91,15 +165,39 @@ function canonical(obj: unknown): string {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-async function ttsAndUpload(
-  job: { voiceId: string; text: string; path: string; model?: string },
-  supabase: any,
+/**
+ * The provider's own short reason for saying no: its code and a little of its
+ * message. Built only from fields that describe the refusal — a validation
+ * error can carry the submitted text back, and that is never read or logged.
+ */
+async function reasonOf(res: Response): Promise<string> {
+  try {
+    const j = await res.json();
+    const d = Array.isArray(j?.detail) ? j.detail[0] : j?.detail;
+    const code = typeof d === "string" ? d : d?.status ?? d?.code ?? d?.type ?? "";
+    const message = d && typeof d === "object" && !Array.isArray(j?.detail) ? d.message ?? "" : "";
+    return `${code} ${message}`.replace(/\s+/g, " ").trim().slice(0, 140);
+  } catch {
+    return "";
+  }
+}
+
+type Spoken = { ok: true; audio: Uint8Array } | { ok: false; status: number; reason: string };
+
+/** One line, one voice. Waits out the answers that pass in a moment; returns the first that doesn't. */
+async function speak(
+  voiceId: string,
+  job: { text: string; model?: string },
   voiceSettings: Record<string, number>
-): Promise<boolean> {
-  for (let attempt = 0; attempt < 2; attempt++) {
+): Promise<Spoken> {
+  const giveUpAt = Date.now() + LINE_WAIT_MS;
+  let status = 0;
+  let reason = "";
+  for (let attempt = 0; attempt < TTS_TRIES; attempt++) {
+    let wait: number;
     try {
       const res = await fetch(
-        `${ELEVENLABS_BASE}/text-to-speech/${job.voiceId}?output_format=mp3_22050_32`,
+        `${ELEVENLABS_BASE}/text-to-speech/${voiceId}?output_format=mp3_22050_32`,
         {
           method: "POST",
           headers: {
@@ -114,32 +212,87 @@ async function ttsAndUpload(
           }),
         }
       );
+      if (res.ok) return { ok: true, audio: new Uint8Array(await res.arrayBuffer()) };
 
-      if (res.status === 429) {
-        const retryAfter = Number(res.headers.get("retry-after")) || 2;
-        await sleep(Math.min(retryAfter, 5) * 1000);
-        continue; // retry once
+      status = res.status;
+      const retryAfter = Number(res.headers.get("retry-after")) || 2;
+      reason = await reasonOf(res);
+      if (status === 429) {
+        wait = Math.min(retryAfter, 5) * 1000; // busy: the provider says when
+      } else if (status === 409 || status >= 500) {
+        // 409: a voice on its first use, still being added to the account
+        // while the rest of the batch asks for it. 5xx: the provider stumbled.
+        wait = 600 * (attempt + 1) + Math.floor(Math.random() * 400);
+      } else {
+        break; // a refusal — asking again for the same thing changes nothing
       }
-      if (!res.ok) {
-        console.error(`TTS ${res.status} for ${job.path}`);
-        return false;
-      }
-
-      const audio = new Uint8Array(await res.arrayBuffer());
-      const { error } = await supabase.storage
-        .from(BUCKET)
-        .upload(job.path, audio, { contentType: "audio/mpeg", upsert: true });
-      if (error) {
-        console.error("Upload error:", error.message);
-        return false;
-      }
-      return true;
     } catch (err) {
-      console.error("TTS exception:", err);
-      return false;
+      status = 0;
+      reason = `no answer: ${String(err).slice(0, 80)}`;
+      wait = 600 * (attempt + 1) + Math.floor(Math.random() * 400);
     }
+    if (attempt === TTS_TRIES - 1 || Date.now() + wait > giveUpAt) break;
+    await sleep(wait);
   }
-  return false;
+  return { ok: false, status, reason };
+}
+
+type Job = {
+  voiceId: string;
+  text: string;
+  path: string;
+  settings: Record<string, number>;
+  model?: string;
+  role: string; // the speaking character (upper-cased base name); "" for narration
+  kind: "dialogue" | "action";
+};
+type Made =
+  | { ok: true; voiceUsed: string }
+  | { ok: false; status: number; reason: string };
+
+/**
+ * Voice one line and store it. If the chosen voice declines the line, a house
+ * voice reads it instead — into the SAME file, so the read is whole — and the
+ * voice that actually spoke is reported back (it goes in the cache index, which
+ * is how later runs know the clip is a stand-in).
+ */
+async function ttsAndUpload(
+  job: Job,
+  supabase: any,
+  standInFor: (job: Job) => Promise<string | null>
+): Promise<Made> {
+  let voiceUsed = job.voiceId;
+  let said = await speak(job.voiceId, job, job.settings);
+  if (!said.ok) {
+    console.error(`TTS ${said.status} for ${job.path} — ${said.reason || "no reason given"}`);
+    if (!voiceDeclined(said.status, said.reason)) {
+      return { ok: false, status: said.status, reason: said.reason };
+    }
+    const standIn = await standInFor(job);
+    const again = standIn ? await speak(standIn, job, job.settings) : null;
+    if (!standIn || !again || !again.ok) {
+      if (again && !again.ok) {
+        console.error(`stand-in ${standIn}: TTS ${again.status} for ${job.path} — ${again.reason}`);
+      }
+      // Report the stand-in's answer only when it says something new (the
+      // account is out of quota, say); otherwise the line was "declined".
+      const told =
+        again && !again.ok && failKind(again.status, again.reason) === "quota" ? again : said;
+      return { ok: false, status: told.status, reason: told.reason };
+    }
+    console.log(`stand-in ${standIn} read ${job.path}`);
+    said = again;
+    voiceUsed = standIn;
+  }
+
+  const { error } = await supabase.storage
+    .from(BUCKET)
+    .upload(job.path, said.audio, { contentType: "audio/mpeg", upsert: true });
+  if (error) {
+    console.error("Upload error:", error.message);
+    return { ok: false, status: -1, reason: `upload: ${error.message}`.slice(0, 140) };
+  }
+  return { ok: true, voiceUsed };
 }
 
 // ---------------------------------------------------------------------------
@@ -529,10 +682,7 @@ Deno.serve(async (req) => {
     const manifestPath = `voice-cues/script/${script_id}/${voiceConfigHash}/manifest.json`;
 
     // Existence check: list cached hashes per distinct voice.
-    const distinctJobs = new Map<
-      string,
-      { voiceId: string; text: string; path: string; settings: Record<string, number>; model?: string }
-    >();
+    const distinctJobs = new Map<string, Job>();
     for (const e of entries) {
       if (!distinctJobs.has(e.audio_key)) {
         distinctJobs.set(e.audio_key, {
@@ -541,6 +691,8 @@ Deno.serve(async (req) => {
           path: e.audio_path,
           settings: e.settings,
           model: e.model,
+          role: e.type === "dialogue" ? baseCharName(e.character ?? "").toUpperCase() : "",
+          kind: e.type === "dialogue" ? "dialogue" : "action",
         });
       }
     }
@@ -576,13 +728,20 @@ Deno.serve(async (req) => {
     // Chunked to keep the query string bounded.
     const wantedKeys = [...distinctJobs.keys()];
     const existing = new Set<string>();
+    // key → the voice that actually spoke the clip. It is the chosen voice,
+    // except where a house voice stood in for one that declined the line.
+    const spokenBy = new Map<string, string>();
     const CHUNK = 200;
     for (let i = 0; i < wantedKeys.length; i += CHUNK) {
       const { data: rows } = await supabase
         .from("voice_audio_cache")
-        .select("key")
+        .select("key, voice_id")
         .in("key", wantedKeys.slice(i, i + CHUNK));
-      for (const r of rows ?? []) existing.add((r as { key: string }).key);
+      for (const r of rows ?? []) {
+        const row = r as { key: string; voice_id: string | null };
+        existing.add(row.key);
+        if (row.voice_id) spokenBy.set(row.key, row.voice_id);
+      }
     }
 
     // Generate the misses, capped per run (resumable).
@@ -693,17 +852,60 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Which house voice reads a line its chosen voice won't. The voice list is
+    // fetched at most once a run, and only if a voice has actually declined.
+    const voicesInThisRead = new Set<string>(entries.map((e) => e.voice_id));
+    const known = new Map<string, Record<string, string>>(); // voice → its labels
+    // One fetch shared by every line of a batch that needs it (they ask at once).
+    let voiceListRead: Promise<void> | null = null;
+    const readVoiceList = async () => {
+      try {
+        const { data } = await supabase.storage.from(BUCKET).download(CATALOG_PATH);
+        const list = data ? JSON.parse(await data.text())?.data : null;
+        for (const v of Array.isArray(list) ? list : []) {
+          if (v?.voice_id) known.set(v.voice_id, v.labels ?? {});
+        }
+      } catch (_) {
+        /* no list to consult: choose by the character's name, below */
+      }
+    };
+    const standInFor = async (job: Job): Promise<string | null> => {
+      await (voiceListRead ??= readVoiceList());
+      // House voices of the same sort, skipping any that has left the provider's
+      // list, then the voice this role would have had with no choice made at all.
+      const suited = standInCandidates(known.get(job.voiceId) ?? null).filter(
+        (v) => known.size === 0 || known.has(v)
+      );
+      const byName = job.kind === "action" ? DEFAULT_NARRATOR : fallbackVoiceForName(job.role);
+      const candidates = [...suited, byName, DEFAULT_NARRATOR].filter((v) => v !== job.voiceId);
+      // Prefer one no other role in this read is using, so two people don't
+      // suddenly share a voice; settle for one that is if there's no other.
+      return candidates.find((v) => !voicesInThisRead.has(v)) ?? candidates[0] ?? null;
+    };
+
     const generatedKeys = new Set<string>();
+    const failures: { status: number; reason: string }[] = [];
     let failed = 0;
+    let attempted = 0;
+    const stopAt = Date.now() + RUN_BUDGET_MS;
 
     for (let i = 0; i < toDo.length; i += BATCH_SIZE) {
+      // Out of time for this run (the provider is slow or refusing): what's
+      // left is reported as `remaining` and the caller asks again.
+      if (i > 0 && Date.now() > stopAt) break;
       const batch = toDo.slice(i, i + BATCH_SIZE);
+      attempted += batch.length;
       const results = await Promise.all(
-        batch.map(([, job]) => ttsAndUpload(job, supabase, job.settings))
+        batch.map(([, job]) => ttsAndUpload(job, supabase, standInFor))
       );
-      results.forEach((ok, j) => {
-        if (ok) generatedKeys.add(batch[j][0]);
-        else failed++;
+      results.forEach((made, j) => {
+        if (made.ok) {
+          generatedKeys.add(batch[j][0]);
+          spokenBy.set(batch[j][0], made.voiceUsed);
+        } else {
+          failed++;
+          failures.push({ status: made.status, reason: made.reason });
+        }
       });
     }
 
@@ -714,7 +916,9 @@ Deno.serve(async (req) => {
         .filter(([k]) => generatedKeys.has(k))
         .map(([k, j]) => ({
           key: k,
-          voice_id: j.voiceId,
+          // The voice that spoke it: the chosen one, or the house voice that
+          // stood in (the key and the path still belong to the chosen voice).
+          voice_id: spokenBy.get(k) ?? j.voiceId,
           path: j.path,
           chars: j.text?.length ?? null,
         }));
@@ -781,7 +985,30 @@ Deno.serve(async (req) => {
       await supabase.rpc("release_generation_lock", { p_script: lockScriptId });
     }
 
-    const remaining = allMisses.length - toDo.length;
+    const remaining = allMisses.length - attempted;
+
+    // Lines of this read that a house voice is standing in for (from this run
+    // or any earlier one), and whose they are — so the writer can be told, and
+    // can choose another voice for that role if they'd rather have one voice
+    // throughout.
+    const standIns = entries.filter((e) => {
+      const spoke = spokenBy.get(e.audio_key);
+      return !!spoke && spoke !== e.voice_id && available(e.audio_key);
+    });
+    const standInRoles = [
+      ...new Set(
+        standIns.map((e) =>
+          e.type === "dialogue" ? baseCharName(e.character ?? "").toUpperCase() || "A ROLE" : "NARRATOR"
+        )
+      ),
+    ].slice(0, 6);
+    // Why this run's failures failed, worst first: "quota" (the studio's own
+    // account — nothing the writer can do), "declined" (the voice won't read
+    // it and no stand-in could), "storage", else "busy" (worth trying again).
+    const kinds = new Set(failures.map((f) => failKind(f.status, f.reason)));
+    const failedReason = (["quota", "declined", "storage", "busy"] as FailKind[]).find((k) =>
+      kinds.has(k)
+    );
     return new Response(
       JSON.stringify({
         success: true,
@@ -796,6 +1023,9 @@ Deno.serve(async (req) => {
         generated_now: generatedKeys.size,
         already_cached: entries.length - allMisses.length,
         failed,
+        failed_reason: failedReason,
+        stand_ins: standIns.length || undefined,
+        stand_in_roles: standInRoles.length ? standInRoles : undefined,
         remaining,
         // Budget-capped demo runs report done so clients don't retry-loop a
         // ceiling that won't lift until tomorrow.

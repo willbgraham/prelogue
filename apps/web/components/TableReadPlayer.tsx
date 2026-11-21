@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { buildRows, prepareVoiceCues, DEFAULT_AMBIENCE_VOLUME } from "@/lib/shared";
 import type { AmbienceConfig, ParsedScript, VoiceCueEntry, VoiceConfig } from "@/lib/shared";
+import type { VoiceFailReason } from "@/lib/shared/voiceCues";
 import { getBrowserClient } from "@/lib/supabase/client";
 import { signPathsCached } from "@/lib/shared/signedUrlCache";
 
@@ -74,6 +75,43 @@ function claimPlaybackAudioSession() {
  * AI-audio playback (the Booth Nine demo). Cast actors' video clips are layered
  * in later (Phase C).
  */
+/**
+ * What to say when lines have no audio. This used to be one sentence for every
+ * cause — "the studio may be temporarily out of voice credits" — which was a
+ * guess, and the wrong one each time it was shown. The server now says why
+ * (an older server says nothing, and gets the plain wording).
+ */
+function unvoicedMessage(missing: number, reason?: VoiceFailReason): string {
+  const lines = `${missing} ${missing === 1 ? "line" : "lines"}`;
+  const them = missing === 1 ? "it" : "them";
+  if (reason === "quota") {
+    return `${lines} couldn’t be voiced: the studio has run out of voice capacity for the moment. Please try again a little later.`;
+  }
+  if (reason === "declined") {
+    return `${lines} couldn’t be voiced: the voice chosen for ${them} wouldn’t read ${them}. Choosing another voice for that role will fix it.`;
+  }
+  return `${lines} couldn’t be voiced just now.`;
+}
+
+/**
+ * Shown to the writer when a house voice is reading lines the chosen voice
+ * wouldn't: which role, why, and the one thing they can do about it.
+ */
+function standInMessage(lines: number, roles: string[]): string {
+  const named = roles.filter((r) => r !== "NARRATOR");
+  const narration = roles.includes("NARRATOR");
+  const them = lines === 1 ? "it" : "them";
+  const why = "(a voice’s owner can restrict what it reads, or withdraw it)";
+  if (roles.length === 1 && narration) {
+    return `${lines} narration ${lines === 1 ? "line is" : "lines are"} read by a stand-in voice: the narrator’s voice wouldn’t read ${them} ${why}. Choose another narrator voice to keep one voice throughout.`;
+  }
+  if (roles.length === 1) {
+    return `${lines} of ${named[0]}’s lines ${lines === 1 ? "is" : "are"} read by a stand-in voice: the voice chosen for ${named[0]} wouldn’t read ${them} ${why}. Choose another voice for ${named[0]} to keep one voice throughout.`;
+  }
+  const who = [...named, ...(narration ? ["the narrator"] : [])].join(", ");
+  return `${lines} ${lines === 1 ? "line is" : "lines are"} read by stand-in voices (${who}): the voices chosen for those roles wouldn’t read them ${why}. Choose other voices for them to keep one voice throughout.`;
+}
+
 export function TableReadPlayer({
   scriptId,
   parsed,
@@ -161,9 +199,14 @@ export function TableReadPlayer({
   const [needsTap, setNeedsTap] = useState(false);
   const [showSoundHelp, setShowSoundHelp] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Lines the voice provider couldn't generate (e.g. out of credits). Surfaced
-  // as a retryable banner instead of the read silently skipping those lines.
-  const [genWarn, setGenWarn] = useState<{ missing: number } | null>(null);
+  // Lines the voice provider couldn't generate, and why. Surfaced as a
+  // retryable banner instead of the read silently skipping those lines.
+  const [genWarn, setGenWarn] = useState<{ missing: number; reason?: VoiceFailReason } | null>(
+    null
+  );
+  // Lines a house voice is reading because the chosen voice wouldn't. The read
+  // is whole; the writer is told so they can re-cast the role if they'd rather.
+  const [standInNote, setStandInNote] = useState<{ lines: number; roles: string[] } | null>(null);
   // Out of credits: shown with a top-up link instead of a raw error string.
   const [creditWall, setCreditWall] = useState<{ needed: number; balance: number } | null>(null);
   // "This will use N credits" — asked before any spend, never after.
@@ -562,6 +605,7 @@ export function TableReadPlayer({
     setPreparing(true);
     setError(null);
     setGenWarn(null);
+    setStandInNote(null);
     setPreviewStop(false);
     try {
       const client = getBrowserClient();
@@ -571,7 +615,10 @@ export function TableReadPlayer({
         onResult: (r) => {
           lockedRef.current = r.locked;
           const missing = r.failed + r.remaining;
-          setGenWarn(missing > 0 ? { missing } : null);
+          setGenWarn(missing > 0 ? { missing, reason: r.failedReason } : null);
+          setStandInNote(
+            (r.standIns ?? 0) > 0 ? { lines: r.standIns ?? 0, roles: r.standInRoles ?? [] } : null
+          );
         },
       });
       manifestRef.current = m;
@@ -944,11 +991,11 @@ export function TableReadPlayer({
       )}
 
       {genWarn && (
-        <div className="flex flex-wrap items-center gap-2 border-t border-tan/40 bg-brick/5 px-4 py-2 text-sm text-brick">
-          <span>
-            {genWarn.missing} {genWarn.missing === 1 ? "line" : "lines"} couldn&rsquo;t be voiced just
-            now — the studio may be temporarily out of voice credits.
-          </span>
+        <div
+          role="status"
+          className="flex flex-wrap items-center gap-2 border-t border-tan/40 bg-brick/5 px-4 py-2 text-sm text-brick"
+        >
+          <span>{unvoicedMessage(genWarn.missing, genWarn.reason)}</span>
           <button
             onClick={() => {
               preparedKeyRef.current = null;
@@ -958,6 +1005,28 @@ export function TableReadPlayer({
             className="rounded-md border border-brick px-2 py-0.5 text-xs font-medium hover:bg-brick/10"
           >
             Retry
+          </button>
+        </div>
+      )}
+
+      {/* Only the writer can re-cast a role, so only the writer is told. */}
+      {standInNote && isOwner && !genWarn && (
+        <div
+          role="status"
+          className="flex flex-wrap items-center gap-2 border-t border-tan/40 bg-ivory px-4 py-2 text-sm text-taupe"
+        >
+          <span>{standInMessage(standInNote.lines, standInNote.roles)}</span>
+          <button
+            onClick={() => setShowPicker(true)}
+            className="rounded-md border border-tan px-2 py-0.5 text-xs font-medium text-ink hover:bg-elevated"
+          >
+            Choose Cast
+          </button>
+          <button
+            onClick={() => setStandInNote(null)}
+            className="text-xs text-muted hover:text-ink"
+          >
+            Dismiss
           </button>
         </div>
       )}

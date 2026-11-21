@@ -44,18 +44,35 @@ export interface PrepareVoiceCuesOptions {
   voiceConfig?: VoiceConfig | null;
   /**
    * Fires once after generation settles, with the final counts. When
-   * `failed + remaining > 0`, some lines couldn't be voiced (e.g. the voice
-   * provider is out of credits), so the caller can surface a retry instead of
-   * silently skipping those lines in playback.
+   * `failed + remaining > 0`, some lines couldn't be voiced, so the caller can
+   * surface a retry instead of silently skipping those lines in playback.
    */
-  onResult?: (r: {
-    failed: number;
-    remaining: number;
-    total: number;
-    locked: boolean;
-    creditsSpent?: number;
-    creditsLeft?: number;
-  }) => void;
+  onResult?: (r: VoiceRunResult) => void;
+}
+
+/**
+ * Why lines went unvoiced, worst first. "quota": the studio's own account with
+ * the voice provider. "declined": the chosen voice won't read the line and no
+ * stand-in could. "storage" / "busy": passing trouble, worth another try.
+ * Absent when nothing failed (or the server predates it).
+ */
+export type VoiceFailReason = "quota" | "declined" | "storage" | "busy";
+
+export interface VoiceRunResult {
+  failed: number;
+  remaining: number;
+  total: number;
+  locked: boolean;
+  creditsSpent?: number;
+  creditsLeft?: number;
+  failedReason?: VoiceFailReason;
+  /**
+   * Lines of this read spoken by a house voice because the voice chosen for the
+   * role wouldn't read them (a voice's owner can restrict what it says), and
+   * the roles they belong to ("NARRATOR" for narration).
+   */
+  standIns?: number;
+  standInRoles?: string[];
 }
 
 /**
@@ -72,14 +89,7 @@ export async function prepareVoiceCues(
   const { onProgress, shouldCancel, voiceConfig, onResult } = opts;
   let manifestPath: string | null = null;
   let initialMisses = 0;
-  let finalStats: {
-    failed: number;
-    remaining: number;
-    total: number;
-    locked: boolean;
-    creditsSpent?: number;
-    creditsLeft?: number;
-  } = { failed: 0, remaining: 0, total: 0, locked: false };
+  let finalStats: VoiceRunResult = { failed: 0, remaining: 0, total: 0, locked: false };
 
   for (let round = 0; round < MAX_ROUNDS; round++) {
     if (shouldCancel?.()) return new Map();
@@ -115,6 +125,13 @@ export async function prepareVoiceCues(
     const generated = Number((data as any)?.generated_now ?? 0);
     const failed = Number((data as any)?.failed ?? 0);
 
+    // What the server adds about lines it couldn't voice, or voiced another way.
+    const said = data as {
+      failed_reason?: VoiceFailReason;
+      stand_ins?: number;
+      stand_in_roles?: unknown[];
+    } | null;
+
     if (round === 0) initialMisses = generated + failed + remaining;
     if (onProgress) {
       onProgress(
@@ -128,6 +145,11 @@ export async function prepareVoiceCues(
       locked: !!(data as any)?.locked,
       creditsSpent: (finalStats.creditsSpent ?? 0) + Number((data as any)?.credits_spent ?? 0),
       creditsLeft: (data as any)?.credits_left ?? finalStats.creditsLeft,
+      failedReason: said?.failed_reason ?? undefined,
+      // Counted over the whole read by the server each run, so the last run's
+      // figure is the read's figure.
+      standIns: Number(said?.stand_ins ?? 0),
+      standInRoles: Array.isArray(said?.stand_in_roles) ? said.stand_in_roles.map(String) : [],
     };
     if ((data as any)?.done) break;
     // No progress this round — every attempt failed (the voice provider is
