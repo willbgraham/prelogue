@@ -28,24 +28,28 @@ export function readSeconds(spokenChars: number): number {
 function videoJobSeconds(videoSeconds: number): number {
   const v = Math.max(0, videoSeconds);
   const ratio = v <= 300 ? 1 : v >= 1800 ? 2.05 : 1 + ((v - 300) / 1500) * 1.05;
-  // Those were all 30 frames a second; a long read renders at fewer, and the
-  // work goes with the number of frames.
-  return Math.round(45 + v * ratio * ((fpsFor(v) ?? 10) / 30));
+  // Past 25 minutes a video is rendered as parts on several jobs at once
+  // (about twenty minutes of video each, sixteen at most), then joined: each
+  // job has only its share to do, plus the time to start the others and to
+  // join and upload the result.
+  const frames = v * 30;
+  const parts = frames > SPLIT_ABOVE_FRAMES ? Math.min(MAX_PARTS, Math.ceil(frames / PART_FRAMES)) : 1;
+  if (parts > 1) return Math.round(45 + 150 + (v * ratio) / parts + 60 + 0.01 * v);
+  return Math.round(45 + v * ratio);
 }
+const PART_FRAMES = 36_000;
+const SPLIT_ABOVE_FRAMES = 45_000;
+const MAX_PARTS = 16;
 
-// One job can render about 240,000 frames before it is stopped, so the frame
-// rate steps down for long reads until the whole video fits (the picture is
-// text being typed, which reads the same at 15 frames a second).
+// The longest read that can be one video. (Should the part jobs be unavailable,
+// one job renders the video alone, at a frame rate that lets it finish: about
+// 240,000 frames is what one job manages before it is stopped.)
 // KEEP IN SYNC with video-worker/src/timeline.js.
 const FRAME_BUDGET = 240_000;
-const FRAME_RATES = [30, 20, 15, 10];
-function fpsFor(videoSeconds: number): number | null {
-  for (const f of FRAME_RATES) if (Math.max(0, videoSeconds) * f <= FRAME_BUDGET) return f;
-  return null;
-}
+const LOWEST_FRAME_RATE = 10;
 
 /** The longest read that can be rendered as one video (400 minutes), in seconds. */
-export const MAX_VIDEO_SECONDS = FRAME_BUDGET / FRAME_RATES[FRAME_RATES.length - 1];
+export const MAX_VIDEO_SECONDS = FRAME_BUDGET / LOWEST_FRAME_RATE;
 
 /** False when a read of this many spoken characters is too long to render as one video. */
 export function videoFits(spokenChars: number): boolean {

@@ -10,7 +10,7 @@
 // Reporting must never hurt the export it describes: writes are fire-and-forget,
 // one at a time, and every failure is swallowed.
 
-const { fpsFor } = require("./timeline");
+const { fpsFor, planParts, FPS } = require("./timeline");
 
 const BUCKET = "daily-renders";
 const notePath = (scriptId, renderId) => `${scriptId}/progress/${renderId}.json`;
@@ -38,6 +38,23 @@ function videoJobSeconds(videoSeconds, fps) {
   // timeline.js), and the work goes with the number of frames.
   const rate = (fps || fpsFor(v) || 10) / 30;
   return Math.round(45 + v * ratio * rate);
+}
+
+/**
+ * The same for a video rendered as parts on several jobs at once: each job has
+ * only its share of the frames to do, plus the time to start the other jobs and
+ * to join and upload the result. KEEP IN SYNC with apps/web/lib/exportEstimate.ts.
+ */
+function partsJobSeconds(videoSeconds, parts) {
+  const v = Math.max(0, videoSeconds || 0);
+  const ratio = v <= 300 ? 1 : v >= 1800 ? 2.05 : 1 + ((v - 300) / 1500) * 1.05;
+  return Math.round(45 + 150 + (v * ratio) / Math.max(1, parts) + 60 + 0.01 * v);
+}
+
+/** What a video export is expected to take, however it will be rendered. */
+function expectedJobSeconds(videoSeconds) {
+  const { parts } = planParts(Math.max(0, videoSeconds || 0) * FPS);
+  return parts > 1 ? partsJobSeconds(videoSeconds, parts) : videoJobSeconds(videoSeconds);
 }
 
 /** The same for an audio export: fetch every clip, stitch, upload. Measured: 24–57 s for 845–2,300 lines. */
@@ -86,6 +103,7 @@ function createReporter({ supabase, scriptId, renderId, kind, now = Date.now, mi
   let pct = 0; // 0..99 over the whole job; never goes backwards
   let videoSeconds = null;
   let videoFps = null;
+  let expectedSeconds = null; // set when the job knows better than the single-job sums (parts)
   let lines = null;
   let samples = []; // [{ t, f }] within the current stage, for the recent rate
   let lastWriteAt = -Infinity;
@@ -110,7 +128,9 @@ function createReporter({ supabase, scriptId, renderId, kind, now = Date.now, mi
     const modelTotal =
       kind === "audio"
         ? lines != null ? audioJobSeconds(lines) : null
-        : videoSeconds != null ? videoJobSeconds(videoSeconds, videoFps) : null;
+        : expectedSeconds != null
+          ? expectedSeconds
+          : videoSeconds != null ? videoJobSeconds(videoSeconds, videoFps) : null;
     const byModel = modelTotal != null ? Math.max(0, modelTotal - elapsed) : null;
 
     // What it is actually doing: the pace over the last few minutes of the long
@@ -201,6 +221,10 @@ function createReporter({ supabase, scriptId, renderId, kind, now = Date.now, mi
       if (seconds > 0) videoSeconds = seconds;
       if (fps > 0) videoFps = fps;
     },
+    /** What the whole job should take, when that is not the single-job figure (a video rendered in parts). */
+    setExpectedSeconds(seconds) {
+      expectedSeconds = seconds > 0 ? seconds : null;
+    },
     /** How many clips an audio export has to fetch. */
     setLines(n) {
       if (n > 0) lines = n;
@@ -262,4 +286,14 @@ function createReporter({ supabase, scriptId, renderId, kind, now = Date.now, mi
   };
 }
 
-module.exports = { createReporter, renderFraction, videoJobSeconds, audioJobSeconds, notePath, STAGES, BUCKET };
+module.exports = {
+  createReporter,
+  renderFraction,
+  videoJobSeconds,
+  partsJobSeconds,
+  expectedJobSeconds,
+  audioJobSeconds,
+  notePath,
+  STAGES,
+  BUCKET,
+};

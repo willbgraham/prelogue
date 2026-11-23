@@ -4,11 +4,14 @@
 //
 //   action "dispatch" → trigger a GitHub Actions render (kind video|audio)
 //   action "status"   → latest render rows + signed download URLs when ready
+//   action "parts"    → (render worker only) start the other jobs of a video
+//                        that is being rendered in parts — see video-worker/src/parts.js
 //
 // Gates: caller must be the script's writer, and the script must have the full
 // read unlocked (the export IS the full read — same $19 gate as generation).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { countElements } from "../_shared/screenplay.ts";
+import { isServiceRole } from "../_shared/serviceRole.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -32,6 +35,9 @@ const MAX_VIDEO_PAGES = 110;
 // KEEP IN SYNC with video-worker/src/timeline.js and apps/web/lib/exportEstimate.ts.
 const CHARS_PER_MINUTE = 840;
 const MAX_VIDEO_MINUTES = 400;
+// A video is rendered as at most this many parts at once (video-worker/src/timeline.js).
+const MAX_PARTS = 16;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /** Minutes a read of these scenes runs, from its spoken characters. */
 // deno-lint-ignore no-explicit-any
@@ -74,8 +80,8 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { script_id, action, kind: rawKind } = await req.json();
-    if (!script_id || (action !== "dispatch" && action !== "status")) {
+    const { script_id, action, kind: rawKind, render_id, parts, ref } = await req.json();
+    if (!script_id || (action !== "dispatch" && action !== "status" && action !== "parts")) {
       return json({ error: "script_id and action (dispatch|status) required" }, 400);
     }
     const kind: "video" | "audio" = rawKind === "audio" ? "audio" : "video";
@@ -104,6 +110,53 @@ Deno.serve(async (req) => {
       .eq("id", script_id)
       .single();
     if (scriptErr || !script) return json({ error: "Script not found" }, 404);
+
+    // ---- "parts": the render worker asks for the other jobs of its video ----
+    // A long video is rendered as several parts at once. The job that leads it
+    // has no GitHub token (and should not), so it asks here. Service role only:
+    // this starts jobs. The export it names must exist and be in progress.
+    if (action === "parts") {
+      if (!isServiceRole(authHeader)) return json({ error: "Not allowed" }, 403);
+      const count = Number(parts);
+      const renderId = String(render_id ?? "");
+      if (!Number.isInteger(count) || count < 2 || count > MAX_PARTS || !UUID.test(renderId)) {
+        return json({ error: `render_id and parts (2–${MAX_PARTS}) required` }, 400);
+      }
+      const { data: row } = await admin
+        .from("daily_renders")
+        .select("id, status")
+        .eq("id", renderId)
+        .eq("script_id", script_id)
+        .maybeSingle();
+      if (!row || row.status !== "processing") return json({ error: "No such export in progress" }, 409);
+      const ghPat = Deno.env.get("GH_PAT");
+      if (!ghPat) return json({ error: "Export isn't configured (no GH_PAT)" }, 500);
+      const repo = Deno.env.get("GH_REPO") || "willbgraham/prelogue";
+      // The parts run the same code as the job that leads them.
+      const branch = typeof ref === "string" && /^[A-Za-z0-9._\/-]{1,80}$/.test(ref) ? ref : "main";
+      const started: number[] = [];
+      for (let i = 1; i < count; i++) {
+        const res = await fetch(`${GH_API}/repos/${repo}/actions/workflows/render-one.yml/dispatches`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${ghPat}`,
+            Accept: "application/vnd.github+json",
+            "Content-Type": "application/json",
+            "User-Agent": "prelogue-export",
+          },
+          body: JSON.stringify({
+            ref: branch,
+            // The workflow's third input carries which part of which export this is.
+            inputs: { script_id: String(script_id), variant: "part", submission_ids: `${renderId}:${i}` },
+          }),
+        });
+        if (res.status === 204) started.push(i);
+        else console.error(`part ${i} not started: ${res.status} ${(await res.text().catch(() => "")).slice(0, 160)}`);
+      }
+      // Whatever could not be started, the lead job renders itself.
+      return json({ started });
+    }
+
     if (!callerId || callerId !== script.writer_id) {
       return json({ error: "Only the writer can export this read" }, 403);
     }

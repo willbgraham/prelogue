@@ -7,11 +7,19 @@
 // exists and already has the credentials; nothing Remotion is loaded for it.
 
 const scriptId = process.argv[2];
-const variant = process.argv[3] || "ai";
-const submissionIds = (process.argv[4] || "")
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
+// "ai@parts=3" is a test hook: render a short video in three parts anyway
+// ("@manual": the part jobs are started by hand rather than by export-read).
+const [variant, ...hooks] = (process.argv[3] || "ai").split("@");
+const forceParts = Number((hooks.find((h) => h.startsWith("parts=")) || "").slice(6)) || undefined;
+const manualParts = hooks.includes("manual");
+// variant "part": the third argument is "<render id>:<part index>" (see src/parts.js).
+const partOf = variant === "part" ? (process.argv[4] || "").split(":") : null;
+const submissionIds = partOf
+  ? []
+  : (process.argv[4] || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SR;
@@ -31,8 +39,24 @@ function startJob() {
     return readScan({ supabaseUrl, serviceKey, scriptId });
   }
   const { makeClient } = require("../src/supabaseData");
-  const { renderScene, exportAudio } = require("../src/renderScene");
+  const { renderScene, exportAudio, getBundle } = require("../src/renderScene");
   const supabase = makeClient(supabaseUrl, serviceKey);
+  if (partOf) {
+    // One part of a video another job is leading: render it, upload it, done.
+    const [renderId, index] = partOf;
+    if (!/^[0-9a-f-]{36}$/.test(renderId || "") || !/^\d{1,2}$/.test(index || "")) {
+      return Promise.reject(new Error("a part needs <render id>:<part index>"));
+    }
+    const { runPartJob } = require("../src/parts");
+    return runPartJob({
+      supabase,
+      scriptId,
+      renderId,
+      index: Number(index),
+      renderer: require("@remotion/renderer"),
+      getBundle,
+    });
+  }
   // variant "audio" skips Remotion entirely and just stitches the existing voice
   // clips into one MP3 — which is why audio export has no page limit.
   return variant === "audio"
@@ -44,10 +68,13 @@ function startJob() {
         scriptId,
         variant,
         submissionIds: submissionIds.length ? submissionIds : undefined,
+        forceParts,
+        // By hand: every other part counts as started, and is waited for.
+        startParts: manualParts ? async (count) => Array.from({ length: count - 1 }, (_, i) => i + 1) : undefined,
       });
 }
 
-const label = variant === "ocr" ? "SCAN" : "RENDER";
+const label = variant === "ocr" ? "SCAN" : partOf ? "PART" : "RENDER";
 startJob()
   .then((r) => {
     console.log(`${label} DONE`, JSON.stringify(r));

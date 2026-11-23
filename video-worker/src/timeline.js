@@ -28,6 +28,49 @@ function fpsFor(totalSeconds) {
 /** The longest video one job can render, in seconds (at the lowest frame rate). */
 const MAX_VIDEO_SECONDS = FRAME_BUDGET / FRAME_RATES[FRAME_RATES.length - 1];
 
+// ---------------------------------------------------------------------------
+// Rendering in parts
+// ---------------------------------------------------------------------------
+// A feature's video took three to four hours on one job. The same frames can be
+// rendered by several jobs at once and joined without re-encoding (see parts.js),
+// which brings any feature down to about forty minutes — and at the full 30
+// frames a second, since no single job comes near its limit.
+//
+// A part is about twenty minutes of video. Anything under twenty-five minutes
+// renders on one job exactly as it always has: fanning out and joining cost a
+// few minutes, which a short video would not earn back.
+const PART_FRAMES = 36_000;
+const SPLIT_ABOVE_FRAMES = 45_000;
+const MAX_PARTS = 16; // GitHub runs up to 20 jobs at once for an account
+
+/**
+ * How to divide a video of this many frames among jobs: { parts, framesPerPart,
+ * ranges: [[from, to], …] }. Every part is the same length except the last, which
+ * is what lets the audio join without a seam. One part means "don't split".
+ * `forceParts` is for tests: it splits a short video anyway.
+ */
+function planParts(totalFrames, forceParts) {
+  const total = Math.max(1, Math.floor(totalFrames || 0));
+  let parts =
+    forceParts > 0
+      ? Math.floor(forceParts)
+      : total > SPLIT_ABOVE_FRAMES
+        ? Math.ceil(total / PART_FRAMES)
+        : 1;
+  parts = Math.max(1, Math.min(parts, MAX_PARTS));
+  for (; parts > 1; parts--) {
+    const framesPerPart = Math.ceil(total / parts);
+    const ranges = [];
+    for (let from = 0; from < total; from += framesPerPart) {
+      ranges.push([from, Math.min(total - 1, from + framesPerPart - 1)]);
+    }
+    const last = ranges[ranges.length - 1];
+    // Tiny parts are not worth a job, and the renderer is unreliable below five frames.
+    if (ranges.length === parts && last[1] - last[0] + 1 >= 5) return { parts, framesPerPart, ranges };
+  }
+  return { parts: 1, framesPerPart: total, ranges: [[0, total - 1]] };
+}
+
 // A finished file has to go up in one upload, and the largest one known to have
 // worked is 942 MB (the project's ceiling is 2 GB). Videos have run about
 // 1.2 Mbit/s all told, which passes a gigabyte at around 110 minutes — so past
@@ -130,4 +173,17 @@ function buildTimeline(rows, { manifestByIdx, clipsByIdx = new Map(), durationBy
   return { fps, segments, totalFrames: cursor, seconds };
 }
 
-module.exports = { buildRows, buildTimeline, fpsFor, encodingFor, FPS, FRAME_BUDGET, FRAME_RATES, MAX_VIDEO_SECONDS };
+module.exports = {
+  buildRows,
+  buildTimeline,
+  fpsFor,
+  encodingFor,
+  planParts,
+  FPS,
+  FRAME_BUDGET,
+  FRAME_RATES,
+  MAX_VIDEO_SECONDS,
+  PART_FRAMES,
+  SPLIT_ABOVE_FRAMES,
+  MAX_PARTS,
+};

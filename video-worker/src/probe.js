@@ -19,11 +19,25 @@ function probeDuration(input) {
 }
 
 // entries: [{ key, url }] — probe each unique key once via its signed URL.
+// Twelve at a time: one after another, a feature's thousand-odd clips took
+// three to ten minutes before the first frame was drawn.
+const PROBE_CONCURRENCY = 12;
 async function probeAll(entries) {
   const seen = new Map();
   for (const e of entries) if (!seen.has(e.key)) seen.set(e.key, e.url);
+  const todo = [...seen];
   const byKey = new Map();
-  for (const [key, url] of seen) byKey.set(key, await probeDuration(url));
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(PROBE_CONCURRENCY, todo.length) }, async () => {
+      for (;;) {
+        const i = next++;
+        if (i >= todo.length) return;
+        const [key, url] = todo[i];
+        byKey.set(key, await probeDuration(url));
+      }
+    })
+  );
   return byKey;
 }
 

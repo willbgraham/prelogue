@@ -3,7 +3,7 @@ const os = require("os");
 const fs = require("fs");
 const crypto = require("crypto");
 const { bundle } = require("@remotion/bundler");
-const { selectComposition, renderMedia } = require("@remotion/renderer");
+const { selectComposition, renderMedia, combineChunks } = require("@remotion/renderer");
 const {
   fetchScript,
   ensureVoiceCues,
@@ -13,8 +13,9 @@ const {
   fetchClips,
 } = require("./supabaseData");
 const { probeAll } = require("./probe");
-const { buildRows, buildTimeline, fpsFor, encodingFor } = require("./timeline");
-const { createReporter, renderFraction } = require("./progress");
+const { buildRows, buildTimeline, fpsFor, encodingFor, planParts, FPS } = require("./timeline");
+const { createReporter, renderFraction, partsJobSeconds } = require("./progress");
+const { renderInParts, removeDir, dirFor, PartsUnavailable } = require("./parts");
 
 const ENTRY = path.join(__dirname, "..", "remotion", "src", "index.ts");
 
@@ -133,8 +134,8 @@ async function buildProps({ supabase, supabaseUrl, serviceKey, scriptId, variant
       .filter(Boolean);
     if (bedPaths.length) {
       const bedSigned = await signPaths(supabase, "scripts", bedPaths);
-      const ranges = new Map(); // sceneIndex → { start, end } in frames
-      for (const s of segments) {
+      const ranges = new Map(); // sceneIndex → { start, end } in frames of the MEASURED timeline
+      for (const s of measured.segments) {
         const r = ranges.get(s.sceneIndex) || { start: s.startFrame, end: s.startFrame + s.durationFrames };
         r.start = Math.min(r.start, s.startFrame);
         r.end = Math.max(r.end, s.startFrame + s.durationFrames);
@@ -157,11 +158,21 @@ async function buildProps({ supabase, supabaseUrl, serviceKey, scriptId, variant
     }
   }
 
+  const propsAt = (rate) => ({
+    fps: rate,
+    variant,
+    script: { id: script.id, title: script.title },
+    segments: rate === fps ? segments : buildTimeline(rows, { ...timing, fps: rate }).segments,
+  });
   return {
     script,
     ambience,
+    // The beds' start and length are in frames of the measured timeline, so
+    // they land in the same place whatever frame rate the video is rendered at.
+    ambienceFps: measured.fps,
     seconds: measured.seconds,
-    props: { fps, variant, script: { id: script.id, title: script.title }, segments },
+    props: propsAt(fps), // laid out for one job (see fpsFor)
+    propsAt, // …or at any other frame rate, without measuring again
   };
 }
 
@@ -330,7 +341,19 @@ async function exportAudio({ supabase, supabaseUrl, serviceKey, scriptId }) {
 }
 
 // Render a script → MP4 → private daily-renders bucket → daily_renders row.
-async function renderScene({ supabase, supabaseUrl, serviceKey, scriptId, variant = "ai", submissionIds }) {
+// forceParts / startParts / partOptions exist for tests (split a short video;
+// start the part jobs some other way; shorter waits).
+async function renderScene({
+  supabase,
+  supabaseUrl,
+  serviceKey,
+  scriptId,
+  variant = "ai",
+  submissionIds,
+  forceParts,
+  startParts,
+  partOptions,
+}) {
   const renderId = crypto.randomUUID();
   await supabase.from("daily_renders").insert({ id: renderId, script_id: scriptId, variant, status: "processing" });
   // The export card's percentage and time left (see progress.js).
@@ -338,18 +361,68 @@ async function renderScene({ supabase, supabaseUrl, serviceKey, scriptId, varian
   reporter.stage("preparing");
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "render-"));
   try {
-    const { script, ambience, props } = await buildProps({ supabase, supabaseUrl, serviceKey, scriptId, variant, submissionIds });
+    const built = await buildProps({ supabase, supabaseUrl, serviceKey, scriptId, variant, submissionIds });
+    const { script, ambience, ambienceFps } = built;
     const serveUrl = await getBundle();
-    const composition = await selectComposition({ serveUrl, id: "DailyScene", inputProps: props });
-    let outPath = path.join(tmp, "out.mp4");
+    let props = built.props;
+    let composition = null;
+    let held = {};
+    let outPath = null;
+
+    // Long enough to be worth several jobs at once? Then it is laid out at the
+    // full 30 frames a second (no one job comes near its limit) and rendered in
+    // parts. If the other jobs can't be started, it falls through to one job.
+    if (planParts(Math.ceil(built.seconds * FPS), forceParts).parts > 1) {
+      const partProps = built.propsAt(FPS);
+      const partComposition = await selectComposition({ serveUrl, id: "DailyScene", inputProps: partProps });
+      const plan = planParts(partComposition.durationInFrames, forceParts);
+      if (plan.parts > 1) {
+        const seconds = partComposition.durationInFrames / FPS;
+        const partHeld = encodingFor(seconds);
+        reporter.setVideoSeconds(seconds, FPS);
+        reporter.setExpectedSeconds(partsJobSeconds(seconds, plan.parts));
+        reporter.stage("rendering", 0);
+        try {
+          outPath = await renderInParts({
+            supabase,
+            supabaseUrl,
+            serviceKey,
+            scriptId,
+            renderId,
+            variant,
+            props: partProps,
+            composition: partComposition,
+            held: partHeld,
+            plan,
+            serveUrl,
+            tmp,
+            reporter,
+            renderer: { renderMedia, selectComposition, combineChunks },
+            startParts,
+            options: partOptions,
+          });
+          props = partProps;
+          composition = partComposition;
+          held = partHeld;
+        } catch (e) {
+          if (!(e instanceof PartsUnavailable)) throw e;
+          console.warn(`rendering on one job instead: ${e.message}`);
+        }
+      }
+    }
+
+    if (!outPath) {
+    composition = await selectComposition({ serveUrl, id: "DailyScene", inputProps: props });
+    outPath = path.join(tmp, "out.mp4");
     const videoSeconds = composition.durationInFrames / props.fps;
     // Held to a rate that keeps a long video's file within one upload; {} for
     // anything of ordinary length, which encodes exactly as before.
-    const held = encodingFor(videoSeconds);
+    held = encodingFor(videoSeconds);
     if (held.videoKbps) {
       console.log(`long video: encoder held to ${held.videoKbps}k video, ${held.audioKbps}k audio`);
     }
     reporter.setVideoSeconds(videoSeconds, props.fps);
+    reporter.setExpectedSeconds(0);
     reporter.stage("rendering", 0);
     await renderMedia({
       serveUrl,
@@ -369,13 +442,14 @@ async function renderScene({ supabase, supabaseUrl, serviceKey, scriptId, varian
       onProgress: (frames) =>
         reporter.progress(renderFraction(frames, composition.durationInFrames)),
     });
+    }
 
     reporter.stage("finishing");
     // Scene beds (music/ambience) mix in AFTER the render — a plain ffmpeg
     // pass we fully control. A bed failure shouldn't kill the render.
     if (ambience.length) {
       try {
-        outPath = postMixAmbience(outPath, path.join(tmp, "out-mixed.mp4"), ambience, props.fps, held.audioKbps);
+        outPath = postMixAmbience(outPath, path.join(tmp, "out-mixed.mp4"), ambience, ambienceFps, held.audioKbps);
         console.log(`ambience mixed: ${ambience.length} bed(s)`);
       } catch (e) {
         console.error("ambience post-mix failed (rendering without beds):", e.message);
@@ -456,6 +530,7 @@ async function renderScene({ supabase, supabaseUrl, serviceKey, scriptId, varian
       .eq("id", renderId);
     throw e;
   } finally {
+    await removeDir(supabase, dirFor(scriptId, renderId)); // the parts, if it was rendered in parts
     await reporter.close();
     fs.rmSync(tmp, { recursive: true, force: true });
   }
