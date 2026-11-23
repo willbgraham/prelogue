@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useCurrentFrame, interpolate, Easing } from "remotion";
+import { useCurrentFrame, interpolate, Easing, useVideoConfig } from "remotion";
 import { MONO } from "../fonts";
 import { theme, BOTTOM_H } from "../lib/theme";
 import {
@@ -18,6 +18,7 @@ import type { Segment } from "../lib/props";
 // eased between lines. Rendered at composition level → absolute frame.
 export function ScrollingScript({ segments }: { segments: Segment[] }) {
   const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
   const { rows } = useMemo(() => computeLayout(segments), [segments]);
 
   let active = 0;
@@ -29,7 +30,8 @@ export function ScrollingScript({ segments }: { segments: Segment[] }) {
   const seg = segments[active];
   const scrollY = interpolate(
     frame,
-    [seg.startFrame, seg.startFrame + 12],
+    // 0.4 s of easing between lines, in frames at this render's frame rate.
+    [seg.startFrame, seg.startFrame + Math.max(2, Math.round(fps * 0.4))],
     [centerY(Math.max(0, active - 1)), centerY(active)],
     { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: Easing.inOut(Easing.ease) }
   );

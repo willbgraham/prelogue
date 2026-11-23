@@ -1,4 +1,4 @@
-import { useCurrentFrame } from "remotion";
+import { useCurrentFrame, useVideoConfig } from "remotion";
 import { MONO } from "../fonts";
 import { theme } from "../lib/theme";
 import type { Segment } from "../lib/props";
@@ -8,11 +8,13 @@ import type { Segment } from "../lib/props";
 // <Sequence>), so `reveal` uses the player's exact formula.
 export function Typewriter({ seg }: { seg: Segment }) {
   const frame = useCurrentFrame(); // 0-based within this segment
+  const { fps } = useVideoConfig();
   const progress = seg.durationFrames > 1 ? Math.min(1, frame / (seg.durationFrames - 1)) : 1;
   const reveal = Math.ceil(seg.text.length * progress); // == TableReadPlayer reveal
   const shown = seg.text.slice(0, reveal);
   const typing = reveal < seg.text.length;
-  const cursorOn = typing && Math.floor(frame / 15) % 2 === 0; // frame-driven blink
+  // Blinks twice a second whatever the frame rate (a long read renders at fewer frames).
+  const cursorOn = typing && Math.floor(frame / Math.max(1, Math.round(fps / 2))) % 2 === 0;
   const isNarr = seg.kind === "narrator";
   const label = isNarr ? "NARRATOR" : (seg.character || "").toUpperCase();
 

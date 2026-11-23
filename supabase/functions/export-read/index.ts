@@ -24,6 +24,29 @@ const corsHeaders = {
 // required. Audio has no cap at all (ffmpeg concat, minutes).
 const MAX_VIDEO_PAGES = 110;
 
+// Pages are a poor measure of how long a video is: a 107-page script that was
+// nearly all description ran 3 h 35 min. The worker now renders long reads at a
+// lower frame rate so they finish inside one job, up to about 400 minutes of
+// video; past that there is no point starting. Estimated here from what is read
+// aloud (reads run about 840 characters a minute); the worker measures exactly.
+// KEEP IN SYNC with video-worker/src/timeline.js and apps/web/lib/exportEstimate.ts.
+const CHARS_PER_MINUTE = 840;
+const MAX_VIDEO_MINUTES = 400;
+
+/** Minutes a read of these scenes runs, from its spoken characters. */
+// deno-lint-ignore no-explicit-any
+function readMinutes(scenes: any): number {
+  let chars = 0;
+  for (const scene of Array.isArray(scenes) ? scenes : []) {
+    for (const el of scene?.elements ?? []) {
+      if (el?.type === "dialogue" || el?.type === "action") {
+        chars += String(el.text ?? "").replace(/\s+/g, " ").trim().length;
+      }
+    }
+  }
+  return chars / CHARS_PER_MINUTE;
+}
+
 // The override exists for the test rig, which stands in for GitHub (as in parse-script).
 const GH_API = Deno.env.get("GH_API_BASE") ?? "https://api.github.com";
 
@@ -218,6 +241,15 @@ Deno.serve(async (req) => {
       return json(
         {
           error: `Video export supports scripts up to ${MAX_VIDEO_PAGES} pages — the MP3 has no limit, and we can render longer videos on request (hello@prelogue.studio)`,
+        },
+        400
+      );
+    }
+    const minutes = readMinutes(body?.scenes);
+    if (kind === "video" && minutes > MAX_VIDEO_MINUTES) {
+      return json(
+        {
+          error: `This read runs about ${Math.round(minutes / 60)} hours — longer than we can render as one video. The MP3 has no limit, and we can render longer videos on request (hello@prelogue.studio)`,
         },
         400
       );

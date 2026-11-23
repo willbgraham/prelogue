@@ -4,9 +4,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getBrowserClient } from "@/lib/supabase/client";
 import {
   audioExportSeconds,
+  readSeconds,
   roughly,
   timeLeft,
   videoExportSeconds,
+  videoFits,
 } from "@/lib/exportEstimate";
 
 /** Where a job is on its bar, as the worker last reported it (export-read brings the time left up to date). */
@@ -157,7 +159,11 @@ export function ExportReadCard({
     audio: null,
   });
 
-  const videoTooLong = (pageCount ?? 0) > MAX_VIDEO_PAGES;
+  // Two ways a video can be too long for one job: too many pages, or pages so
+  // full that the read itself runs past what one job can render.
+  const tooManyPages = (pageCount ?? 0) > MAX_VIDEO_PAGES;
+  const readTooLong = !!spokenChars && !videoFits(spokenChars);
+  const videoTooLong = tooManyPages || readTooLong;
   const videoEstimate = spokenChars ? videoExportSeconds(spokenChars) : null;
   const audioEstimate = spokenLines ? audioExportSeconds(spokenLines) : null;
   const longVideo =
@@ -299,8 +305,10 @@ export function ExportReadCard({
           <div className="border-t border-tan pt-4">
             {videoTooLong ? (
               <p className="text-muted">
-                Video export tops out at {MAX_VIDEO_PAGES} pages — at {pageCount} pages, the MP3
-                above is the complete read. Want the video anyway? Email{" "}
+                {tooManyPages
+                  ? `Video export tops out at ${MAX_VIDEO_PAGES} pages — at ${pageCount} pages, the MP3 above is the complete read.`
+                  : `This read runs ${roughly(readSeconds(spokenChars ?? 0))} — longer than we can render as one video, so the MP3 above is the complete read.`}{" "}
+                Want the video anyway? Email{" "}
                 <a className="text-brick hover:underline" href="mailto:hello@prelogue.studio">
                   hello@prelogue.studio
                 </a>{" "}

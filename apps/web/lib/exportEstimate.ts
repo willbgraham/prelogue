@@ -28,7 +28,28 @@ export function readSeconds(spokenChars: number): number {
 function videoJobSeconds(videoSeconds: number): number {
   const v = Math.max(0, videoSeconds);
   const ratio = v <= 300 ? 1 : v >= 1800 ? 2.05 : 1 + ((v - 300) / 1500) * 1.05;
-  return Math.round(45 + v * ratio);
+  // Those were all 30 frames a second; a long read renders at fewer, and the
+  // work goes with the number of frames.
+  return Math.round(45 + v * ratio * ((fpsFor(v) ?? 10) / 30));
+}
+
+// One job can render about 240,000 frames before it is stopped, so the frame
+// rate steps down for long reads until the whole video fits (the picture is
+// text being typed, which reads the same at 15 frames a second).
+// KEEP IN SYNC with video-worker/src/timeline.js.
+const FRAME_BUDGET = 240_000;
+const FRAME_RATES = [30, 20, 15, 10];
+function fpsFor(videoSeconds: number): number | null {
+  for (const f of FRAME_RATES) if (Math.max(0, videoSeconds) * f <= FRAME_BUDGET) return f;
+  return null;
+}
+
+/** The longest read that can be rendered as one video (400 minutes), in seconds. */
+export const MAX_VIDEO_SECONDS = FRAME_BUDGET / FRAME_RATES[FRAME_RATES.length - 1];
+
+/** False when a read of this many spoken characters is too long to render as one video. */
+export function videoFits(spokenChars: number): boolean {
+  return readSeconds(spokenChars) <= MAX_VIDEO_SECONDS;
 }
 
 /** The same for an MP3: fetch every clip, join them, upload. Measured: 24–57 s for 845–2,300 lines. */

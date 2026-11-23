@@ -10,6 +10,8 @@
 // Reporting must never hurt the export it describes: writes are fire-and-forget,
 // one at a time, and every failure is swallowed.
 
+const { fpsFor } = require("./timeline");
+
 const BUCKET = "daily-renders";
 const notePath = (scriptId, renderId) => `${scriptId}/progress/${renderId}.json`;
 
@@ -29,10 +31,13 @@ const STAGES = {
  * memory fills); two-minute scenes took two to three minutes (about 1x).
  * KEEP IN SYNC with apps/web/lib/exportEstimate.ts.
  */
-function videoJobSeconds(videoSeconds) {
+function videoJobSeconds(videoSeconds, fps) {
   const v = Math.max(0, videoSeconds || 0);
   const ratio = v <= 300 ? 1 : v >= 1800 ? 2.05 : 1 + ((v - 300) / 1500) * 1.05;
-  return Math.round(45 + v * ratio);
+  // Those were all 30 frames a second. A long read is rendered at fewer (see
+  // timeline.js), and the work goes with the number of frames.
+  const rate = (fps || fpsFor(v) || 10) / 30;
+  return Math.round(45 + v * ratio * rate);
 }
 
 /** The same for an audio export: fetch every clip, stitch, upload. Measured: 24–57 s for 845–2,300 lines. */
@@ -80,6 +85,7 @@ function createReporter({ supabase, scriptId, renderId, kind, now = Date.now, mi
   let stageStartedAt = startedAt;
   let pct = 0; // 0..99 over the whole job; never goes backwards
   let videoSeconds = null;
+  let videoFps = null;
   let lines = null;
   let samples = []; // [{ t, f }] within the current stage, for the recent rate
   let lastWriteAt = -Infinity;
@@ -104,7 +110,7 @@ function createReporter({ supabase, scriptId, renderId, kind, now = Date.now, mi
     const modelTotal =
       kind === "audio"
         ? lines != null ? audioJobSeconds(lines) : null
-        : videoSeconds != null ? videoJobSeconds(videoSeconds) : null;
+        : videoSeconds != null ? videoJobSeconds(videoSeconds, videoFps) : null;
     const byModel = modelTotal != null ? Math.max(0, modelTotal - elapsed) : null;
 
     // What it is actually doing: the pace over the last few minutes of the long
@@ -191,8 +197,9 @@ function createReporter({ supabase, scriptId, renderId, kind, now = Date.now, mi
 
   return {
     /** The length of the finished video, once the timeline is built. */
-    setVideoSeconds(seconds) {
+    setVideoSeconds(seconds, fps) {
       if (seconds > 0) videoSeconds = seconds;
+      if (fps > 0) videoFps = fps;
     },
     /** How many clips an audio export has to fetch. */
     setLines(n) {

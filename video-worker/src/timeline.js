@@ -4,6 +4,47 @@
 // manifest + probed durations into frame-accurate segments for Remotion.
 const FPS = 30;
 const SILENT_SEC = 1.2;
+
+// ---------------------------------------------------------------------------
+// Long reads
+// ---------------------------------------------------------------------------
+// A render job is stopped by GitHub after 330 minutes, and renders run at about
+// 900–1,050 frames a minute. At 30 frames a second that is roughly 2 h 45 min of
+// video — and a 107-page script that was nearly all description ran 3 h 35 min
+// (Nov 2026): its export could never have finished, while the card counted down
+// to an email that was not coming. Pages are a poor measure of length; frames
+// are the real one. So the frame rate steps down for long reads until the whole
+// video fits in one job with an hour to spare. The picture is text being typed
+// and a script scrolling, which reads the same at 15 frames a second.
+const FRAME_BUDGET = 240_000;
+const FRAME_RATES = [30, 20, 15, 10];
+
+/** The highest frame rate at which a video this long fits in one job, or null if none does. */
+function fpsFor(totalSeconds) {
+  const s = Math.max(0, totalSeconds || 0);
+  for (const f of FRAME_RATES) if (s * f <= FRAME_BUDGET) return f;
+  return null;
+}
+/** The longest video one job can render, in seconds (at the lowest frame rate). */
+const MAX_VIDEO_SECONDS = FRAME_BUDGET / FRAME_RATES[FRAME_RATES.length - 1];
+
+// A finished file has to go up in one upload, and the largest one known to have
+// worked is 942 MB (the project's ceiling is 2 GB). Videos have run about
+// 1.2 Mbit/s all told, which passes a gigabyte at around 110 minutes — so past
+// that the encoder is held to a rate that keeps the file under it. Short videos
+// are left exactly as they were.
+const SIZE_BUDGET_BYTES = 1_000_000_000;
+const NATURAL_KBPS = 1300;
+
+/** Extra encoder settings for a video of this length ({} when none are needed). */
+function encodingFor(videoSeconds) {
+  const totalKbps = Math.floor((SIZE_BUDGET_BYTES * 8) / Math.max(1, videoSeconds || 0) / 1000);
+  if (totalKbps >= NATURAL_KBPS) return {};
+  // The voices are 32 kbit/s speech: 96 (or 64 on the longest reads) loses nothing audible.
+  const audioKbps = totalKbps >= 700 ? 96 : 64;
+  const videoKbps = Math.max(250, totalKbps - audioKbps);
+  return { audioKbps, videoKbps };
+}
 // No inter-line gap: lines flow back-to-back like the browser player (which
 // advances on `ended`). A gap would leave the top screen black between lines.
 const GAP_SEC = 0;
@@ -46,9 +87,12 @@ function buildRows(parsed, opts = {}) {
 // clipsByIdx:    Map<element_index, {clip_url, trim_start?, trim_end?, volume?}> (composite only)
 // durationByKey: Map<path, seconds>  (probed)
 // signedByKey:   Map<path, signedUrl>
-function buildTimeline(rows, { manifestByIdx, clipsByIdx = new Map(), durationByKey, signedByKey }) {
+// fps: frames a second for this render (see fpsFor). Frame counts scale with
+// it; the seconds each line takes do not.
+function buildTimeline(rows, { manifestByIdx, clipsByIdx = new Map(), durationByKey, signedByKey, fps = FPS }) {
   const segments = [];
   let cursor = 0;
+  let seconds = 0;
   for (const row of rows) {
     const idx = row.elementIndex;
     const clip = clipsByIdx.get(idx);
@@ -68,7 +112,8 @@ function buildTimeline(rows, { manifestByIdx, clipsByIdx = new Map(), durationBy
       durSec = SILENT_SEC;
       media = null;
     }
-    const durationFrames = Math.max(1, Math.ceil(durSec * FPS));
+    const durationFrames = Math.max(1, Math.ceil(durSec * fps));
+    seconds += durSec + GAP_SEC;
     segments.push({
       elementIndex: idx,
       sceneIndex: row.sceneIndex,
@@ -80,9 +125,9 @@ function buildTimeline(rows, { manifestByIdx, clipsByIdx = new Map(), durationBy
       sceneHeading: row.sceneHeading,
       media,
     });
-    cursor += durationFrames + Math.round(GAP_SEC * FPS);
+    cursor += durationFrames + Math.round(GAP_SEC * fps);
   }
-  return { fps: FPS, segments, totalFrames: cursor };
+  return { fps, segments, totalFrames: cursor, seconds };
 }
 
-module.exports = { buildRows, buildTimeline, FPS };
+module.exports = { buildRows, buildTimeline, fpsFor, encodingFor, FPS, FRAME_BUDGET, FRAME_RATES, MAX_VIDEO_SECONDS };

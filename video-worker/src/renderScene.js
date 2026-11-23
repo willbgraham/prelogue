@@ -13,7 +13,7 @@ const {
   fetchClips,
 } = require("./supabaseData");
 const { probeAll } = require("./probe");
-const { buildRows, buildTimeline } = require("./timeline");
+const { buildRows, buildTimeline, fpsFor, encodingFor } = require("./timeline");
 const { createReporter, renderFraction } = require("./progress");
 
 const ENTRY = path.join(__dirname, "..", "remotion", "src", "index.ts");
@@ -105,7 +105,22 @@ async function buildProps({ supabase, supabaseUrl, serviceKey, scriptId, variant
     ...[...clipsByIdx.values()].map((c) => ({ key: c.clip_url, url: signedByKey.get(c.clip_url) })),
   ]);
 
-  const { fps, segments } = buildTimeline(rows, { manifestByIdx, clipsByIdx, durationByKey, signedByKey });
+  // Measure the read, then lay it out at the frame rate that lets the whole
+  // video render inside one job (30 a second, fewer for a very long read).
+  const timing = { manifestByIdx, clipsByIdx, durationByKey, signedByKey };
+  const measured = buildTimeline(rows, timing);
+  const chosenFps = fpsFor(measured.seconds);
+  if (!chosenFps) {
+    const hours = (measured.seconds / 3600).toFixed(1);
+    throw new Error(
+      `this read runs about ${hours} hours, longer than we can render as one video — the MP3 is the complete read, and we can render the video for you on request (hello@prelogue.studio)`
+    );
+  }
+  const { fps, segments } =
+    chosenFps === measured.fps ? measured : buildTimeline(rows, { ...timing, fps: chosenFps });
+  if (fps !== measured.fps) {
+    console.log(`long read (${Math.round(measured.seconds / 60)} min): rendering at ${fps} frames a second`);
+  }
 
   // Scene background beds (scripts.ambience_config) — the same beds the web
   // player loops. NOT passed to Remotion (its 4.0.485 asset mixer mangles
@@ -145,6 +160,7 @@ async function buildProps({ supabase, supabaseUrl, serviceKey, scriptId, variant
   return {
     script,
     ambience,
+    seconds: measured.seconds,
     props: { fps, variant, script: { id: script.id, title: script.title }, segments },
   };
 }
@@ -152,7 +168,7 @@ async function buildProps({ supabase, supabaseUrl, serviceKey, scriptId, variant
 // Mix the scene beds under the rendered video's audio with ffmpeg: each bed
 // loops for its scene's duration, delayed to the scene's start, at the
 // writer's volume. Video stream is copied untouched. Returns the mixed path.
-function postMixAmbience(inPath, outPath, ambience, fps) {
+function postMixAmbience(inPath, outPath, ambience, fps, audioKbps = 192) {
   const { execFileSync } = require("child_process");
   const args = ["-y", "-i", inPath];
   const filters = [];
@@ -173,7 +189,7 @@ function postMixAmbience(inPath, outPath, ambience, fps) {
   args.push(
     "-filter_complex", filters.join(";"),
     "-map", "0:v", "-map", "[aout]",
-    "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+    "-c:v", "copy", "-c:a", "aac", "-b:a", `${audioKbps}k`,
     "-movflags", "+faststart",
     outPath
   );
@@ -326,7 +342,14 @@ async function renderScene({ supabase, supabaseUrl, serviceKey, scriptId, varian
     const serveUrl = await getBundle();
     const composition = await selectComposition({ serveUrl, id: "DailyScene", inputProps: props });
     let outPath = path.join(tmp, "out.mp4");
-    reporter.setVideoSeconds(composition.durationInFrames / props.fps);
+    const videoSeconds = composition.durationInFrames / props.fps;
+    // Held to a rate that keeps a long video's file within one upload; {} for
+    // anything of ordinary length, which encodes exactly as before.
+    const held = encodingFor(videoSeconds);
+    if (held.videoKbps) {
+      console.log(`long video: encoder held to ${held.videoKbps}k video, ${held.audioKbps}k audio`);
+    }
+    reporter.setVideoSeconds(videoSeconds, props.fps);
     reporter.stage("rendering", 0);
     await renderMedia({
       serveUrl,
@@ -336,6 +359,13 @@ async function renderScene({ supabase, supabaseUrl, serviceKey, scriptId, varian
       inputProps: props,
       concurrency: Math.min(os.cpus().length, 4),
       chromiumOptions: { gl: "swiftshader", headless: true },
+      ...(held.videoKbps
+        ? {
+            audioBitrate: `${held.audioKbps}k`,
+            encodingMaxRate: `${held.videoKbps}k`,
+            encodingBufferSize: `${held.videoKbps * 2}k`,
+          }
+        : {}),
       onProgress: (frames) =>
         reporter.progress(renderFraction(frames, composition.durationInFrames)),
     });
@@ -345,7 +375,7 @@ async function renderScene({ supabase, supabaseUrl, serviceKey, scriptId, varian
     // pass we fully control. A bed failure shouldn't kill the render.
     if (ambience.length) {
       try {
-        outPath = postMixAmbience(outPath, path.join(tmp, "out-mixed.mp4"), ambience, props.fps);
+        outPath = postMixAmbience(outPath, path.join(tmp, "out-mixed.mp4"), ambience, props.fps, held.audioKbps);
         console.log(`ambience mixed: ${ambience.length} bed(s)`);
       } catch (e) {
         console.error("ambience post-mix failed (rendering without beds):", e.message);
