@@ -1,7 +1,14 @@
 // Durable download links for emailed exports. Deploy with --no-verify-jwt:
 // this is opened by a click in an email, with no session and no headers.
 //
-//   GET /download-export?render=<uuid>  →  302 to a fresh signed URL
+//   GET /download-export?render=<uuid>              →  302 to a fresh signed URL
+//   GET /download-export?render=<uuid>&format=mp3   →  the MP3 stored beside a video export
+//
+// The address it sends the browser to carries a file name, so the browser saves
+// the file instead of playing it in a tab, and it lasts a day (see
+// _shared/exportFile.ts). The site's own download buttons use this link too:
+// an address made when the page loaded has run out by the time a tab that was
+// left open is clicked.
 //
 // Why not put the signed URL in the email directly? That's what we did, and a
 // customer's link died within minutes: they re-exported, supersede-cleanup
@@ -13,6 +20,7 @@
 // Auth model: the render uuid is the capability — v4-random, present only in
 // the writer's email, same secrecy class as the signed-URL token it replaces.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { DOWNLOAD_LINK_SECONDS, exportFileName, exportKind, mp3Beside } from "../_shared/exportFile.ts";
 
 const admin = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -34,8 +42,10 @@ function sorry(msg: string, status = 404) {
 
 Deno.serve(async (req) => {
   try {
-    const renderId = new URL(req.url).searchParams.get("render") ?? "";
+    const params = new URL(req.url).searchParams;
+    const renderId = params.get("render") ?? "";
     if (!UUID_RE.test(renderId)) return sorry("That download link isn't valid.", 400);
+    const wantMp3 = params.get("format") === "mp3";
 
     const { data: row } = await admin
       .from("daily_renders")
@@ -61,10 +71,21 @@ Deno.serve(async (req) => {
       .maybeSingle();
     if (latest?.video_path && latest.video_path !== row.video_path) candidates.push(latest);
 
+    // The file is saved under the script's title. No title is no reason to fail.
+    const { data: script } = await admin
+      .from("scripts")
+      .select("title")
+      .eq("id", row.script_id)
+      .maybeSingle();
+
     for (const c of candidates) {
+      // "format=mp3" on a video export means the MP3 stored beside it.
+      const path = wantMp3 ? mp3Beside(c.video_path!) ?? c.video_path! : c.video_path!;
       const { data: signed } = await admin.storage
         .from("daily-renders")
-        .createSignedUrl(c.video_path!, 600);
+        .createSignedUrl(path, DOWNLOAD_LINK_SECONDS, {
+          download: exportFileName(script?.title, exportKind(path)),
+        });
       if (signed?.signedUrl) {
         // Probe cheaply: a superseded row's file may be deleted even though
         // signing "succeeds" at the API level only when the object exists —
