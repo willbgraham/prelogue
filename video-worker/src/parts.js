@@ -185,6 +185,13 @@ function partNote(supabase, dir, index, { now = Date.now, everyMs = 10_000 } = {
  */
 async function runPartJob({ supabase, scriptId, renderId, index, renderer, getBundle, log = console.log, noteEveryMs }) {
   const dir = dirFor(scriptId, renderId);
+  // The lead may be gone by the time this job starts or finishes (failed, or
+  // killed): then there is nothing to render for, and nothing must be left
+  // behind in storage for an export nobody is making.
+  if (!(await stillWanted(supabase, renderId))) {
+    log(`part ${index + 1}: this export is no longer being made; nothing to do`);
+    return { index, skipped: true };
+  }
   const note = partNote(supabase, dir, index, noteEveryMs ? { everyMs: noteEveryMs } : {});
   await note.set("starting");
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), `part-${pad(index)}-`));
@@ -215,6 +222,10 @@ async function runPartJob({ supabase, scriptId, renderId, index, renderer, getBu
       index,
       onProgress: (f) => note.progress(f),
     });
+    if (!(await stillWanted(supabase, renderId))) {
+      log(`part ${index + 1}: rendered, but this export is no longer being made; not uploaded`);
+      return { index, skipped: true };
+    }
     await note.set("uploading", { f: 1 });
     await putFile(supabase, audioPath(dir, index), made.audio, "audio/aac");
     await putFile(supabase, videoPath(dir, index), made.video, "video/mp2t");
@@ -229,18 +240,50 @@ async function runPartJob({ supabase, scriptId, renderId, index, renderer, getBu
   }
 }
 
-/** Ask export-read (which holds the GitHub token) to start the other parts. Resolves with the indexes started. */
-async function requestParts({ supabaseUrl, serviceKey, scriptId, renderId, parts, ref }) {
-  const res = await fetch(`${supabaseUrl}/functions/v1/export-read`, {
-    method: "POST",
-    headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ action: "parts", script_id: scriptId, render_id: renderId, parts, ref }),
-  });
-  const out = await res.json().catch(() => ({}));
-  if (!res.ok || !Array.isArray(out.started)) {
-    throw new Error(`the part jobs could not be started (${res.status}${out.error ? `: ${out.error}` : ""})`);
+/**
+ * Ask export-read (which holds the GitHub token) to start the other parts.
+ * Resolves with the indexes started. A long video has no other way to be
+ * rendered, so a request that fails for a passing reason (the network, a busy
+ * or failing server) is made again before giving up; one that is refused
+ * outright is not.
+ */
+async function requestParts({ supabaseUrl, serviceKey, scriptId, renderId, parts, ref, tries = 4, waitMs = 5000, fetchImpl = fetch }) {
+  let last = "";
+  for (let attempt = 0; attempt < tries; attempt++) {
+    if (attempt > 0) await sleep(waitMs * attempt);
+    let res;
+    try {
+      res = await fetchImpl(`${supabaseUrl}/functions/v1/export-read`, {
+        method: "POST",
+        headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "parts", script_id: scriptId, render_id: renderId, parts, ref }),
+      });
+    } catch (e) {
+      last = `no answer: ${(e && e.message) || e}`;
+      continue;
+    }
+    const out = await res.json().catch(() => ({}));
+    if (res.ok && Array.isArray(out.started)) {
+      // Some started and some not is an answer, not a failure: the lead renders the rest itself.
+      if (out.started.length || attempt === tries - 1) return out.started.map(Number);
+      last = "no part job was started";
+      continue;
+    }
+    last = `${res.status}${out.error ? `: ${out.error}` : ""}`;
+    if (res.status < 500 && res.status !== 429 && res.status !== 408) break; // refused: asking again will not help
   }
-  return out.started.map(Number);
+  throw new Error(`the part jobs could not be started (${last})`);
+}
+
+/** Is this export still being made? A part whose export has been abandoned has nothing to upload to. */
+async function stillWanted(supabase, renderId) {
+  try {
+    const { data, error } = await supabase.from("daily_renders").select("status").eq("id", renderId).maybeSingle();
+    if (error) return true; // cannot tell: carry on, the lead decides what to use
+    return !!data && data.status === "processing";
+  } catch (_) {
+    return true;
+  }
 }
 
 /**
@@ -448,6 +491,7 @@ module.exports = {
   runPartJob,
   renderPart,
   requestParts,
+  stillWanted,
   removeDir,
   dirFor,
   planPath,

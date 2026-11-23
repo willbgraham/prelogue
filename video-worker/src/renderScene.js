@@ -13,9 +13,10 @@ const {
   fetchClips,
 } = require("./supabaseData");
 const { probeAll } = require("./probe");
-const { buildRows, buildTimeline, fpsFor, encodingFor, planParts, FPS } = require("./timeline");
+const { buildRows, buildTimeline, fpsFor, encodingFor, planParts, FPS, SINGLE_JOB_MAX_SECONDS } = require("./timeline");
 const { createReporter, renderFraction, partsJobSeconds } = require("./progress");
 const { renderInParts, removeDir, dirFor, PartsUnavailable } = require("./parts");
+const { noteRenderId } = require("./supervise");
 
 const ENTRY = path.join(__dirname, "..", "remotion", "src", "index.ts");
 
@@ -220,6 +221,7 @@ async function exportAudio({ supabase, supabaseUrl, serviceKey, scriptId }) {
   await supabase
     .from("daily_renders")
     .insert({ id: renderId, script_id: scriptId, variant: "audio", status: "processing" });
+  noteRenderId(renderId);
   // The export card's percentage and time left (see progress.js).
   const reporter = createReporter({ supabase, scriptId, renderId, kind: "audio" });
   reporter.stage("preparing");
@@ -353,9 +355,11 @@ async function renderScene({
   forceParts,
   startParts,
   partOptions,
+  singleJobMaxSeconds = SINGLE_JOB_MAX_SECONDS,
 }) {
   const renderId = crypto.randomUUID();
   await supabase.from("daily_renders").insert({ id: renderId, script_id: scriptId, variant, status: "processing" });
+  noteRenderId(renderId); // so a job that is killed outright can still be recorded as failed (supervise.js)
   // The export card's percentage and time left (see progress.js).
   const reporter = createReporter({ supabase, scriptId, renderId, kind: "video" });
   reporter.stage("preparing");
@@ -406,6 +410,12 @@ async function renderScene({
           held = partHeld;
         } catch (e) {
           if (!(e instanceof PartsUnavailable)) throw e;
+          // One process cannot hold a video this long (SINGLE_JOB_MAX_SECONDS in timeline.js):
+          // say so now, rather than start a render that dies hours in.
+          if (seconds > singleJobMaxSeconds) {
+            console.error(`not rendering on one job (${Math.round(seconds / 60)} min of video): ${e.message}`);
+            throw new Error("the render jobs could not be started just now");
+          }
           console.warn(`rendering on one job instead: ${e.message}`);
         }
       }

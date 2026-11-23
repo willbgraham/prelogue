@@ -28,6 +28,16 @@ function fpsFor(totalSeconds) {
 /** The longest video one job can render, in seconds (at the lowest frame rate). */
 const MAX_VIDEO_SECONDS = FRAME_BUDGET / FRAME_RATES[FRAME_RATES.length - 1];
 
+// The frame rate turned out not to be the whole story. The renderer keeps every
+// frame's audio samples in memory until the video is finished: about 0.8 MB for
+// each second of video, whatever the frame rate, and a job has 8 GB. A
+// 105-minute feature fits (about 5 GB). The 3 h 35 min read above, restarted at
+// 15 frames a second, ran out of memory two and a half hours in, and its card
+// sat on a frozen bar. So one process renders at most two hours of video.
+// Anything longer is rendered in parts (below), each in its own process, or
+// refused: never started on a job that cannot finish.
+const SINGLE_JOB_MAX_SECONDS = 120 * 60;
+
 // ---------------------------------------------------------------------------
 // Rendering in parts
 // ---------------------------------------------------------------------------
@@ -183,6 +193,7 @@ module.exports = {
   FRAME_BUDGET,
   FRAME_RATES,
   MAX_VIDEO_SECONDS,
+  SINGLE_JOB_MAX_SECONDS,
   PART_FRAMES,
   SPLIT_ABOVE_FRAMES,
   MAX_PARTS,
