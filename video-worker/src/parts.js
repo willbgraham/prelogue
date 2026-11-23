@@ -96,6 +96,15 @@ async function removeDir(supabase, dir) {
   }
 }
 
+/** Take one part's own three files out of storage. Never throws: they are private and small. */
+async function removePartFiles(supabase, dir, index) {
+  try {
+    await supabase.storage.from(BUCKET).remove([notePath(dir, index), videoPath(dir, index), audioPath(dir, index)]);
+  } catch (_) {
+    /* a leftover is never worth a failure */
+  }
+}
+
 /** The encoder settings every part must share (and the join must be told about). */
 function heldOptions(held) {
   return held && held.videoKbps
@@ -144,6 +153,7 @@ function partNote(supabase, dir, index, { now = Date.now, everyMs = 10_000 } = {
   let error = null;
   let lastWrite = -Infinity;
   let writing = null;
+  let stopped = false;
   const body = () => ({ v: 1, index, state, f, error, updated_at: new Date(now()).toISOString() });
   const write = () => {
     lastWrite = now();
@@ -156,12 +166,13 @@ function partNote(supabase, dir, index, { now = Date.now, everyMs = 10_000 } = {
   };
   return {
     progress(fraction) {
-      if (!(fraction >= 0)) return;
+      if (stopped || !(fraction >= 0)) return;
       f = Math.min(1, Math.max(f, fraction));
       if (!writing && now() - lastWrite >= everyMs) write();
     },
     /** A change of state is written now, and waited for (twice over, for "done" and "failed"). */
     async set(next, extra = {}) {
+      if (stopped) return;
       state = next;
       if (extra.f != null) f = extra.f;
       if (extra.error) error = String(extra.error).slice(0, 300);
@@ -175,6 +186,11 @@ function partNote(supabase, dir, index, { now = Date.now, everyMs = 10_000 } = {
           await sleep(1500 * (attempt + 1));
         }
       }
+    },
+    /** Write nothing more, and wait for a write already on its way — so the note can be removed and stay removed. */
+    async stop() {
+      stopped = true;
+      if (writing) await writing;
     },
   };
 }
@@ -193,6 +209,14 @@ async function runPartJob({ supabase, scriptId, renderId, index, renderer, getBu
     return { index, skipped: true };
   }
   const note = partNote(supabase, dir, index, noteEveryMs ? { everyMs: noteEveryMs } : {});
+  // If the export is abandoned while this job is at work, what this job wrote has
+  // to go as well. Whoever abandoned it has already cleared the folder, so a note
+  // written after that (this job reports every few seconds) would stay for good.
+  // (Nov 2026: a part that began six seconds before its lead was killed left its note behind.)
+  const withdraw = async () => {
+    await note.stop();
+    await removePartFiles(supabase, dir, index);
+  };
   await note.set("starting");
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), `part-${pad(index)}-`));
   try {
@@ -223,6 +247,7 @@ async function runPartJob({ supabase, scriptId, renderId, index, renderer, getBu
       onProgress: (f) => note.progress(f),
     });
     if (!(await stillWanted(supabase, renderId))) {
+      await withdraw();
       log(`part ${index + 1}: rendered, but this export is no longer being made; not uploaded`);
       return { index, skipped: true };
     }
@@ -230,10 +255,24 @@ async function runPartJob({ supabase, scriptId, renderId, index, renderer, getBu
     await putFile(supabase, audioPath(dir, index), made.audio, "audio/aac");
     await putFile(supabase, videoPath(dir, index), made.video, "video/mp2t");
     await note.set("done", { f: 1 });
+    // An upload takes a while. If the export was abandoned during it, nobody is left to clear these away.
+    if (!(await stillWanted(supabase, renderId))) {
+      await withdraw();
+      log(`part ${index + 1}: uploaded, but this export is no longer being made; removed again`);
+      return { index, skipped: true };
+    }
     log(`part ${index + 1} uploaded`);
     return { index, frames: range[1] - range[0] + 1 };
   } catch (e) {
-    await note.set("failed", { error: (e && e.message) || e });
+    const why = (e && e.message) || e;
+    // A part that fails because its export was abandoned under it (the plan is gone, say) has
+    // nobody to tell, and a "failed" note would be one more thing left behind.
+    if (!(await stillWanted(supabase, renderId))) {
+      await withdraw();
+      log(`part ${index + 1}: stopped (${why}), and this export is no longer being made; nothing left behind`);
+      return { index, skipped: true };
+    }
+    await note.set("failed", { error: why });
     throw e;
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
@@ -493,6 +532,7 @@ module.exports = {
   requestParts,
   stillWanted,
   removeDir,
+  removePartFiles,
   dirFor,
   planPath,
   notePath,

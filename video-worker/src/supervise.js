@@ -44,12 +44,20 @@ function noteRenderId(renderId) {
  * @param {string} [o.why]         for the job's log
  */
 async function recordDeath({ supabase, scriptId, renderId, partOf = null, why = "", log = console.error }) {
-  const { BUCKET, dirFor, notePath: partNotePath, removeDir } = require("./parts");
+  const { BUCKET, dirFor, notePath: partNotePath, removeDir, removePartFiles, stillWanted } = require("./parts");
   const { notePath: progressNotePath } = require("./progress");
 
   if (partOf) {
-    // Tell the lead now. It takes over a part whose note says "failed".
     const dir = dirFor(scriptId, partOf.renderId);
+    // An export nobody is making any more has no lead to tell, and its folder has
+    // already been cleared: a "failed" note written now would stay for good. Take
+    // away whatever this part had put there instead.
+    if (!(await stillWanted(supabase, partOf.renderId))) {
+      await removePartFiles(supabase, dir, partOf.index);
+      log(`part ${partOf.index + 1} stopped (${why}); its export is no longer being made, so nothing is left for it`);
+      return { part: "withdrawn" };
+    }
+    // Tell the lead now. It takes over a part whose note says "failed".
     const key = partNotePath(dir, partOf.index);
     let current = null;
     try {
