@@ -1,6 +1,7 @@
 import Stripe from "https://esm.sh/stripe@16.12.0?target=deno";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { countElements } from "../_shared/screenplay.ts";
+import { unlockCreditsForScenes } from "../_shared/credits.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -179,6 +180,13 @@ Deno.serve(async (req) => {
       });
     }
 
+    // The credits that come with it follow the script: a full read of it and a
+    // quarter again (see _shared/credits.ts). Fixed here, where the buyer can
+    // see it on the payment page, and carried in the session so the webhook
+    // grants exactly the figure they were shown.
+    const unlockCredits = unlockCreditsForScenes(script.scenes);
+    const unlockMeta = { user_id: user.id, script_id, unlock_credits: String(unlockCredits) };
+
     const checkoutSession = await stripe.checkout.sessions.create({
       mode: "payment",
       customer: customerId,
@@ -190,13 +198,13 @@ Deno.serve(async (req) => {
             unit_amount: UNLOCK_PRICE_CENTS,
             product_data: {
               name: "Full script unlock — Prelogue",
-              description: `The complete AI table read of "${script.title}" — yours forever`,
+              description: `The complete AI table read of "${script.title}" — yours forever. Includes ${unlockCredits} voice credits.`,
             },
           },
         },
       ],
-      payment_intent_data: { metadata: { user_id: user.id, script_id } },
-      metadata: { user_id: user.id, script_id },
+      payment_intent_data: { metadata: unlockMeta },
+      metadata: unlockMeta,
       client_reference_id: user.id,
       allow_promotion_codes: true,
       success_url: successUrl,

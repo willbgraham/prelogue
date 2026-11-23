@@ -10,6 +10,7 @@ import {
   videoExportSeconds,
   videoFits,
 } from "@/lib/exportEstimate";
+import { readCreditsEstimate, unlockCreditsForChars } from "@/lib/shared/plans";
 
 /** Where a job is on its bar, as the worker last reported it (export-read brings the time left up to date). */
 type Progress = {
@@ -165,6 +166,10 @@ export function ExportReadCard({
   const readTooLong = !!spokenChars && !videoFits(spokenChars);
   const videoTooLong = tooManyPages || readTooLong;
   const videoEstimate = spokenChars ? videoExportSeconds(spokenChars) : null;
+  // The unlock's credits are sized to the script, up to a ceiling; only a script
+  // past that ceiling is not voiced in full by them.
+  const unlockCoversRead =
+    !spokenChars || readCreditsEstimate(spokenChars) <= unlockCreditsForChars(spokenChars);
   const audioEstimate = spokenLines ? audioExportSeconds(spokenLines) : null;
   const longVideo =
     videoEstimate != null
@@ -243,7 +248,9 @@ export function ExportReadCard({
       {!unlocked && (
         <p className="mt-3 text-sm text-muted">
           MP4 and MP3 downloads come with the full read — one payment of $19 for this script
-          unlocks all of it.
+          {unlockCoversRead
+            ? " unlocks all of it."
+            : " unlocks it, though a script this long also needs a credit top-up to voice in full."}
         </p>
       )}
 

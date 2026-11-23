@@ -71,8 +71,31 @@ export const TOPUPS: Record<TopUpId, { id: TopUpId; credits: number; price_cents
 };
 export const TOPUP_ORDER: TopUpId[] = ["small", "medium", "large"];
 
-/** Credits granted by the one-time per-script unlock. */
-export const ONE_TIME_UNLOCK_CREDITS = 150;
+// The one-time per-script unlock includes the credits to voice that script: one
+// full read of it and a quarter again for re-casting, never less than 150 (what
+// every unlock included before it was sized) and never more than 400 (about $16
+// of speech against the $19 paid). A flat 150 left a description-heavy feature
+// short: one needed 175, and its writer had to buy a top-up to finish.
+// KEEP IN SYNC with supabase/functions/_shared/credits.ts, which fixes the
+// figure at checkout and grants it.
+export const UNLOCK_MIN_CREDITS = 150;
+export const UNLOCK_MAX_CREDITS = 400;
+
+/** Credits the one-time unlock includes for a script with this many spoken characters. */
+export const unlockCreditsForChars = (chars: number): number => {
+  const read = chars > 0 && isFinite(chars) ? Math.ceil(chars / CHARS_PER_CREDIT) : 0;
+  const sized = read + Math.ceil(read / 4);
+  return Math.min(UNLOCK_MAX_CREDITS, Math.max(UNLOCK_MIN_CREDITS, sized));
+};
+
+/**
+ * Credits a first full read is likely to use, for telling a writer what their
+ * script takes. A little over the plain character count because each
+ * generation run is charged in whole credits: measured on six features voiced
+ * once, 4–10% over (175 charged for 166,622 characters; 98 for 90,297).
+ */
+export const readCreditsEstimate = (chars: number): number =>
+  chars > 0 && isFinite(chars) ? Math.ceil((chars * 1.07) / CHARS_PER_CREDIT) : 0;
 
 // Every paid tier includes the whole toolkit; tiers differ only by credits.
 export const PLAN_FEATURES = [

@@ -5,11 +5,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { getBrowserClient } from "@/lib/supabase/client";
 import {
-  ONE_TIME_UNLOCK_CREDITS,
+  UNLOCK_MIN_CREDITS,
   creditsForPages,
   isActiveStatus,
   isPlanId,
   planLabel,
+  readCreditsEstimate,
+  unlockCreditsForChars,
 } from "@/lib/shared/plans";
 
 type PlanState = {
@@ -21,17 +23,21 @@ type PlanState = {
 /**
  * Owner-only unlock of a script's full read. Two ways in:
  *   • an active plan — unlocking costs nothing, voicing spends credits, or
- *   • a one-time $19 purchase, which unlocks the script and grants credits.
+ *   • a one-time $19 purchase, which unlocks the script and grants the credits
+ *     to voice it (sized to the script; see lib/shared/plans.ts).
  * Unlocking is only access; credits are what meter the actual generation.
  */
 export function OwnerUnlock({
   scriptId,
   unlocked: initialUnlocked,
   pageCount,
+  spokenChars,
 }: {
   scriptId: string;
   unlocked: boolean;
   pageCount?: number | null;
+  /** Characters read aloud in this script, when the page has counted them. */
+  spokenChars?: number;
 }) {
   const router = useRouter();
   const [unlocked, setUnlocked] = useState(initialUnlocked);
@@ -76,7 +82,18 @@ export function OwnerUnlock({
   }
 
   const active = !!plan && isActiveStatus(plan.status) && isPlanId(plan.plan);
-  const estCredits = creditsForPages(Math.max(1, pageCount ?? 30));
+  // What this script takes to voice, and what the one-time unlock includes for
+  // it. From the script itself when we have it; pages are a poor guide (a
+  // script that is mostly description needs twice what its page count says).
+  const counted = typeof spokenChars === "number" && spokenChars > 0;
+  const estCredits = counted
+    ? readCreditsEstimate(spokenChars)
+    : creditsForPages(Math.max(1, pageCount ?? 30));
+  const unlockCredits = counted ? unlockCreditsForChars(spokenChars) : UNLOCK_MIN_CREDITS;
+  // Said plainly either way: what is left over after a full read, or that the
+  // included credits stop short (only a script past the ceiling).
+  const spare = unlockCredits - estCredits;
+  const roomToRecast = spare >= Math.max(10, Math.round(estCredits * 0.1));
 
   async function unlockWithPlan() {
     setBusy("plan");
@@ -165,7 +182,12 @@ export function OwnerUnlock({
           <p className="mt-1 text-sm text-taupe">
             The read is locked. Unlock to voice the entire script with full narration, plus MP4 and
             MP3 downloads. One-time — yours forever, and it includes{" "}
-            {ONE_TIME_UNLOCK_CREDITS} voice credits (this script needs about {estCredits}).
+            <span className="font-medium text-ink">{unlockCredits} voice credits</span>
+            {spare < 0
+              ? `. This script is long enough to need about ${estCredits}, so voicing all of it would take a top-up as well.`
+              : roomToRecast
+                ? ` (this script needs about ${estCredits}, so there is room to re-cast a role).`
+                : ` (this script needs about ${estCredits}).`}
           </p>
           {error && <p className="mt-2 text-sm text-brick">{error}</p>}
           <div className="mt-3">{onceButton}</div>

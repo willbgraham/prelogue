@@ -202,7 +202,8 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
   // nothing to play, unlock or export (a scan, or a read that failed).
   const rows = buildRows(s.parsed_json);
   const readable = rows.length > 0;
-  // What is read aloud, for the export card's time estimates.
+  // What is read aloud: for the export card's time estimates, and for the
+  // credits the unlock card quotes.
   const spokenLines = rows.length;
   const spokenChars = rows.reduce((n, r) => n + r.text.replace(/\s+/g, " ").trim().length, 0);
   const statusLabel = labelOf(LISTING_STATUSES, s.listing_status);
@@ -370,6 +371,7 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
               scriptId={s.id}
               unlocked={!!s.full_read_unlocked}
               pageCount={s.page_count}
+              spokenChars={spokenChars}
             />
           )}
           <OwnerPanel

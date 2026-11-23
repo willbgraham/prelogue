@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
@@ -11,6 +11,7 @@ import { ClipReel } from "@/components/ClipReel";
 import { AmbienceManager } from "@/components/AmbienceManager";
 import { ExportReadCard } from "@/components/ExportReadCard";
 import { RoleCasting } from "@/components/RoleCasting";
+import { buildRows } from "@/lib/shared";
 import type { AmbienceConfig, ParsedScript, VoiceConfig } from "@/lib/shared";
 
 type Sub = {
@@ -44,6 +45,15 @@ export default function CastingPage() {
   const [publishing, setPublishing] = useState(false);
   const [previewFor, setPreviewFor] = useState<string | null>(null);
   const [previewUrls, setPreviewUrls] = useState<string[]>([]);
+  // What is read aloud: the export card's time estimates and its unlock line go
+  // by it (counted as the script page counts it).
+  const spoken = useMemo(() => {
+    const rows = buildRows(parsed);
+    return {
+      lines: rows.length,
+      chars: rows.reduce((n, r) => n + r.text.replace(/\s+/g, " ").trim().length, 0),
+    };
+  }, [parsed]);
 
   const load = useCallback(async () => {
     const {
@@ -265,7 +275,14 @@ export default function CastingPage() {
       <AmbienceManager scriptId={scriptId} parsed={parsed} genre={genre} initial={ambience} />
 
       {/* Export MP4 */}
-      <ExportReadCard scriptId={scriptId} title={title} unlocked={unlocked} pageCount={pageCount} />
+      <ExportReadCard
+        scriptId={scriptId}
+        title={title}
+        unlocked={unlocked}
+        pageCount={pageCount}
+        spokenChars={spoken.chars || undefined}
+        spokenLines={spoken.lines || undefined}
+      />
 
       {/* Publish */}
       <section className="mt-8 rounded-xl border border-tan bg-ivory p-5">

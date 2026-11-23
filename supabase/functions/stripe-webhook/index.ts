@@ -1,6 +1,11 @@
 import Stripe from "https://esm.sh/stripe@16.12.0?target=deno";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { sendCapiEvent } from "../_shared/metaCapi.ts";
+import {
+  UNLOCK_MIN_CREDITS,
+  unlockCreditsForScenes,
+  unlockCreditsFromMetadata,
+} from "../_shared/credits.ts";
 
 // NOTE: deploy this function with JWT verification DISABLED — Stripe calls it
 // directly (no Supabase auth). e.g. `supabase functions deploy stripe-webhook
@@ -24,7 +29,6 @@ const PLANS: Record<string, { price_cents: number; credits: number }> = {
   studio: { price_cents: 5900, credits: 375 },
 };
 const TOPUPS: Record<string, number> = { small: 100, medium: 250, large: 600 };
-const ONE_TIME_UNLOCK_CREDITS = 150;
 
 /** Grant credits (service role → the SECURITY DEFINER helper). */
 async function grantCredits(
@@ -51,6 +55,65 @@ async function unlockScript(scriptId: string) {
     .from("scripts")
     .update({ full_read_unlocked: true, unlocked_at: new Date().toISOString() })
     .eq("id", scriptId);
+}
+
+/**
+ * Credits a one-time unlock includes: the figure the buyer was shown at
+ * checkout (create-checkout-session carries it in the session), or, for a
+ * session that has none, the same rule worked out from the script. If neither
+ * can be had, the least an unlock ever includes — the buyer is never left with
+ * fewer than the flat grant this replaced.
+ */
+async function unlockCreditsFor(scriptId: string, fromSession: unknown): Promise<number> {
+  const shown = unlockCreditsFromMetadata(fromSession);
+  if (shown !== null) return shown;
+  try {
+    const { data } = await admin
+      .from("scripts")
+      .select("scenes:parsed_json->scenes")
+      .eq("id", scriptId)
+      .maybeSingle();
+    return data ? unlockCreditsForScenes(data.scenes) : UNLOCK_MIN_CREDITS;
+  } catch (_) {
+    return UNLOCK_MIN_CREDITS;
+  }
+}
+
+/**
+ * Grant an unlock's credits once per script, however often Stripe delivers the
+ * event. A script is unlocked once, so a grant already in the ledger for it
+ * means this one has been made (a redelivery, or an earlier try whose answer
+ * was lost). A grant that cannot be made after three tries is thrown: the
+ * handler then answers 500 and Stripe sends the event again, instead of a buyer
+ * being left with an unlocked script and no credits to voice it.
+ */
+async function grantUnlockCredits(userId: string, scriptId: string, credits: number) {
+  let lastError = "";
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 400 * attempt));
+    const { data: prior, error: lookupError } = await admin
+      .from("credit_ledger")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("reason", "unlock_grant")
+      .eq("ref", scriptId)
+      .limit(1);
+    if (lookupError) {
+      lastError = `ledger lookup: ${lookupError.message}`;
+      continue;
+    }
+    if (prior && prior.length > 0) return;
+    const { error } = await admin.rpc("grant_credits", {
+      p_user: userId,
+      p_credits: credits,
+      p_reason: "unlock_grant",
+      p_ref: scriptId,
+      p_set_to_at_least: false,
+    });
+    if (!error) return;
+    lastError = error.message;
+  }
+  throw new Error(`unlock grant failed: ${lastError}`);
 }
 
 /** Resolve our user id from a subscription/invoice: prefer stashed metadata,
@@ -158,7 +221,13 @@ Deno.serve(async (req) => {
         if (scriptId) {
           await unlockScript(scriptId);
           const uid = await findUserId(s.metadata?.user_id, s.customer);
-          if (uid) await grantCredits(uid, ONE_TIME_UNLOCK_CREDITS, "unlock_grant", scriptId);
+          if (uid) {
+            const credits = await unlockCreditsFor(scriptId, s.metadata?.unlock_credits);
+            await grantUnlockCredits(uid, scriptId, credits);
+          } else {
+            // Paid and unlocked, but we could not tell whose balance to credit.
+            console.error("stripe-webhook: unlock paid with no user to credit", s.id);
+          }
           if (paidValue > 0) {
             await sendCapiEvent({
               eventName: "Purchase",
