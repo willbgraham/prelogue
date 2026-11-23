@@ -12,6 +12,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { countElements } from "../_shared/screenplay.ts";
 import { isServiceRole } from "../_shared/serviceRole.ts";
+import { exportFileName, exportKind } from "../_shared/exportFile.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -224,9 +225,16 @@ Deno.serve(async (req) => {
         }
         return data;
       };
+      // Each address carries a file name, so a browser sent to it saves the file
+      // instead of playing it in a tab (see _shared/exportFile.ts). The card links
+      // to download-export rather than to these; they remain for pages loaded
+      // before that change, and as the card's sign that a file is there.
       const sign = async (p: string) =>
-        (await admin.storage.from("daily-renders").createSignedUrl(p, 3600)).data?.signedUrl ??
-        null;
+        (
+          await admin.storage
+            .from("daily-renders")
+            .createSignedUrl(p, 3600, { download: exportFileName(script.title, exportKind(p)) })
+        ).data?.signedUrl ?? null;
 
       const video = await latest(["ai", "composite"]);
       const audio = await latest(["audio"]);

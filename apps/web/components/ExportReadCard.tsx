@@ -20,6 +20,9 @@ type Progress = {
   age_seconds: number;
 };
 
+/** The durable download link (supabase/functions/download-export): a new signed address per click. */
+const DOWNLOAD_LINK = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/download-export`;
+
 type RenderRow = {
   id: string;
   status: "processing" | "ready" | "failed" | "posted";
@@ -234,6 +237,18 @@ export function ExportReadCard({
   // Prefer the dedicated MP3 export; fall back to the sibling track of an
   // already-rendered MP4 so short scripts don't wait on a second job.
   const mp3Url = audio?.url ?? render?.audio_url ?? null;
+  // The buttons point at the durable download link, the one the email carries,
+  // not at the signed address that came with the status. That address was made
+  // when the page loaded and stops working an hour later, so a tab left open
+  // had a dead button; and a browser sent straight to it plays the file in the
+  // tab instead of saving it. The durable link makes a fresh address per click
+  // and has the file saved under the script's name.
+  const mp4Href = render?.url ? `${DOWNLOAD_LINK}?render=${render.id}` : null;
+  const mp3Href = audio?.url
+    ? `${DOWNLOAD_LINK}?render=${audio.id}`
+    : render?.audio_url
+      ? `${DOWNLOAD_LINK}?render=${render.id}&format=mp3`
+      : null;
 
   return (
     <section className="mt-8 rounded-xl border border-tan bg-ivory p-5">
@@ -259,9 +274,9 @@ export function ExportReadCard({
           {/* MP3 — no page limit */}
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              {mp3Url && !audioInFlight ? (
+              {mp3Url && mp3Href && !audioInFlight ? (
                 <a
-                  href={mp3Url}
+                  href={mp3Href}
                   download={`${base}.mp3`}
                   className="inline-flex items-center gap-2 rounded-lg bg-brick px-4 py-2 font-medium text-white"
                 >
@@ -324,9 +339,9 @@ export function ExportReadCard({
             ) : (
               <>
                 <div className="flex flex-wrap items-center gap-2">
-                  {render?.url && !videoInFlight ? (
+                  {render?.url && mp4Href && !videoInFlight ? (
                     <a
-                      href={render.url}
+                      href={mp4Href}
                       download={`${base}.mp4`}
                       className="inline-flex items-center gap-2 rounded-lg border border-brick px-4 py-2 font-medium text-brick hover:bg-brick/5"
                     >
