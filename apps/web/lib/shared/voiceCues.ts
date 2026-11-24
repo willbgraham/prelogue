@@ -32,6 +32,8 @@ export interface VoiceCueEntry {
 
 // generate-voice-cues caps generation per call (resumable); loop to `done`.
 const MAX_ROUNDS = 40;
+// How long to wait before asking again while another tab's run holds the script.
+const WAIT_FOR_OTHER_MS = 4000;
 
 export interface PrepareVoiceCuesOptions {
   onProgress?: (pct: number) => void;
@@ -76,23 +78,142 @@ export interface VoiceRunResult {
 }
 
 /**
- * Client-injected port of the mobile `prepareVoiceCues`: drive
- * `generate-voice-cues` to completion (0..1 progress), then load + freshly
- * re-sign the manifest (signed URLs expire ~24h). Pass any Supabase client
- * (browser or server); pass `shouldCancel` to bail when the view unmounts.
+ * What to say when lines have no audio. This used to be one sentence for every
+ * cause — "the studio may be temporarily out of voice credits" — which was a
+ * guess, and the wrong one each time it was shown. The server now says why
+ * (an older server says nothing, and gets the plain wording).
  */
-export async function prepareVoiceCues(
+export function unvoicedMessage(missing: number, reason?: VoiceFailReason): string {
+  const lines = `${missing} ${missing === 1 ? "line" : "lines"}`;
+  const them = missing === 1 ? "it" : "them";
+  if (reason === "quota") {
+    return `${lines} couldn’t be voiced: the studio has run out of voice capacity for the moment. Please try again a little later.`;
+  }
+  if (reason === "declined") {
+    return `${lines} couldn’t be voiced: the voice chosen for ${them} wouldn’t read ${them}. Choosing another voice for that role will fix it.`;
+  }
+  return `${lines} couldn’t be voiced just now.`;
+}
+
+/** The body of a function's non-2xx answer: supabase-js hands back only "non-2xx" and keeps the answer in `context`. */
+async function refusalBody(error: unknown): Promise<Record<string, unknown> | null> {
+  const ctx = (error as { context?: { json?: () => Promise<unknown>; clone?: () => unknown } } | null)
+    ?.context;
+  if (!ctx || typeof ctx.json !== "function") return null;
+  try {
+    const res = (typeof ctx.clone === "function" ? ctx.clone() : ctx) as { json: () => Promise<unknown> };
+    const body = await res.json();
+    return body && typeof body === "object" ? (body as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Thrown when the writer's credits don't cover the next run. Typed so a caller can offer a top-up. */
+function outOfCredits(from: Record<string, unknown>): Error {
+  const e = new Error("insufficient_credits") as Error & {
+    code?: string;
+    needed?: number;
+    balance?: number;
+  };
+  e.code = "insufficient_credits";
+  e.needed = Number(from.needed ?? 0);
+  e.balance = Number(from.balance ?? 0);
+  return e;
+}
+
+/**
+ * Fired on the window when what a read needs may have changed: a voice was
+ * chosen, or lines were just voiced. The export card states what pressing its
+ * buttons will voice and cost, so it asks again when it hears this.
+ */
+export const READ_CHANGED_EVENT = "prelogue:read-changed";
+
+/** Say that a read's voices, or what is voiced of it, just changed. Safe to call anywhere. */
+export function announceReadChanged(): void {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(READ_CHANGED_EVENT));
+}
+
+/** What a read still needs before every line of it is voiced. */
+export interface VoiceNeed {
+  /** Lines not voiced yet (0: the whole read is voiced). */
+  lines: number;
+  /** Credits voicing them will take (0 where nothing is charged). */
+  credits: number;
+  /** The writer's balance now. */
+  balance: number;
+  /** Lines in the read altogether (0 if the server didn't say). */
+  total: number;
+}
+
+/**
+ * Ask what a read still needs, without voicing or charging anything. Null when
+ * the server couldn't say; a caller should carry on rather than block on it.
+ */
+export async function readVoiceNeed(
+  client: SupabaseClientLike,
+  scriptId: string
+): Promise<VoiceNeed | null> {
+  try {
+    const { data, error } = await client.functions.invoke("generate-voice-cues", {
+      body: { script_id: scriptId, dry_run: true },
+    });
+    const d = data as Record<string, unknown> | null;
+    if (error || !d || d.error) return null;
+    const num = (v: unknown) => (typeof v === "number" && isFinite(v) && v > 0 ? v : 0);
+    const balance = num(d.balance);
+    const total = num(d.total_lines);
+    if (typeof d.missing_lines === "number") {
+      return { lines: num(d.missing_lines), credits: num(d.credits_to_finish), balance, total };
+    }
+    // A server from before it priced the whole job: it speaks only of the next
+    // run, so the rest is scaled up from it.
+    const next = num(d.new_lines);
+    const lines = next + num(d.remaining_after_run);
+    const credits = next > 0 ? Math.ceil((num(d.credits_needed) * lines) / next) : 0;
+    return { lines, credits, balance, total };
+  } catch {
+    return null;
+  }
+}
+
+export interface VoiceReadOptions {
+  onProgress?: (pct: number) => void;
+  shouldCancel?: () => boolean;
+  voiceConfig?: VoiceConfig | null;
+  /** How many runs to drive before giving up (a run voices up to 80 lines). */
+  maxRounds?: number;
+  /** How long to wait before asking again while another tab is voicing this script. */
+  waitMs?: number;
+}
+
+export interface VoiceReadOutcome extends VoiceRunResult {
+  manifestPath: string | null;
+  cancelled: boolean;
+}
+
+/**
+ * Drive `generate-voice-cues` until the read is voiced (0..1 progress): the
+ * loop the player runs when Play is pressed, on its own, so that anything else
+ * that needs the read voiced (an export) can voice it the same way, charged
+ * the same way. Throws a typed "insufficient_credits" when the balance runs out.
+ */
+export async function voiceRead(
   client: SupabaseClientLike,
   scriptId: string,
-  opts: PrepareVoiceCuesOptions = {}
-): Promise<Map<number, VoiceCueEntry>> {
-  const { onProgress, shouldCancel, voiceConfig, onResult } = opts;
+  opts: VoiceReadOptions = {}
+): Promise<VoiceReadOutcome> {
+  const { onProgress, shouldCancel, voiceConfig } = opts;
+  const maxRounds = opts.maxRounds ?? MAX_ROUNDS;
+  const waitMs = opts.waitMs ?? WAIT_FOR_OTHER_MS;
   let manifestPath: string | null = null;
-  let initialMisses = 0;
+  let initialMisses = -1;
   let finalStats: VoiceRunResult = { failed: 0, remaining: 0, total: 0, locked: false };
+  // Waiting for another tab's run is not a round of ours, but must still end.
+  let waits = 0;
 
-  for (let round = 0; round < MAX_ROUNDS; round++) {
-    if (shouldCancel?.()) return new Map();
+  for (let round = 0; round < maxRounds; ) {
+    if (shouldCancel?.()) return { ...finalStats, manifestPath, cancelled: true };
 
     const body: Record<string, unknown> = { script_id: scriptId };
     if (voiceConfig) body.voice_config = voiceConfig;
@@ -102,23 +223,20 @@ export async function prepareVoiceCues(
     // lock). Wait — its clips land in the shared cache, so when we get a turn
     // our miss list has shrunk instead of duplicating (and double-billing).
     if ((data as { error?: string } | null)?.error === "generation_in_progress") {
-      await new Promise((r) => setTimeout(r, 4000));
+      if (++waits > 150) throw new Error("This read is being voiced somewhere else. Try again in a minute.");
+      await new Promise((r) => setTimeout(r, waitMs));
       continue;
     }
-    if (error) throw new Error((error as any)?.message ?? String(error));
-    if ((data as any)?.error === "insufficient_credits") {
-      // Typed so the player can offer a top-up instead of showing a raw string.
-      const e = new Error("insufficient_credits") as Error & {
-        code?: string;
-        needed?: number;
-        balance?: number;
-      };
-      e.code = "insufficient_credits";
-      e.needed = (data as any).needed;
-      e.balance = (data as any).balance;
-      throw e;
+    if (error) {
+      // A refusal for want of credits arrives as HTTP 402, which supabase-js
+      // reports as a bare "non-2xx" error with the answer tucked away.
+      const said = await refusalBody(error);
+      if (said?.error === "insufficient_credits") throw outOfCredits(said);
+      throw new Error(typeof said?.error === "string" ? said.error : (error as any)?.message ?? String(error));
     }
+    if ((data as any)?.error === "insufficient_credits") throw outOfCredits(data as Record<string, unknown>);
     if ((data as any)?.error) throw new Error((data as any).error);
+    round++;
 
     manifestPath = (data as any)?.manifest_path ?? manifestPath;
     const remaining = Number((data as any)?.remaining ?? 0);
@@ -132,7 +250,7 @@ export async function prepareVoiceCues(
       stand_in_roles?: unknown[];
     } | null;
 
-    if (round === 0) initialMisses = generated + failed + remaining;
+    if (initialMisses < 0) initialMisses = generated + failed + remaining;
     if (onProgress) {
       onProgress(
         initialMisses <= 0 ? 1 : Math.min(0.99, (initialMisses - remaining) / initialMisses)
@@ -154,9 +272,39 @@ export async function prepareVoiceCues(
     if ((data as any)?.done) break;
     // No progress this round — every attempt failed (the voice provider is
     // erroring or out of credits). Stop retrying the same lines and let the
-    // caller surface the failure instead of silently looping to MAX_ROUNDS.
+    // caller surface the failure instead of silently looping to the limit.
     if (generated === 0 && failed > 0) break;
   }
+
+  return { ...finalStats, manifestPath, cancelled: false };
+}
+
+/**
+ * Client-injected port of the mobile `prepareVoiceCues`: drive
+ * `generate-voice-cues` to completion (0..1 progress), then load + freshly
+ * re-sign the manifest (signed URLs expire ~24h). Pass any Supabase client
+ * (browser or server); pass `shouldCancel` to bail when the view unmounts.
+ */
+export async function prepareVoiceCues(
+  client: SupabaseClientLike,
+  scriptId: string,
+  opts: PrepareVoiceCuesOptions = {}
+): Promise<Map<number, VoiceCueEntry>> {
+  const { onProgress, shouldCancel, voiceConfig, onResult } = opts;
+  const run = await voiceRead(client, scriptId, { onProgress, shouldCancel, voiceConfig });
+  if (run.cancelled) return new Map();
+  const manifestPath = run.manifestPath;
+  const finalStats: VoiceRunResult = {
+    failed: run.failed,
+    remaining: run.remaining,
+    total: run.total,
+    locked: run.locked,
+    creditsSpent: run.creditsSpent,
+    creditsLeft: run.creditsLeft,
+    failedReason: run.failedReason,
+    standIns: run.standIns,
+    standInRoles: run.standInRoles,
+  };
 
   onResult?.(finalStats);
 

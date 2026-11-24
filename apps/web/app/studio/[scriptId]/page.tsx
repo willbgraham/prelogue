@@ -11,7 +11,7 @@ import { ClipReel } from "@/components/ClipReel";
 import { AmbienceManager } from "@/components/AmbienceManager";
 import { ExportReadCard } from "@/components/ExportReadCard";
 import { RoleCasting } from "@/components/RoleCasting";
-import { buildRows } from "@/lib/shared";
+import { announceReadChanged, buildRows } from "@/lib/shared";
 import type { AmbienceConfig, ParsedScript, VoiceConfig } from "@/lib/shared";
 
 type Sub = {
@@ -134,6 +134,7 @@ export default function CastingPage() {
     setShowPicker(false);
     setVoiceConfig(cfg);
     await supabase.from("scripts").update({ voice_config: cfg }).eq("id", scriptId);
+    announceReadChanged(); // the export card says what a new voice leaves to be voiced
   }
 
   async function assignDesignedVoice(target: string, voiceId: string) {
@@ -145,6 +146,7 @@ export default function CastingPage() {
         : { ...base, characters: { ...(base.characters ?? {}), [target]: voiceId } };
     setVoiceConfig(cfg);
     await supabase.from("scripts").update({ voice_config: cfg }).eq("id", scriptId);
+    announceReadChanged();
   }
 
   async function setWritersChoice(submissionId: string, characterId: string) {

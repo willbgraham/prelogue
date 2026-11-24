@@ -11,6 +11,14 @@ import {
   videoFits,
 } from "@/lib/exportEstimate";
 import { readCreditsEstimate, unlockCreditsForChars } from "@/lib/shared/plans";
+import {
+  READ_CHANGED_EVENT,
+  readVoiceNeed,
+  unvoicedMessage,
+  voiceRead,
+  type VoiceNeed,
+} from "@/lib/shared/voiceCues";
+import Link from "next/link";
 
 /** Where a job is on its bar, as the worker last reported it (export-read brings the time left up to date). */
 type Progress = {
@@ -126,10 +134,48 @@ function ExportProgress({
   );
 }
 
+/** The bar while the read is being voiced in this page, before an export can start. */
+function VoicingProgress({ pct }: { pct: number }) {
+  return (
+    <div className="mt-2">
+      <div
+        role="progressbar"
+        aria-label="Voicing the read"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={pct}
+        aria-valuetext={`Voicing your read, ${pct}%`}
+        className="h-2 w-full overflow-hidden rounded-full bg-tan/40"
+      >
+        <div
+          className="h-full rounded-full bg-brick transition-[width] duration-700"
+          style={{ width: `${Math.max(pct, 2)}%` }}
+        />
+      </div>
+      <p className="mt-1.5 text-taupe">
+        <span className="font-medium text-ink">Voicing your read</span>
+        {` · ${pct}%`}
+      </p>
+      <p className="mt-1 text-xs text-muted">
+        Keep this page open until the voices are done. The export starts by itself after that.
+      </p>
+    </div>
+  );
+}
+
+const credits = (n: number) => `${n} ${n === 1 ? "credit" : "credits"}`;
+
 /**
  * Writer export — MP4 (page-capped) and MP3 (uncapped) run as two independent
  * jobs through the daily-render pipeline. This card dispatches and polls each,
  * says beforehand how long each will take, and shows how far along it is.
+ *
+ * An export is made from the read's voiced lines, and nothing voices a read
+ * until someone asks for it. A writer who paid and went straight to "Prepare
+ * MP3" used to start a job that refused a minute later ("lines haven't been
+ * generated yet"), twice, before finding the play button. So the buttons here
+ * voice whatever the read still lacks first — the same way Play does, charged
+ * the same way, the cost said beforehand — and then start the export.
  */
 export function ExportReadCard({
   scriptId,
@@ -156,6 +202,19 @@ export function ExportReadCard({
     audio: false,
   });
   const [error, setError] = useState<string | null>(null);
+  // What the read still needs before every line is voiced (null: not asked yet,
+  // or the server couldn't say). Shown beside the buttons, so its credit figure
+  // is one the writer has seen before anything is spent.
+  const [need, setNeed] = useState<VoiceNeed | null>(null);
+  // Looking up what the read needs, after a button was pressed.
+  const [checking, setChecking] = useState<"video" | "audio" | null>(null);
+  // Voicing in this page, for which export, and how far along.
+  const [voicing, setVoicing] = useState<{ kind: "video" | "audio"; pct: number } | null>(null);
+  // The read needs more than the writer had been shown: ask before spending.
+  const [confirm, setConfirm] = useState<"video" | "audio" | null>(null);
+  // The balance doesn't cover the voicing.
+  const [short, setShort] = useState<{ needed: number; balance: number } | null>(null);
+  const aliveRef = useRef(true);
   // Row id at dispatch time. The previous export's row is still present while
   // Actions boots, so "starting" only ends once a *different* row shows up.
   const prevIdRef = useRef<{ video: string | null; audio: string | null }>({
@@ -219,6 +278,49 @@ export function ExportReadCard({
     // Primitive deps only — an object here is what caused the polling loop.
   }, [refresh, videoInFlight, audioInFlight, pollMs]);
 
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+    };
+  }, []);
+
+  // Ask once, when the card opens, what the read still needs: the note beside
+  // the buttons is how the writer learns the cost before pressing one.
+  useEffect(() => {
+    if (!unlocked) return;
+    let stale = false;
+    readVoiceNeed(supabase, scriptId).then((n) => {
+      if (!stale) setNeed(n);
+    });
+    return () => {
+      stale = true;
+    };
+  }, [supabase, scriptId, unlocked]);
+
+  // …and again when a voice is chosen or the read is played on this page (the
+  // casting page and the player say so), so the note never describes a read
+  // that has since changed. Not while a press of ours is being dealt with.
+  const busyRef = useRef(false);
+  useEffect(() => {
+    if (!unlocked) return;
+    let timer: number | undefined;
+    const again = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        if (busyRef.current) return;
+        readVoiceNeed(supabase, scriptId).then((n) => {
+          if (aliveRef.current && !busyRef.current) setNeed(n);
+        });
+      }, 1500);
+    };
+    window.addEventListener(READ_CHANGED_EVENT, again);
+    return () => {
+      window.removeEventListener(READ_CHANGED_EVENT, again);
+      window.clearTimeout(timer);
+    };
+  }, [supabase, scriptId, unlocked]);
+
   const dispatch = async (kind: "video" | "audio") => {
     setError(null);
     prevIdRef.current[kind] = (kind === "audio" ? audio : render)?.id ?? null;
@@ -231,6 +333,85 @@ export function ExportReadCard({
       return;
     }
     setWaiting((w) => ({ ...w, [kind]: true }));
+  };
+
+  /** Voice what the read lacks (the way Play does), then start the export. */
+  const voiceThenExport = async (kind: "video" | "audio") => {
+    setConfirm(null);
+    setShort(null);
+    setError(null);
+    setVoicing({ kind, pct: 0 });
+    try {
+      const run = await voiceRead(supabase, scriptId, {
+        // A run voices up to 80 lines; a long feature is several thousand.
+        maxRounds: 400,
+        onProgress: (p) => {
+          if (aliveRef.current) setVoicing({ kind, pct: Math.round(p * 100) });
+        },
+        shouldCancel: () => !aliveRef.current,
+      });
+      if (run.cancelled || !aliveRef.current) return;
+      const missing = run.failed + run.remaining;
+      if (missing > 0) {
+        setVoicing(null);
+        setError(`${unvoicedMessage(missing, run.failedReason)} The export wasn’t started.`);
+        setNeed(await readVoiceNeed(supabase, scriptId));
+        return;
+      }
+      setVoicing({ kind, pct: 100 });
+      setNeed((n) => ({
+        lines: 0,
+        credits: 0,
+        balance: run.creditsLeft ?? n?.balance ?? 0,
+        total: run.total || n?.total || 0,
+      }));
+    } catch (e) {
+      if (!aliveRef.current) return;
+      setVoicing(null);
+      const err = e as Error & { code?: string; needed?: number; balance?: number };
+      // What is left to voice now (lines voiced before the stop stay voiced).
+      const left = await readVoiceNeed(supabase, scriptId);
+      if (!aliveRef.current) return;
+      setNeed(left);
+      if (err?.code === "insufficient_credits") {
+        setShort({
+          needed: left && left.lines > 0 ? left.credits : err.needed ?? 0,
+          balance: left?.balance ?? err.balance ?? 0,
+        });
+      } else {
+        setError(`Couldn’t voice the read${err?.message ? ` (${err.message})` : ""}. Try again.`);
+      }
+      return;
+    }
+    await dispatch(kind);
+    if (aliveRef.current) setVoicing(null);
+  };
+
+  /** A button was pressed: export now if the read is voiced, voice it first if not. */
+  const start = async (kind: "video" | "audio") => {
+    if (checking || voicing) return;
+    setError(null);
+    setShort(null);
+    setConfirm(null);
+    const told = need; // what the card has been showing until now
+    setChecking(kind);
+    const fresh = await readVoiceNeed(supabase, scriptId);
+    if (!aliveRef.current) return;
+    setChecking(null);
+    setNeed(fresh);
+    // Voiced in full, or the server couldn't say (the job itself checks again).
+    if (!fresh || fresh.lines === 0) return dispatch(kind);
+    if (fresh.credits > fresh.balance) {
+      setShort({ needed: fresh.credits, balance: fresh.balance });
+      return;
+    }
+    // Spend only a figure the writer has already been shown. If the note wasn't
+    // up yet, or the voices changed since and it now costs more, ask first.
+    if (!told || told.lines === 0 || fresh.credits > told.credits) {
+      setConfirm(kind);
+      return;
+    }
+    return voiceThenExport(kind);
   };
 
   const base = (title || "table-read").replace(/[^a-z0-9]+/gi, "-").toLowerCase();
@@ -249,6 +430,15 @@ export function ExportReadCard({
     : render?.audio_url
       ? `${DOWNLOAD_LINK}?render=${render.id}&format=mp3`
       : null;
+
+  // Looking up what the read needs, or voicing it: no other button may start anything.
+  const busy = !!checking || !!voicing;
+  useEffect(() => {
+    busyRef.current = busy || !!confirm;
+  }, [busy, confirm]);
+  // "Not voiced yet" for a read that has barely been started, a line count otherwise.
+  const unvoiced = need && need.lines > 0 ? need : null;
+  const wholeRead = !!unvoiced && (unvoiced.total === 0 || unvoiced.lines >= unvoiced.total * 0.9);
 
   return (
     <section className="mt-8 rounded-xl border border-tan bg-ivory p-5">
@@ -271,6 +461,64 @@ export function ExportReadCard({
 
       {unlocked && (
         <div className="mt-4 space-y-4 text-sm">
+          {/* Said before a button is pressed: what pressing it will voice, and for how many credits. */}
+          {unvoiced && !voicing && !confirm && !short && (
+            <p className="rounded-lg border border-tan bg-elevated px-3 py-2 text-taupe">
+              {wholeRead
+                ? "Your read hasn’t been voiced yet."
+                : `${unvoiced.lines} ${unvoiced.lines === 1 ? "line" : "lines"} of your read ${unvoiced.lines === 1 ? "isn’t" : "aren’t"} voiced yet.`}{" "}
+              {videoTooLong ? "The button" : "Either button"} below voices{" "}
+              {wholeRead || unvoiced.lines === 1 ? "it" : "them"} first
+              {unvoiced.credits > 0
+                ? ` (about ${credits(unvoiced.credits)}; you have ${unvoiced.balance})`
+                : ""}
+              , then makes the file.
+            </p>
+          )}
+          {confirm && unvoiced && !voicing && (
+            <div className="rounded-lg border border-brick/40 bg-brick/5 px-3 py-3">
+              <p className="text-ink">
+                {wholeRead ? "Your read needs voicing first" : `${unvoiced.lines} ${unvoiced.lines === 1 ? "line needs" : "lines need"} voicing first`}
+                {unvoiced.credits > 0
+                  ? `: about ${credits(unvoiced.credits)}. You have ${unvoiced.balance}.`
+                  : "."}
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button
+                  onClick={() => voiceThenExport(confirm)}
+                  className="rounded-lg bg-brick px-4 py-2 font-medium text-white"
+                >
+                  Voice {wholeRead || unvoiced.lines === 1 ? "it" : "them"} and{" "}
+                  {confirm === "audio" ? "prepare the MP3" : "render the MP4"}
+                </button>
+                <button
+                  onClick={() => setConfirm(null)}
+                  className="rounded-lg border border-tan px-3 py-2 text-taupe hover:bg-elevated"
+                >
+                  Not now
+                </button>
+              </div>
+            </div>
+          )}
+          {short && !voicing && (
+            <div className="rounded-lg border border-brick/40 bg-brick/5 px-3 py-3">
+              <p className="text-ink">
+                Voicing the rest of your read needs about {credits(short.needed)} and you have{" "}
+                {short.balance}.
+              </p>
+              <p className="mt-1 text-taupe">
+                An export is made from the whole read, so it can’t start until every line is voiced.
+                Lines already voiced stay voiced.
+              </p>
+              <Link
+                href="/settings/billing"
+                className="mt-2 inline-flex rounded-lg bg-brick px-4 py-2 font-medium text-white"
+              >
+                Add credits →
+              </Link>
+            </div>
+          )}
+
           {/* MP3 — no page limit */}
           <div>
             <div className="flex flex-wrap items-center gap-2">
@@ -284,19 +532,26 @@ export function ExportReadCard({
                 </a>
               ) : (
                 <button
-                  onClick={() => dispatch("audio")}
-                  disabled={audioInFlight}
+                  onClick={() => start("audio")}
+                  disabled={audioInFlight || busy}
                   className="rounded-lg bg-brick px-4 py-2 font-medium text-white disabled:opacity-60"
                 >
-                  {audioInFlight ? "Preparing MP3…" : "Prepare MP3"}
+                  {audioInFlight
+                    ? "Preparing MP3…"
+                    : checking === "audio"
+                      ? "Checking…"
+                      : voicing?.kind === "audio"
+                        ? "Voicing the read…"
+                        : "Prepare MP3"}
                 </button>
               )}
               {mp3Url && !audioInFlight && (
                 <button
-                  onClick={() => dispatch("audio")}
-                  className="rounded-lg border border-tan px-3 py-2 text-taupe hover:bg-elevated"
+                  onClick={() => start("audio")}
+                  disabled={busy}
+                  className="rounded-lg border border-tan px-3 py-2 text-taupe hover:bg-elevated disabled:opacity-60"
                 >
-                  Rebuild
+                  {checking === "audio" ? "Checking…" : "Rebuild"}
                 </button>
               )}
               <span className="text-xs text-muted">
@@ -304,6 +559,7 @@ export function ExportReadCard({
                 {audioEstimate && !audioInFlight ? ` Takes ${roughly(audioEstimate)}.` : ""}
               </span>
             </div>
+            {voicing?.kind === "audio" && !audioInFlight && <VoicingProgress pct={voicing.pct} />}
             {audioInFlight && (
               <>
                 <ExportProgress
@@ -354,19 +610,26 @@ export function ExportReadCard({
                     </a>
                   ) : (
                     <button
-                      onClick={() => dispatch("video")}
-                      disabled={videoInFlight}
+                      onClick={() => start("video")}
+                      disabled={videoInFlight || busy}
                       className="rounded-lg border border-brick px-4 py-2 font-medium text-brick hover:bg-brick/5 disabled:opacity-60"
                     >
-                      {videoInFlight ? "Rendering MP4…" : "Render MP4"}
+                      {videoInFlight
+                        ? "Rendering MP4…"
+                        : checking === "video"
+                          ? "Checking…"
+                          : voicing?.kind === "video"
+                            ? "Voicing the read…"
+                            : "Render MP4"}
                     </button>
                   )}
                   {render?.url && !videoInFlight && (
                     <button
-                      onClick={() => dispatch("video")}
-                      className="rounded-lg border border-tan px-3 py-2 text-taupe hover:bg-elevated"
+                      onClick={() => start("video")}
+                      disabled={busy}
+                      className="rounded-lg border border-tan px-3 py-2 text-taupe hover:bg-elevated disabled:opacity-60"
                     >
-                      Re-render
+                      {checking === "video" ? "Checking…" : "Re-render"}
                     </button>
                   )}
                   {/* Said before they press it: a feature is hours, not minutes. */}
@@ -379,6 +642,7 @@ export function ExportReadCard({
                     </span>
                   )}
                 </div>
+                {voicing?.kind === "video" && !videoInFlight && <VoicingProgress pct={voicing.pct} />}
                 {videoInFlight && (
                   <>
                     <ExportProgress

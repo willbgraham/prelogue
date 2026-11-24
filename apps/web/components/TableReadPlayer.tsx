@@ -2,7 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { buildRows, prepareVoiceCues, DEFAULT_AMBIENCE_VOLUME } from "@/lib/shared";
+import {
+  announceReadChanged,
+  buildRows,
+  prepareVoiceCues,
+  unvoicedMessage,
+  DEFAULT_AMBIENCE_VOLUME,
+} from "@/lib/shared";
 import type { AmbienceConfig, ParsedScript, VoiceCueEntry, VoiceConfig } from "@/lib/shared";
 import type { VoiceFailReason } from "@/lib/shared/voiceCues";
 import { getBrowserClient } from "@/lib/supabase/client";
@@ -75,24 +81,6 @@ function claimPlaybackAudioSession() {
  * AI-audio playback (the Booth Nine demo). Cast actors' video clips are layered
  * in later (Phase C).
  */
-/**
- * What to say when lines have no audio. This used to be one sentence for every
- * cause — "the studio may be temporarily out of voice credits" — which was a
- * guess, and the wrong one each time it was shown. The server now says why
- * (an older server says nothing, and gets the plain wording).
- */
-function unvoicedMessage(missing: number, reason?: VoiceFailReason): string {
-  const lines = `${missing} ${missing === 1 ? "line" : "lines"}`;
-  const them = missing === 1 ? "it" : "them";
-  if (reason === "quota") {
-    return `${lines} couldn’t be voiced: the studio has run out of voice capacity for the moment. Please try again a little later.`;
-  }
-  if (reason === "declined") {
-    return `${lines} couldn’t be voiced: the voice chosen for ${them} wouldn’t read ${them}. Choosing another voice for that role will fix it.`;
-  }
-  return `${lines} couldn’t be voiced just now.`;
-}
-
 /**
  * Shown to the writer when a house voice is reading lines the chosen voice
  * wouldn't: which role, why, and the one thing they can do about it.
@@ -622,6 +610,7 @@ export function TableReadPlayer({
         },
       });
       manifestRef.current = m;
+      announceReadChanged(); // lines were just voiced: the export card's note is out of date
       // Highest voiced element index; past it on a locked script is the paywall.
       // A locked script now voices NOTHING (no free preview), so an empty
       // manifest on a locked script gates from the very first row (-1).
@@ -634,6 +623,7 @@ export function TableReadPlayer({
       return true;
     } catch (e) {
       setPreparing(false);
+      announceReadChanged(); // some lines may have been voiced before it stopped
       const err = e as Error & { code?: string; needed?: number; balance?: number };
       if (err?.code === "insufficient_credits") {
         setCreditWall({ needed: err.needed ?? 0, balance: err.balance ?? 0 });
@@ -740,7 +730,10 @@ export function TableReadPlayer({
           ...(overrideRef.current ? { voice_config: overrideRef.current } : {}),
         },
       });
-      const needed = Number((data as { credits_needed?: number } | null)?.credits_needed ?? 0);
+      // The whole read, not only its first run of 80 lines (credits_needed):
+      // a writer was told "5 credits" for a read that took 29.
+      const priced = data as { credits_needed?: number; credits_to_finish?: number } | null;
+      const needed = Number(priced?.credits_to_finish ?? priced?.credits_needed ?? 0);
       const balance = Number((data as { balance?: number } | null)?.balance ?? 0);
       if (needed <= 0) return true;
       return await new Promise<boolean>((resolve) => {

@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isServiceRole } from "../_shared/serviceRole.ts";
+import { creditsToVoice } from "../_shared/credits.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -800,6 +801,17 @@ Deno.serve(async (req) => {
     if (dry_run) {
       const chars = toDo.reduce((n, [, j]) => n + (j.text?.length ?? 0), 0);
       const needed = chars > 0 ? Math.max(1, Math.ceil(chars / CHARS_PER_CREDIT)) : 0;
+      // The figures above are for the NEXT RUN only (at most MAX_NEW_PER_RUN
+      // lines). Shown to a writer as the cost of the read they were wrong by
+      // the number of runs: "this will use 5 credits" for a read that took 29,
+      // and an export refused for "80 lines" when 494 were unvoiced. So the
+      // whole job is priced too: every line the read still lacks, and what
+      // voicing all of them will be charged.
+      const pending = demoBudgetExceeded ? [] : allMisses;
+      const meterAll = !isDemoScript && !serviceBearer && !locked && pending.length > 0;
+      const creditsToFinish = meterAll
+        ? creditsToVoice(pending.map(([, j]) => j.text?.length ?? 0), MAX_NEW_PER_RUN)
+        : 0;
       let balance = 0;
       if (!isDemoScript) {
         const { data: payer } = await supabase
@@ -816,6 +828,10 @@ Deno.serve(async (req) => {
           balance,
           new_lines: toDo.length,
           remaining_after_run: Math.max(0, allMisses.length - toDo.length),
+          // The whole job (see above). Read these, not the two before them,
+          // to say what a read needs before it can be played or exported whole.
+          missing_lines: pending.length,
+          credits_to_finish: creditsToFinish,
           cached: allMisses.length === 0,
           // Lets the export worker find the read's manifest without triggering
           // generation (it runs as service role, which is credit-exempt).

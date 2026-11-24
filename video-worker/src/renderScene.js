@@ -235,9 +235,14 @@ async function exportAudio({ supabase, supabaseUrl, serviceKey, scriptId }) {
     // ever stitches audio the writer has already paid to generate.
     const priced = await priceVoiceCues(supabaseUrl, serviceKey, scriptId);
     if (!priced || !priced.manifest_path) throw new Error("voice manifest not available");
-    if ((priced.new_lines ?? 0) > 0) {
+    // `new_lines` is only the next run's share (at most 80); `missing_lines`
+    // is every line the read lacks. An older server sends only the former.
+    const unvoiced = priced.missing_lines ?? (priced.new_lines ?? 0) + (priced.remaining_after_run ?? 0);
+    if (unvoiced > 0) {
+      // The export card voices a read before it starts this job, so this is a
+      // page loaded before it learned to, or voices changed in the last minute.
       throw new Error(
-        `${priced.new_lines} line(s) haven't been generated yet — play the read to finish generating, then export`
+        `${unvoiced} ${unvoiced === 1 ? "line of this read isn't" : "lines of this read aren't"} voiced yet. Reload this page, then press Prepare MP3: it voices them first`
       );
     }
     // Everything is cached, so this writes the manifest (if a voice swap moved

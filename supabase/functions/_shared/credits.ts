@@ -56,6 +56,29 @@ export function creditsForChars(chars: number): number {
   return chars > 0 && isFinite(chars) ? Math.ceil(chars / CHARS_PER_CREDIT) : 0;
 }
 
+/**
+ * Credits it takes to voice everything a read still lacks, charged the way
+ * generation charges: a run voices at most `perRun` new lines and is billed for
+ * its own characters in whole credits, so a read voiced over several runs costs
+ * a little more than its characters alone would. Pass the character count of
+ * each line still to be voiced, in the order generation takes them.
+ *
+ * This is the figure to show a writer before they spend. Pricing only the next
+ * run told one writer "this will use 5 credits" for a read that took 29.
+ */
+export function creditsToVoice(lineChars: number[], perRun: number): number {
+  const step = Math.max(1, Math.floor(perRun) || 1);
+  let credits = 0;
+  for (let i = 0; i < lineChars.length; i += step) {
+    let chars = 0;
+    for (let k = i; k < i + step && k < lineChars.length; k++) {
+      if (lineChars[k] > 0 && isFinite(lineChars[k])) chars += lineChars[k];
+    }
+    if (chars > 0) credits += Math.max(1, Math.ceil(chars / CHARS_PER_CREDIT));
+  }
+  return credits;
+}
+
 /** Credits the one-time unlock includes for a script with this many spoken characters. */
 export function unlockCreditsForChars(chars: number): number {
   const read = creditsForChars(chars);
