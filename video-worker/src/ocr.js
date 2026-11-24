@@ -7,7 +7,8 @@
 // them exactly as it saves a normal script and emails the writer.
 //
 // Uses only what a GitHub runner has or can apt-get: poppler (pdfimages,
-// pdftoppm, pdfinfo), tesseract, ffmpeg. No npm dependencies.
+// pdftoppm, pdfinfo) and tesseract; and ffmpeg, to turn a tilted page upright,
+// which comes with the renderer (src/ff.js) and is done without if absent.
 //
 // THIS REPOSITORY AND ITS ACTION LOGS ARE PUBLIC. Nothing here may print a
 // line of anyone's script — counts, timings and error names only.
@@ -17,6 +18,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { linesFromOcr, pageFromTsv, straighten } = require("./ocrLines");
+const ff = require("./ff"); // ffmpeg, from the renderer's package if it is installed
 
 const run = promisify(execFile);
 const MAX_PAGES = 400;
@@ -153,14 +155,14 @@ async function tesseract(image) {
 async function recognise(images, cpus, log) {
   const workers = Math.max(1, Math.min(cpus, 6));
   const pages = await pool(images, workers, async (img) => ({ ...img, tsv: await tesseract(img.file) }));
-  if (!has("ffmpeg")) return pages;
+  if (!ff.available("ffmpeg")) return pages;
   let reread = 0;
   await pool(pages, workers, async (pg) => {
     const tilt = straighten(pageFromTsv(pg.tsv, pg.dpi));
     if (Math.abs(tilt) < REREAD_TILT) return;
     const upright = pg.file.replace(/\.[a-z0-9]+$/i, "-upright.png");
     try {
-      await run("ffmpeg", ["-loglevel", "error", "-y", "-i", pg.file, "-vf", `rotate=${tilt.toFixed(5)}:fillcolor=white`, upright]);
+      await ff.run("ffmpeg", ["-loglevel", "error", "-y", "-i", pg.file, "-vf", `rotate=${tilt.toFixed(5)}:fillcolor=white`, upright]);
       const again = await tesseract(upright);
       // Keep the second reading only if it really is straighter.
       if (Math.abs(straighten(pageFromTsv(again, pg.dpi))) < Math.abs(tilt)) {

@@ -11,8 +11,14 @@ const scriptId = process.argv[2];
 // ("@manual": the part jobs are started by hand rather than by export-read).
 // Three more, for proving what happens when things go wrong: "@noparts" (the
 // part jobs cannot be started), "@long" (treat the video as too long for one
-// job) and "@die=40" (the job is killed outright 40 seconds in).
+// job) and "@die=40" (the job is killed outright 40 seconds in). And two for
+// proving the job needs nothing installed on the machine: "@nosysff" (the
+// system's ffmpeg and ffprobe are made to fail if anything calls them) and
+// "@noapt" (everything the workflow's ffmpeg install step added is removed
+// again before the job starts).
 const [variant, ...hooks] = (process.argv[3] || "ai").split("@");
+if (hooks.includes("noapt")) require("../src/ff").undoSystemInstall();
+if (hooks.includes("nosysff")) require("../src/ff").forbidSystem();
 const forceParts = Number((hooks.find((h) => h.startsWith("parts=")) || "").slice(6)) || undefined;
 const manualParts = hooks.includes("manual");
 const noParts = hooks.includes("noparts");
@@ -90,6 +96,10 @@ function startJob() {
 const label = variant === "ocr" ? "SCAN" : partOf ? "PART" : "RENDER";
 
 function runJob() {
+  // Whose ffmpeg and ffprobe this job is using (see src/ff.js). If there are
+  // none, the line says so, and the job fails where it first needs one, after
+  // its export row exists to carry the reason.
+  if (variant !== "ocr") console.log(require("../src/ff").describe());
   if (dieAfterSeconds > 0) {
     // Test hook: die the way an out-of-memory kill does, with nothing getting to run.
     setTimeout(() => process.kill(process.pid, "SIGKILL"), dieAfterSeconds * 1000).unref();

@@ -17,6 +17,7 @@ const { buildRows, buildTimeline, fpsFor, encodingFor, planParts, FPS, SINGLE_JO
 const { createReporter, renderFraction, partsJobSeconds } = require("./progress");
 const { renderInParts, removeDir, dirFor, PartsUnavailable } = require("./parts");
 const { noteRenderId } = require("./supervise");
+const ff = require("./ff");
 
 const ENTRY = path.join(__dirname, "..", "remotion", "src", "index.ts");
 
@@ -177,24 +178,66 @@ async function buildProps({ supabase, supabaseUrl, serviceKey, scriptId, variant
   };
 }
 
+/**
+ * One bed, fetched and decoded once to uncompressed audio so it can be repeated
+ * exactly. Returns the file and how long it runs, or null if the bed can't be
+ * read.
+ */
+async function decodeBed(src, wavPath) {
+  try {
+    const { file } = await ff.localCopy(src, path.dirname(wavPath));
+    ff.execFileSync("ffmpeg", ["-y", "-i", file, "-vn", "-c:a", "pcm_s24le", wavPath], {
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+    const out = ff.execFileSync(
+      "ffprobe",
+      ["-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", wavPath],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }
+    );
+    const seconds = parseFloat(String(out).trim());
+    return Number.isFinite(seconds) && seconds > 0.05 ? { wav: wavPath, seconds } : null;
+  } catch (e) {
+    console.warn("a scene bed could not be read (left out of the mix):", String((e && e.message) || e).slice(0, 200));
+    return null;
+  }
+}
+
 // Mix the scene beds under the rendered video's audio with ffmpeg: each bed
 // loops for its scene's duration, delayed to the scene's start, at the
 // writer's volume. Video stream is copied untouched. Returns the mixed path.
-function postMixAmbience(inPath, outPath, ambience, fps, audioKbps = 192) {
-  const { execFileSync } = require("child_process");
+//
+// A bed is looped by decoding it once and listing that file as many times as
+// the scene needs. It used to be looped with ffmpeg's `aloop` filter, which
+// the renderer's ffmpeg (see ff.js) does not have; nor does `-stream_loop -1`
+// loop in it, and looping the MP3 itself leaves a gap at every seam. Measured
+// against the `aloop` mix made by a full ffmpeg: the same audio, to within one
+// step of the 16-bit scale.
+async function postMixAmbience(inPath, outPath, ambience, fps, audioKbps = 192) {
+  const dir = path.dirname(outPath);
+  const decoded = new Map(); // a bed's address → { wav, seconds }, or null if unreadable
   const args = ["-y", "-i", inPath];
   const filters = [];
   const mixIns = ["[0:a]"];
-  ambience.forEach((a, i) => {
-    args.push("-i", a.src);
+  let n = 0;
+  for (const a of ambience) {
+    if (!decoded.has(a.src)) decoded.set(a.src, await decodeBed(a.src, path.join(dir, `bed-${decoded.size}.wav`)));
+    const bed = decoded.get(a.src);
+    if (!bed) continue; // the other beds still play
     const delayMs = Math.round((a.startFrame / fps) * 1000);
-    const durSec = (a.durationFrames / fps).toFixed(3);
+    const durSec = a.durationFrames / fps;
+    // Enough passes to cover the scene, and one to spare; trimmed exactly below.
+    const passes = Math.min(100000, Math.ceil(durSec / bed.seconds) + 1);
+    const listPath = path.join(dir, `bed-list-${n}.txt`);
+    const line = `file '${bed.wav.replace(/'/g, "'\\''")}'`;
+    fs.writeFileSync(listPath, `${Array(passes).fill(line).join("\n")}\n`);
+    args.push("-f", "concat", "-safe", "0", "-i", listPath);
+    n++;
     filters.push(
-      `[${i + 1}:a]aloop=loop=-1:size=2147483647,atrim=0:${durSec},` +
-        `adelay=${delayMs}|${delayMs},volume=${a.volume}[bed${i}]`
+      `[${n}:a]atrim=0:${durSec.toFixed(3)},adelay=${delayMs}|${delayMs},volume=${a.volume}[bed${n}]`
     );
-    mixIns.push(`[bed${i}]`);
-  });
+    mixIns.push(`[bed${n}]`);
+  }
+  if (n === 0) throw new Error("none of the scene beds could be read");
   filters.push(
     `${mixIns.join("")}amix=inputs=${mixIns.length}:duration=first:dropout_transition=0:normalize=0[aout]`
   );
@@ -205,7 +248,7 @@ function postMixAmbience(inPath, outPath, ambience, fps, audioKbps = 192) {
     "-movflags", "+faststart",
     outPath
   );
-  execFileSync("ffmpeg", args, { stdio: ["ignore", "ignore", "pipe"] });
+  ff.execFileSync("ffmpeg", args, { stdio: ["ignore", "ignore", "pipe"] });
   return outPath;
 }
 
@@ -255,8 +298,6 @@ async function exportAudio({ supabase, supabaseUrl, serviceKey, scriptId }) {
     const ordered = [...manifest].sort((a, b) => a.element_index - b.element_index);
     const signed = await signPaths(supabase, "scripts", ordered.map((m) => m.audio_path));
 
-    const { execFileSync } = require("child_process");
-
     // Download concurrently — a feature is well over a thousand clips, and one
     // at a time made the job eight minutes of pure waiting. Filenames carry the
     // playback index so order survives out-of-order completion.
@@ -304,7 +345,7 @@ async function exportAudio({ supabase, supabaseUrl, serviceKey, scriptId }) {
     reporter.stage("stitching");
     // -c copy: every clip is the same codec/bitrate, so this is a fast stream
     // copy rather than a re-encode.
-    execFileSync("ffmpeg", ["-y", "-f", "concat", "-safe", "0", "-i", listPath, "-c", "copy", outPath], {
+    ff.execFileSync("ffmpeg", ["-y", "-f", "concat", "-safe", "0", "-i", listPath, "-c", "copy", outPath], {
       stdio: ["ignore", "ignore", "pipe"],
     });
 
@@ -464,7 +505,7 @@ async function renderScene({
     // pass we fully control. A bed failure shouldn't kill the render.
     if (ambience.length) {
       try {
-        outPath = postMixAmbience(outPath, path.join(tmp, "out-mixed.mp4"), ambience, ambienceFps, held.audioKbps);
+        outPath = await postMixAmbience(outPath, path.join(tmp, "out-mixed.mp4"), ambience, ambienceFps, held.audioKbps);
         console.log(`ambience mixed: ${ambience.length} bed(s)`);
       } catch (e) {
         console.error("ambience post-mix failed (rendering without beds):", e.message);
@@ -483,9 +524,8 @@ async function renderScene({
     // download alongside the MP4. Best-effort — an extract failure never kills
     // the render (the MP4 already uploaded; export-read hides a missing MP3).
     try {
-      const { execFileSync } = require("child_process");
       const mp3Path = path.join(tmp, "out.mp3");
-      execFileSync(
+      ff.execFileSync(
         "ffmpeg",
         ["-y", "-i", outPath, "-vn", "-c:a", "libmp3lame", "-q:a", "4", mp3Path],
         { stdio: ["ignore", "ignore", "pipe"] }
