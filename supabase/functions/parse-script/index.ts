@@ -297,7 +297,8 @@ type SliceBody = {
   detail?: string;
   pages?: number;
   next?: number | null;
-  lines?: [string, number][];
+  /** [text, x], with a third member for a line at the edge of its page (Line.edge). */
+  lines?: ([string, number] | [string, number, number])[];
   ink?: number[];
 };
 
@@ -390,7 +391,7 @@ async function extractInline(path: string, supabase: any): Promise<Extracted> {
     for (let p = 1; p <= pages; p++) {
       const page = await pdf.getPage(p);
       const content = await page.getTextContent();
-      const pageLines = linesFromItems(content.items);
+      const pageLines = linesFromItems(content.items, p);
       ink.push(inkChars(pageLines));
       for (const l of pageLines) lines.push(l);
     }
@@ -441,7 +442,11 @@ async function extractText(path: string, req: Request, supabase: any): Promise<E
     slices++;
     pages = b.pages;
     if (pages > MAX_PAGES) return { ok: false, code: "too_long", pages };
-    for (const [text, x] of b.lines) lines.push({ text, x });
+    // A third member marks a line at the top or bottom edge of its page
+    // (Line.edge); a reader from before it was sent simply has none.
+    for (const [text, x, edge] of b.lines) {
+      lines.push(typeof edge === "number" && Number.isInteger(edge) && edge !== 0 ? { text, x, edge } : { text, x });
+    }
     for (const n of b.ink) ink.push(n);
 
     if (b.next == null) break;
@@ -724,6 +729,8 @@ Deno.serve(async (req) => {
         scanned,
         mode: parsed?.mode ?? null,
         grid: parsed?.grid ?? null,
+        // Lines taken out as running heads or feet ("MY TITLE • 12" on every page).
+        runningHeads: parsed?.runningHeads ?? 0,
         totalLines: lines.length,
         scenes: parsed?.scenes.length ?? 0,
         totalElements: parsed?.totalElements ?? 0,
@@ -867,6 +874,7 @@ Deno.serve(async (req) => {
       image_pages: imagePages,
       scenes: parsed.scenes.length,
       elements: parsed.totalElements,
+      running_heads: parsed.runningHeads ?? 0,
       dialogue: parsed.counts.dialogue,
       characters: topChars.length,
       character_names: topChars.map((c) => c.name),

@@ -17,7 +17,7 @@
 // because the heavy work lives here, parse-script's own isolate stays cool.
 //
 // Body:    { ticket, from? }      ticket: see _shared/extractTicket.ts
-// Returns: { pages, from, next, lines: [text, x][], ink: number[], ms }
+// Returns: { pages, from, next, lines: [text, x, edge?][], ink: number[], ms }
 //          next = the page to ask for next, or null when the document is done
 //          ink  = visible characters per page read (0 on a scanned page)
 //      or  { error: "password_protected" | "not_a_pdf" | "download_failed" }
@@ -117,7 +117,9 @@ Deno.serve(async (req) => {
       }
 
       const pages = pdf.numPages as number;
-      const lines: [string, number][] = [];
+      // [text, x], and for a line at the top or bottom edge of its page a third
+      // member: the page's number, negative at the bottom (Line.edge).
+      const lines: ([string, number] | [string, number, number])[] = [];
       const ink: number[] = [];
       let next: number | null = null;
       let chars = 0;
@@ -128,10 +130,10 @@ Deno.serve(async (req) => {
       for (let p = first; p <= pages; p++) {
         const page = await pdf.getPage(p);
         const content = await page.getTextContent();
-        const pageLines = linesFromItems(content.items);
+        const pageLines = linesFromItems(content.items, p);
         ink.push(inkChars(pageLines));
         for (const l of pageLines) {
-          lines.push([l.text, l.x]);
+          lines.push(l.edge ? [l.text, l.x, l.edge] : [l.text, l.x]);
           chars += l.text.length;
         }
         page.cleanup?.();

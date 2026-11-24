@@ -27,6 +27,12 @@ export interface ParsedScene {
 export interface Line {
   text: string;
   x: number;
+  /**
+   * Set on the line (or lines side by side) that sit highest or lowest on a
+   * page: the page's number, negative for the lowest. This is where a running
+   * head or foot lives; see dropRunningHeads.
+   */
+  edge?: number;
 }
 export interface ParsedCharacter {
   name: string;
@@ -57,9 +63,13 @@ const ALL_CAPS_RE = /^[A-Z][A-Z\s.'-]+$/;
  * fragments and break whenever `hasEOL` is set or the y-coordinate shifts.
  * Large vertical gaps become blank lines (block separators) so dialogue blocks
  * end correctly. Always ends with one blank line: the page boundary.
+ *
+ * Given the page's number, the lines that sit highest and lowest on the page
+ * are marked with it (`edge`), by where they are and not by where the file
+ * lists them: a footer is often the first thing in a page's text.
  */
 // deno-lint-ignore no-explicit-any
-export function linesFromItems(rawItems: any[]): Line[] {
+export function linesFromItems(rawItems: any[], page?: number): Line[] {
   // deno-lint-ignore no-explicit-any
   const items = (rawItems as any[]).filter((it) => typeof it.str === "string");
   const out: Line[] = [];
@@ -101,15 +111,115 @@ export function linesFromItems(rawItems: any[]): Line[] {
   gaps.sort((a, b) => a - b);
   const typical = gaps.length ? gaps[Math.floor(gaps.length / 2)] : 12;
 
+  // The highest and the lowest row of text on the page (a row can be two
+  // pieces side by side: a title at one margin, the page number at the other).
+  let top = -Infinity;
+  let bottom = Infinity;
+  if (page && page > 0) {
+    for (const l of pageLines) {
+      if (!l.text.trim()) continue;
+      if (l.y > top) top = l.y;
+      if (l.y < bottom) bottom = l.y;
+    }
+  }
+  const SAME_ROW = 2; // the tolerance lines are joined by, above
+  const edgeOf = (l: { text: string; y: number }): number | undefined => {
+    if (!page || page <= 0 || !l.text.trim()) return undefined;
+    if (top - l.y <= SAME_ROW) return page;
+    // A page with a single row has only a "highest".
+    if (l.y - bottom <= SAME_ROW && top - bottom > SAME_ROW) return -page;
+    return undefined;
+  };
+
   for (let i = 0; i < pageLines.length; i++) {
     if (i > 0) {
       const gap = pageLines[i - 1].y - pageLines[i].y;
       if (gap > typical * 1.6) out.push({ text: "", x: 0 });
     }
-    out.push({ text: pageLines[i].text, x: pageLines[i].x });
+    const edge = edgeOf(pageLines[i]);
+    out.push(edge ? { text: pageLines[i].text, x: pageLines[i].x, edge } : { text: pageLines[i].text, x: pageLines[i].x });
   }
   out.push({ text: "", x: 0 }); // page boundary
   return out;
+}
+
+/**
+ * Take a document's running heads and feet out of its lines.
+ *
+ * A writer's PDF can carry a line on every page that is not script: "MY TITLE
+ * • 12", "Draft 3 - 12.", the page number beside the title. A bare page number
+ * was always dropped (ARTIFACT_RE); anything with words in it was read as
+ * action, and so the narrator spoke it — once a page, sometimes in the middle
+ * of a sentence that ran over the page break. (Nov 2026: a 26-page script's
+ * footer, "<TITLE> • <page>", was narrated 24 times in the read its writer had
+ * just paid for.)
+ *
+ * What marks such a line: it is the highest or lowest row of text on its page
+ * (`edge`, set by linesFromItems), the same words come back on most pages, and
+ * a number in it climbs with the page. All three are required. A character's
+ * name is the first line of many pages too, and a script may count "ROUND 1",
+ * "ROUND 2": neither sits at the edge of most pages with a number that follows
+ * the page count, so neither is touched.
+ *
+ * Not caught: a head with no page number in its row (a title alone). It can't
+ * be told from a line of the script without more to go on.
+ */
+export function dropRunningHeads(lines: Line[]): { lines: Line[]; dropped: number } {
+  // The rows at the edges: page and side → the lines that make up the row.
+  const rows = new Map<number, number[]>();
+  for (let i = 0; i < lines.length; i++) {
+    const e = lines[i].edge;
+    if (!e || !lines[i].text.trim()) continue;
+    if (!rows.has(e)) rows.set(e, []);
+    rows.get(e)!.push(i);
+  }
+  const pagesWithText = new Set([...rows.keys()].map((e) => Math.abs(e))).size;
+  if (pagesWithText < 3) return { lines, dropped: 0 };
+
+  // Rows by their wording with the numbers taken out: "MY TITLE • #".
+  const byShape = new Map<string, { page: number; nums: number[]; idx: number[] }[]>();
+  for (const [e, idx] of rows) {
+    // A row that is only a page number is left to the rule that has always
+    // dropped it, so a script with nothing but page numbers reads exactly as
+    // it did (the older text-only reader looks a few lines ahead, and what it
+    // finds there would shift).
+    if (idx.every((i) => ARTIFACT_RE.test(lines[i].text.trim()))) continue;
+    const text = idx
+      .map((i) => lines[i])
+      .sort((a, b) => a.x - b.x)
+      .map((l) => l.text.trim())
+      .join(" ");
+    const nums = (text.match(/\d+/g) ?? []).map(Number);
+    if (!nums.length || text.length > 120) continue;
+    const shape = text.replace(/\d+/g, "#").replace(/\s+/g, " ");
+    if (!byShape.has(shape)) byShape.set(shape, []);
+    byShape.get(shape)!.push({ page: Math.abs(e), nums, idx });
+  }
+
+  const drop = new Set<number>();
+  for (const seen of byShape.values()) {
+    // On enough pages to be the document's doing, not a coincidence of the text…
+    const pages = new Set(seen.map((r) => r.page)).size;
+    if (pages < 3 || pages < Math.ceil(pagesWithText * 0.4)) continue;
+    // …and one of its numbers keeps step with the page.
+    seen.sort((a, b) => a.page - b.page);
+    let follows = false;
+    for (let k = 0; k < seen[0].nums.length && !follows; k++) {
+      let steps = 0;
+      let inStep = 0;
+      for (let j = 1; j < seen.length; j++) {
+        const turned = seen[j].page - seen[j - 1].page;
+        if (turned <= 0) continue; // the head and the foot of one page alike
+        steps++;
+        if (seen[j].nums[k] - seen[j - 1].nums[k] === turned) inStep++;
+      }
+      follows = steps >= 2 && inStep >= Math.ceil(steps * 0.8);
+    }
+    if (!follows) continue;
+    for (const r of seen) for (const i of r.idx) drop.add(i);
+  }
+  if (!drop.size) return { lines, dropped: 0 };
+  return { lines: lines.filter((_, i) => !drop.has(i)), dropped: drop.size };
 }
 
 /**
@@ -538,6 +648,8 @@ export function classifyLegacy(lines: Line[]): ParsedScene[] {
 
 export interface ParseResult {
   mode: "geometric" | "legacy" | "text";
+  /** Lines taken out as running heads or feet before reading (see dropRunningHeads). */
+  runningHeads?: number;
   grid: IndentGrid | null;
   scenes: ParsedScene[];
   /** Every speaking character, most lines first. */
@@ -547,12 +659,16 @@ export interface ParseResult {
 }
 
 /** Classify a whole document's lines into the shape stored in scripts.parsed_json. */
-export function parseLines(lines: Line[]): ParseResult {
+export function parseLines(all: Line[]): ParseResult {
+  // What the pages carry that isn't script comes out first.
+  const { lines, dropped } = dropRunningHeads(all);
   // Prefer indent-aware classification (standard screenplay format encodes
   // element type in indentation); fall back to text heuristics otherwise.
   const grid = inferIndents(lines);
   const scenes = grid ? classifyGeometric(lines, grid) : classifyLegacy(lines);
-  return assemble(grid ? "geometric" : "legacy", grid, scenes);
+  const result = assemble(grid ? "geometric" : "legacy", grid, scenes);
+  if (dropped) result.runningHeads = dropped;
+  return result;
 }
 
 /**
