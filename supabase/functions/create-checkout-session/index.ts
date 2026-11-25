@@ -26,7 +26,7 @@ const UNLOCK_PRICE_CENTS = Number(Deno.env.get("STRIPE_UNLOCK_PRICE_CENTS") ?? "
 // Monthly subscription tiers (pages/month). KEEP IN SYNC with
 // apps/web/lib/shared/plans.ts.
 const PLANS: Record<string, { price_cents: number; credits: number; label: string }> = {
-  growth: { price_cents: 1900, credits: 100, label: "Growth" },
+  growth: { price_cents: 1900, credits: 150, label: "Growth" },
   pro: { price_cents: 3900, credits: 225, label: "Pro" },
   studio: { price_cents: 5900, credits: 375, label: "Studio" },
 };

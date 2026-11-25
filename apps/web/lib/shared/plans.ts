@@ -40,7 +40,11 @@ export const PLANS: Record<PlanId, Plan> = {
     id: "growth",
     label: "Growth",
     price_cents: 1900,
-    credits: 100,
+    // 150, not 100: a feature needs 88 to 175 credits to voice once (a 121-page
+    // script needed 120), and the one-time unlock at the same $19 includes at
+    // least 150. At 100 a new subscriber was asked for a top-up minutes after
+    // paying, to hear the script he had subscribed for (Nov 2026).
+    credits: 150,
     blurb: "A feature script a month, with room to re-cast a few roles.",
   },
   pro: {

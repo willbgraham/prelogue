@@ -24,7 +24,7 @@ const admin = createClient(
 
 // Subscription tiers. KEEP IN SYNC with apps/web/lib/shared/plans.ts.
 const PLANS: Record<string, { price_cents: number; credits: number }> = {
-  growth: { price_cents: 1900, credits: 100 },
+  growth: { price_cents: 1900, credits: 150 },
   pro: { price_cents: 3900, credits: 225 },
   studio: { price_cents: 5900, credits: 375 },
 };
