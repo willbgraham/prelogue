@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { getBrowserClient } from "@/lib/supabase/client";
+import { pricingHref } from "@/lib/checkoutReturn";
+import { refusalBody } from "@/lib/shared/voiceCues";
 import {
   UNLOCK_MIN_CREDITS,
   creditsForPages,
@@ -40,7 +42,12 @@ export function OwnerUnlock({
   spokenChars?: number;
 }) {
   const router = useRouter();
-  const [unlocked, setUnlocked] = useState(initialUnlocked);
+  // Unlocked when the page says so, or when this panel has just done it. The
+  // page's word counts whenever it changes: a writer back from subscribing has
+  // the script unlocked for them further up the page (CheckoutReturn), and this
+  // panel must not go on offering to.
+  const [unlockedHere, setUnlockedHere] = useState(false);
+  const unlocked = initialUnlocked || unlockedHere;
   const [busy, setBusy] = useState<null | "plan" | "once">(null);
   const [error, setError] = useState<string | null>(null);
   const [plan, setPlan] = useState<PlanState>(null);
@@ -101,18 +108,25 @@ export function OwnerUnlock({
     const { data, error } = await getBrowserClient().functions.invoke("subscription-unlock", {
       body: { script_id: scriptId },
     });
-    if (error || data?.error) {
+    // A refusal (no active plan is HTTP 402) arrives as a bare "non-2xx" error
+    // with the answer inside it.
+    const said = (data as Record<string, unknown> | null) ?? (error ? await refusalBody(error) : null);
+    if (error || said?.error) {
       setError(
-        data?.error === "no_active_plan"
+        said?.error === "no_active_plan"
           ? "No active plan — subscribe or use a one-time unlock."
-          : data?.error === "unreadable_script"
-            ? (data?.message ?? "We couldn't read any lines from this PDF yet, so there is nothing to unlock.")
-            : data?.error ?? error?.message ?? "Couldn't unlock."
+          : said?.error === "unreadable_script"
+            ? (typeof said?.message === "string"
+                ? said.message
+                : "We couldn't read any lines from this PDF yet, so there is nothing to unlock.")
+            : typeof said?.error === "string"
+              ? said.error
+              : (error?.message ?? "Couldn't unlock.")
       );
       setBusy(null);
       return;
     }
-    setUnlocked(true);
+    setUnlockedHere(true);
     setBusy(null);
     router.refresh();
   }
@@ -193,7 +207,7 @@ export function OwnerUnlock({
           <div className="mt-3">{onceButton}</div>
           <p className="mt-3 text-xs text-muted">
             Voicing more than one script?{" "}
-            <Link href="/pricing" className="text-brick hover:underline">
+            <Link href={pricingHref(scriptId)} className="text-brick hover:underline">
               Plans start at $19/mo →
             </Link>
           </p>

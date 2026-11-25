@@ -2,10 +2,14 @@
 
 import { useState } from "react";
 import { getBrowserClient } from "@/lib/supabase/client";
+import { startPlanCheckout } from "@/lib/checkoutReturn";
 import type { PlanId } from "@/lib/shared/plans";
 
 /** Starts a monthly subscription checkout for one tier. Signed-out visitors are
- *  routed to sign-in first, then back to pricing. */
+ *  routed to sign-in first, then back to pricing. After paying, the writer is
+ *  returned to their script (the one they came from, named in the address as
+ *  `?script=`, else the one they uploaded last) with it unlocked: see
+ *  lib/checkoutReturn.ts. */
 export function SubscribeButton({
   plan,
   label,
@@ -21,28 +25,18 @@ export function SubscribeButton({
   async function subscribe() {
     setBusy(true);
     setError(null);
-    const supabase = getBrowserClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      window.location.href = "/sign-in?next=/pricing";
-      return;
-    }
-    const origin = window.location.origin;
-    const { data, error } = await supabase.functions.invoke("create-checkout-session", {
-      body: {
-        plan,
-        success_url: `${origin}/settings/billing?subscribed=1`,
-        cancel_url: `${origin}/pricing`,
-      },
+    const started = await startPlanCheckout(getBrowserClient(), {
+      plan,
+      origin: window.location.origin,
+      // Read on the press, not while rendering: the plans page stays a static page.
+      search: window.location.search,
     });
-    if (error || data?.error || !data?.url) {
-      setError(data?.error ?? error?.message ?? "Couldn't start checkout.");
+    if (started.kind === "error") {
+      setError(started.message);
       setBusy(false);
       return;
     }
-    window.location.href = data.url;
+    window.location.href = started.href;
   }
 
   return (

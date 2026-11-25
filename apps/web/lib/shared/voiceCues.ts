@@ -96,7 +96,7 @@ export function unvoicedMessage(missing: number, reason?: VoiceFailReason): stri
 }
 
 /** The body of a function's non-2xx answer: supabase-js hands back only "non-2xx" and keeps the answer in `context`. */
-async function refusalBody(error: unknown): Promise<Record<string, unknown> | null> {
+export async function refusalBody(error: unknown): Promise<Record<string, unknown> | null> {
   const ctx = (error as { context?: { json?: () => Promise<unknown>; clone?: () => unknown } } | null)
     ?.context;
   if (!ctx || typeof ctx.json !== "function") return null;

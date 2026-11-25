@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { getBrowserClient } from "@/lib/supabase/client";
 import { isActiveStatus } from "@/lib/shared/plans";
+import { pricingHref } from "@/lib/checkoutReturn";
 
 type Vis = "public" | "hidden" | "private";
 
@@ -214,7 +215,7 @@ export function OwnerPanel({
           ) : canInvite === false ? (
             <div className="mt-2 rounded-lg border border-tan/60 bg-elevated p-3 text-sm text-taupe">
               Inviting listeners by private link is part of Prelogue plans.{" "}
-              <Link href="/pricing" className="font-medium text-brick hover:underline">
+              <Link href={pricingHref(scriptId)} className="font-medium text-brick hover:underline">
                 See plans →
               </Link>
             </div>

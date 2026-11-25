@@ -47,6 +47,8 @@ const fmtShort = (d: string) =>
 export default function BillingPage() {
   const router = useRouter();
   const [justPaid, setJustPaid] = useState(false);
+  // Came back from subscribing with no script to return to (lib/checkoutReturn.ts).
+  const [newSubscriber, setNewSubscriber] = useState(false);
   const [loading, setLoading] = useState(true);
   const [b, setB] = useState<Billing | null>(null);
   const [ledger, setLedger] = useState<LedgerRow[]>([]);
@@ -92,6 +94,7 @@ export default function BillingPage() {
     const subscribed = params.get("subscribed") === "1";
     const topped = params.get("credits") === "1";
     setJustPaid(subscribed || topped);
+    setNewSubscriber(subscribed);
     // Subscribe is reported server-side now (stripe-webhook → Conversions
     // API); firing it here too would double-count.
   }, [load]);
@@ -149,7 +152,16 @@ export default function BillingPage() {
           <button onClick={load} className="font-medium underline">
             refresh
           </button>
-          .
+          .{" "}
+          {newSubscriber && (
+            <>
+              Next:{" "}
+              <Link href="/studio" className="font-medium underline">
+                open your studio
+              </Link>{" "}
+              to upload a script, or to unlock one with your plan from its page.
+            </>
+          )}
         </div>
       )}
       {error && <p className="mt-4 rounded-lg bg-brick/10 px-4 py-2 text-sm text-brick">{error}</p>}

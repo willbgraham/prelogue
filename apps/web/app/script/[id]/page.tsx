@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { TableReadPlayer } from "@/components/TableReadPlayer";
 import { OwnerUnlock } from "@/components/OwnerUnlock";
 import { OwnerPanel } from "@/components/OwnerPanel";
+import { CheckoutReturn } from "@/components/CheckoutReturn";
 import { ExportReadCard } from "@/components/ExportReadCard";
 import { ChooseCastButton } from "@/components/ChooseCastButton";
 import { ShareButton } from "@/components/ShareButton";
@@ -54,7 +55,13 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   };
 }
 
-export default async function ScriptPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ScriptPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
   const { id } = await params;
   const supabase = await createClient();
 
@@ -177,7 +184,16 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
   // so visitors always see the name, not the numbers.
   const slug = (script as Script).slug;
   if (slug && id !== slug) {
-    redirect(`/script/${slug}`);
+    // The payment page returns a buyer to the script by its id, with a mark
+    // saying what they just paid for (?subscribed=1, ?unlocked=1). The mark has
+    // to survive this hop, or the page they land on never learns of it.
+    const marks = new URLSearchParams();
+    const asked = await searchParams;
+    for (const key of ["subscribed", "unlocked"]) {
+      if (asked[key] === "1") marks.set(key, "1");
+    }
+    const query = marks.toString();
+    redirect(`/script/${slug}${query ? `?${query}` : ""}`);
   }
 
   const {
@@ -288,6 +304,10 @@ export default async function ScriptPage({ params }: { params: Promise<{ id: str
           <ChooseCastButton />
         </div>
       )}
+
+      {/* Back from the payment page: the script is unlocked here, above the
+          read, where the writer is looking (the unlock panel is far below). */}
+      {isOwner && readable && <CheckoutReturn scriptId={s.id} unlocked={!!s.full_read_unlocked} />}
 
       {/* The read comes first: it IS the product, and ad traffic used to have
           to scroll past the cast, actor sign-up and live readings to find the
