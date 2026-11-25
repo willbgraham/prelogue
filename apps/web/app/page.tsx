@@ -5,6 +5,7 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { HeroScriptDemo } from "@/components/HeroScriptDemo";
 import { MicIcon, VideoIcon, CastIcon, YouTubeIcon } from "@/components/icons";
 import type { Script } from "@/lib/shared";
+import { hasReadToHear } from "@/lib/listenable";
 
 const DEMO_SCRIPT_SLUG = "booth-nine";
 
@@ -16,13 +17,14 @@ export default async function Home() {
   const supabase = await createClient();
   const { data } = await supabase
     .from("scripts")
-    .select("id, slug, title, logline, genre, visibility, cover_image_url")
+    .select("id, slug, title, logline, genre, visibility, cover_image_url, full_read_unlocked")
     .eq("status", "open")
     .order("created_at", { ascending: false })
     .limit(12);
 
+  // "Now reading": only scripts with a read to hear (lib/listenable.ts).
   const scripts = ((data as Script[] | null) ?? []).filter(
-    (s) => (s.visibility ?? "public") === "public"
+    (s) => (s.visibility ?? "public") === "public" && hasReadToHear(s)
   );
 
   return (

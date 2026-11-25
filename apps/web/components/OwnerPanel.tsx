@@ -20,10 +20,13 @@ export function OwnerPanel({
   scriptId,
   initialVisibility,
   initialListenGated = false,
+  unlocked = true,
 }: {
   scriptId: string;
   initialVisibility: Vis;
   initialListenGated?: boolean;
+  /** The full read is unlocked. Until it is, a public script has nothing to play and is kept out of Discover. */
+  unlocked?: boolean;
 }) {
   const supabase = getBrowserClient();
   const [visibility, setVisibility] = useState<Vis>(initialVisibility);
@@ -160,7 +163,11 @@ export function OwnerPanel({
           );
         })}
       </div>
-      <p className="mt-2 text-xs text-muted">{OPTS.find((o) => o.key === visibility)?.hint}</p>
+      <p className="mt-2 text-xs text-muted">
+        {visibility === "public" && !unlocked
+          ? "Open to everyone by its link, as a script to read. It is listed in Discover once the full read is unlocked, when there is something to hear."
+          : OPTS.find((o) => o.key === visibility)?.hint}
+      </p>
 
       {/* Request-to-listen showcase */}
       <div className="mt-4 flex items-start justify-between gap-3 rounded-lg border border-tan/60 bg-elevated p-3">

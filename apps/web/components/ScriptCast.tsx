@@ -20,10 +20,13 @@ export function ScriptCast({
   scriptId,
   characters,
   voiceConfig,
+  canChooseCast = true,
 }: {
   scriptId: string;
   characters: Char[];
   voiceConfig: VoiceConfig | null;
+  /** False where there is nothing to hear (lib/listenable.ts): a cast can't be tried out. */
+  canChooseCast?: boolean;
 }) {
   const supabase = getBrowserClient();
   const [cast, setCast] = useState<Record<string, Actor | null>>({});
@@ -70,13 +73,15 @@ export function ScriptCast({
     <section className="mt-8">
       <div className="flex items-center justify-between gap-3">
         <h2 className="font-slab text-lg">Cast</h2>
-        <button
-          onClick={() => window.dispatchEvent(new CustomEvent("prelogue:choose-cast"))}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-brick px-3 py-1.5 text-sm font-medium text-white hover:bg-brick/90"
-        >
-          <CastIcon className="h-4 w-4" />
-          Choose Cast
-        </button>
+        {canChooseCast && (
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent("prelogue:choose-cast"))}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-brick px-3 py-1.5 text-sm font-medium text-white hover:bg-brick/90"
+          >
+            <CastIcon className="h-4 w-4" />
+            Choose Cast
+          </button>
+        )}
       </div>
       <div className="mt-3 divide-y divide-tan overflow-hidden rounded-xl border border-tan bg-ivory">
         {characters.map((c) => {

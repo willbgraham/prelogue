@@ -21,6 +21,7 @@ import { InvitedToRead } from "@/components/InvitedToRead";
 import { WriterCTA } from "@/components/WriterCTA";
 import { UnreadableScript } from "@/components/UnreadableScript";
 import { buildRows } from "@/lib/shared";
+import { canListen } from "@/lib/listenable";
 import type { Script, Character } from "@/lib/shared";
 import { labelOf, LISTING_STATUSES, FORMATS, AGE_RATINGS } from "@/lib/constants";
 
@@ -222,6 +223,18 @@ export default async function ScriptPage({
   // credits the unlock card quotes.
   const spokenLines = rows.length;
   const spokenChars = rows.reduce((n, r) => n + r.text.replace(/\s+/g, " ").trim().length, 0);
+  // Is there anything here this viewer can hear? A public script whose read the
+  // writer never unlocked has none for a visitor, unless an actor has recorded
+  // lines for it (asked only then: the visitor sees approved reads only).
+  let actorReads = 0;
+  if (!s.full_read_unlocked && !isOwner && readable) {
+    const { count } = await supabase
+      .from("submissions")
+      .select("id", { count: "exact", head: true })
+      .eq("script_id", s.id);
+    actorReads = count ?? 0;
+  }
+  const listenable = canListen({ unlocked: s.full_read_unlocked, isOwner, actorReads });
   const statusLabel = labelOf(LISTING_STATUSES, s.listing_status);
   const formatLabel = labelOf(FORMATS, s.format);
   const ageLabel = labelOf(AGE_RATINGS, s.age_rating);
@@ -328,12 +341,13 @@ export default async function ScriptPage({
               user?.id === (script as Script).writer_id
             }
             isOwner={user?.id === (script as Script).writer_id}
+            listenable={listenable}
           />
         )}
       </div>
 
       {/* Then the ask, while they've just heard it. */}
-      {user?.id !== (script as Script).writer_id && <WriterCTA signedIn={!!user} />}
+      {user?.id !== (script as Script).writer_id && <WriterCTA signedIn={!!user} heard={listenable} />}
 
       {/* Download sits right under the player because that's where a writer who
           just listened looks for it. It used to live only on the casting page —
@@ -355,6 +369,7 @@ export default async function ScriptPage({
           (characters as { id: string; name: string; description?: string | null }[] | null) ?? []
         }
         voiceConfig={s.voice_config}
+        canChooseCast={listenable}
       />
 
       {user?.id === s.writer_id && (
@@ -397,6 +412,7 @@ export default async function ScriptPage({
           <OwnerPanel
             scriptId={s.id}
             initialVisibility={(s.visibility ?? "public") as "public" | "hidden" | "private"}
+            unlocked={!!s.full_read_unlocked}
             initialListenGated={!!s.listen_gated}
           />
           {s.listen_gated && (

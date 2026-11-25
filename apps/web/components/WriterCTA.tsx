@@ -5,16 +5,23 @@ import Link from "next/link";
  * heard what the product does. Ad traffic lands on the demo, plays it, and
  * previously had nothing to click afterwards.
  */
-export function WriterCTA({ signedIn }: { signedIn: boolean }) {
+export function WriterCTA({
+  signedIn,
+  heard = true,
+}: {
+  signedIn: boolean;
+  /** False on a page with nothing to play (lib/listenable.ts): there was no read to point back at. */
+  heard?: boolean;
+}) {
   return (
     <section className="mt-8 rounded-2xl border-2 border-brick bg-brick/5 p-6 text-center sm:p-8">
       <div className="font-mono text-xs uppercase tracking-widest text-brick">Your turn</div>
       <h2 className="mx-auto mt-2 max-w-lg font-slab text-2xl leading-snug sm:text-3xl">
-        That&rsquo;s a table read. Now hear yours.
+        {heard ? <>That&rsquo;s a table read. Now hear yours.</> : <>Hear your own script read aloud.</>}
       </h2>
       <p className="mx-auto mt-3 max-w-md text-taupe">
-        Upload your screenplay and it reads itself back the same way: every character cast, every
-        line performed. It stays private, and you keep all rights.
+        Upload your screenplay and it reads itself back{heard ? " the same way" : ""}: every
+        character cast, every line performed. It stays private, and you keep all rights.
       </p>
       <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
         <Link

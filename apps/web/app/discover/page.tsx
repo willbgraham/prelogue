@@ -2,6 +2,7 @@ import Link from "next/link";
 import Image from "next/image";
 import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
+import { hasReadToHear } from "@/lib/listenable";
 import { SiteHeader } from "@/components/SiteHeader";
 import type { Script } from "@/lib/shared";
 import { labelOf, LISTING_STATUSES } from "@/lib/constants";
@@ -56,7 +57,7 @@ export default async function DiscoverPage() {
   const [{ data: scriptRows }, { data: listingRows }, { data: actorRows }, { data: readRows }, { data: liveRows }] = await Promise.all([
     supabase
       .from("scripts")
-      .select("id, slug, title, logline, genre, visibility, writer_id, cover_image_url, listing_status, rating_avg, rating_count")
+      .select("id, slug, title, logline, genre, visibility, writer_id, cover_image_url, listing_status, rating_avg, rating_count, full_read_unlocked")
       .eq("status", "open")
       .order("created_at", { ascending: false })
       .limit(60),
@@ -94,9 +95,12 @@ export default async function DiscoverPage() {
     (l) => l.writer_id !== HOUSE_ID
   );
 
+  // Only scripts with a read to hear: a writer can make a script public and
+  // never unlock its read, and this page says "pick one and press play".
   const scripts = ((scriptRows as (Script & { writer_id: string })[] | null) ?? []).filter(
     (s) =>
       (s.visibility ?? "public") === "public" &&
+      hasReadToHear(s) &&
       s.writer_id !== HOUSE_ID &&
       s.id !== DEMO_ID
   );
@@ -261,6 +265,15 @@ export default async function DiscoverPage() {
               <p className="text-muted">No open scripts yet — check back soon.</p>
             )}
           </div>
+          {/* Nothing here to press play on yet: the demo scene is. */}
+          {scripts.length === 0 && (
+            <p className="mt-4 text-sm text-taupe">
+              Want to hear one now?{" "}
+              <Link href="/script/booth-nine" className="font-medium text-brick hover:underline">
+                ▶ Play the demo scene
+              </Link>
+            </p>
+          )}
         </section>
 
         {/* Top actors */}

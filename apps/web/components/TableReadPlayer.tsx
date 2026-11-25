@@ -107,6 +107,7 @@ export function TableReadPlayer({
   ambience = null,
   canChangeVoices = false,
   isOwner = false,
+  listenable = true,
 }: {
   scriptId: string;
   parsed: ParsedScript | null;
@@ -117,6 +118,11 @@ export function TableReadPlayer({
   canChangeVoices?: boolean;
   // The writer: their voice picks persist to scripts.voice_config (survive refresh).
   isOwner?: boolean;
+  // Is there anything here this viewer can hear (lib/listenable.ts)? False for a
+  // visitor to a script whose read the writer hasn't unlocked: the server voices
+  // nothing for them, so the player says so at once and offers no Play. It used
+  // to offer one, read "Generating 0%…100%" on a press, and then say "locked".
+  listenable?: boolean;
 }) {
   const rows = useMemo(() => buildRows(parsed), [parsed]);
   const characters = useMemo(() => {
@@ -212,10 +218,11 @@ export function TableReadPlayer({
   // demo's hero button under the rating row); they open the same picker by
   // dispatching this event rather than threading state through the server page.
   useEffect(() => {
+    if (!listenable) return; // nothing to cast for: applying a cast would ask for audio that can't exist
     const open = () => setShowPicker(true);
     window.addEventListener("prelogue:choose-cast", open);
     return () => window.removeEventListener("prelogue:choose-cast", open);
-  }, []);
+  }, [listenable]);
   const [changesUsed, setChangesUsed] = useState(0);
   const [showVideo, setShowVideo] = useState(false);
   // Preload progress for the cast video clips (0 → total). Transient UI cue.
@@ -349,10 +356,11 @@ export function TableReadPlayer({
   // The Cast section's header button (a separate component) opens the picker
   // via a window event — the picker renders as a fixed overlay, so no scroll.
   useEffect(() => {
+    if (!listenable) return; // nothing to cast for: applying a cast would ask for audio that can't exist
     const open = () => setShowPicker(true);
     window.addEventListener("prelogue:choose-cast", open);
     return () => window.removeEventListener("prelogue:choose-cast", open);
-  }, []);
+  }, [listenable]);
 
   // Load actor submissions for the picker's "Actors" option. Sign every clip and
   // index it by submission — but splice NOTHING until a role is explicitly cast
@@ -821,7 +829,24 @@ export function TableReadPlayer({
       <audio ref={audioRef} preload="auto" />
       <audio ref={ambienceRef} loop preload="auto" />
 
+      {!listenable && (
+        <div className="border-b border-tan bg-brick/5 px-5 py-6 text-center">
+          <div className="font-slab text-lg">This script has no audio read yet</div>
+          <p className="mx-auto mt-1 max-w-md text-sm text-taupe">
+            Its writer hasn&rsquo;t unlocked the performance, so there is nothing to play here. You
+            can read the script below, or hear what a Prelogue table read sounds like.
+          </p>
+          <Link
+            href="/script/booth-nine"
+            className="mt-3 inline-flex rounded-lg border border-brick px-5 py-2 text-sm font-medium text-brick hover:bg-brick/10"
+          >
+            ▶ Play the free demo scene
+          </Link>
+        </div>
+      )}
+
       {/* STAGE — actor video, or the current line typing out on a "page" */}
+      {listenable && (
       <div className="relative aspect-video w-full bg-black">
         <video
           ref={videoRef}
@@ -847,7 +872,9 @@ export function TableReadPlayer({
           </div>
         )}
       </div>
+      )}
 
+      {listenable && (
       <div className="flex items-center gap-3 border-b border-tan px-4 py-3">
         <button
           onClick={handlePlay}
@@ -908,6 +935,7 @@ export function TableReadPlayer({
           </span>
         </div>
       </div>
+      )}
 
       {showSoundHelp && (
         <div className="border-t border-tan bg-elevated px-4 py-3 text-sm text-taupe">
@@ -1035,16 +1063,22 @@ export function TableReadPlayer({
             <div
               key={r.elementIndex}
               ref={isActive ? activeLineRef : undefined}
-              onClick={() => jumpTo(i)}
-              role="button"
-              title="Jump to this line"
-              className={`mb-2 cursor-pointer rounded-lg px-3 py-2 transition-colors hover:bg-tan/20 ${
-                isActive
-                  ? "bg-brick/10 ring-1 ring-brick/25"
-                  : i < active
-                    ? "opacity-70 hover:opacity-100"
-                    : "opacity-45 hover:opacity-100"
-              }`}
+              // With nothing to play, the script is simply there to be read: no
+              // line to jump to, none dimmed as "not reached yet".
+              {...(listenable
+                ? { onClick: () => jumpTo(i), role: "button", title: "Jump to this line" }
+                : {})}
+              className={
+                listenable
+                  ? `mb-2 cursor-pointer rounded-lg px-3 py-2 transition-colors hover:bg-tan/20 ${
+                      isActive
+                        ? "bg-brick/10 ring-1 ring-brick/25"
+                        : i < active
+                          ? "opacity-70 hover:opacity-100"
+                          : "opacity-45 hover:opacity-100"
+                    }`
+                  : "mb-2 rounded-lg px-3 py-2"
+              }
             >
               {r.sceneHeading && (
                 <div className="mb-2 font-mono text-xs font-bold uppercase tracking-wider text-ink">
@@ -1125,7 +1159,7 @@ export function TableReadPlayer({
         </button>
       )}
 
-      {showPicker && (
+      {showPicker && listenable && (
         <VoicePicker
           scriptId={scriptId}
           characters={characters}
