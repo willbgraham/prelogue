@@ -33,6 +33,13 @@ export interface Line {
    * head or foot lives; see dropRunningHeads.
    */
   edge?: number;
+  /**
+   * How far down the page this line sits from the line above it, in points.
+   * Unset on a page's first line, on blank separators, and on lines that did
+   * not come from a page (pasted text, a scan). It is what tells a wrapped
+   * line from the start of a new paragraph; see paragraphLines.
+   */
+  gap?: number;
 }
 export interface ParsedCharacter {
   name: string;
@@ -55,6 +62,9 @@ const CUE_RE = /^([A-Z][A-Z0-9\s.'’&#-]{0,30}?)(?:\s*\(.{1,24}\)){0,3}$/;
 const LEGACY_CUE_RE =
   /^([A-Z][A-Z\s.'-]{1,28}?)(\s*\((?:V\.O\.|O\.S\.|CONT'D|RADIO|ON RADIO|O\.C\.)\s*\))?$/;
 const ALL_CAPS_RE = /^[A-Z][A-Z\s.'-]+$/;
+// The width a page turned over is mirrored across: US Letter, in points. Only
+// the distances between its margins matter, and mirroring keeps those.
+const TURNED_WIDTH = 612;
 
 /**
  * Rebuild one page's text lines (with their left x-position) from pdf.js text
@@ -102,6 +112,26 @@ export function linesFromItems(rawItems: any[], page?: number): Line[] {
   }
   if (cur) pageLines.push({ text: cur, y: curY ?? 0, x: curX ?? 0 });
 
+  // A page scanned upside down and turned the right way up by its viewer keeps
+  // its text where the scan had it: each line HIGHER than the one before, and
+  // the left margin on the right. Read as it stands, the indents come out
+  // mirrored (action furthest in, names furthest out) and nothing is ever a
+  // "line further down". When nearly every step goes up the page, turn it over.
+  const steps = pageLines.filter((l) => l.text.trim());
+  let up = 0;
+  let down = 0;
+  for (let i = 1; i < steps.length; i++) {
+    const d = steps[i - 1].y - steps[i].y;
+    if (d > 2) down++;
+    else if (d < -2) up++;
+  }
+  if (up >= 8 && up >= down * 4) {
+    for (const l of pageLines) {
+      l.x = TURNED_WIDTH - l.x;
+      l.y = -l.y;
+    }
+  }
+
   // Typical line gap (median) → anything notably larger is a blank line.
   const gaps: number[] = [];
   for (let i = 1; i < pageLines.length; i++) {
@@ -131,13 +161,24 @@ export function linesFromItems(rawItems: any[], page?: number): Line[] {
     return undefined;
   };
 
+  // The line above, for Line.gap: the last one with ink in it. Some PDFs mark
+  // the end of a paragraph with an empty piece of text placed on the NEXT
+  // line's row, and measured from that every paragraph would start 0pt down.
+  let inkY: number | null = null;
   for (let i = 0; i < pageLines.length; i++) {
     if (i > 0) {
       const gap = pageLines[i - 1].y - pageLines[i].y;
       if (gap > typical * 1.6) out.push({ text: "", x: 0 });
     }
     const edge = edgeOf(pageLines[i]);
-    out.push(edge ? { text: pageLines[i].text, x: pageLines[i].x, edge } : { text: pageLines[i].text, x: pageLines[i].x });
+    const line: Line = edge
+      ? { text: pageLines[i].text, x: pageLines[i].x, edge }
+      : { text: pageLines[i].text, x: pageLines[i].x };
+    if (pageLines[i].text.trim()) {
+      if (inkY !== null) line.gap = Math.round((inkY - pageLines[i].y) * 10) / 10;
+      inkY = pageLines[i].y;
+    }
+    out.push(line);
   }
   out.push({ text: "", x: 0 }); // page boundary
   return out;
@@ -330,6 +371,13 @@ const INLINE_CUE_RE = /^([A-Z][A-Z0-9 .'’&#-]{1,30}?)(?:\s*\((.{1,24})\))?:\s+
 // "WORD: text" lines that are directions or labels, never someone speaking.
 const INLINE_NOT_A_NAME_RE =
   /^(NOTE|NOTES|WARNING|TITLE|SUPER|SCENE|ACT|CHAPTER|SETTING|TIME|PLACE|AT RISE|CAST|CHARACTERS|SOUND|MUSIC|LIGHTS|SFX|FX|CUT TO|FADE)\b/;
+// The same line with the name written as a name is ("Maeve: …", "Dr. Okafor:
+// …", "Old Man 2: …") instead of in capitals: how a script typed in Word or
+// Google Docs usually has it. Far more ordinary sentences have this shape than
+// have the capitals one ("Remember: he lies."), so it is trusted only on much
+// stronger evidence; see classifyPlainText.
+const INLINE_CASED_RE =
+  /^([A-Z][A-Za-z.'’-]*(?: (?:[A-Z][A-Za-z.'’-]*|#?\d{1,2})){0,2})(?:\s*\((.{1,24})\))?:\s+(\S.*)$/;
 
 /** "MRS. LINDQVIST (V.O.)", "COP 2 ^", "ALEX:" → the name, or null if the line isn't shaped like a cue. */
 function textCueName(t: string): string | null {
@@ -363,6 +411,31 @@ export function classifyPlainText(lines: Line[]): ParsedScene[] {
   }
   const inlineStyle =
     [...inlineCounts.values()].reduce((a, b) => a + b, 0) >= 3 && [...inlineCounts.values()].some((n) => n >= 2);
+
+  // "Name: speech" with the name in ordinary case. Trusted only when the page
+  // is plainly written that way: at least six such lines, making up at least
+  // one line in seven, nearly all of them (four in five) under a name that
+  // comes back. A report with a few "Summary: …" lines has none of that.
+  const casedName = (t: string): RegExpMatchArray | null => {
+    if (inlineName(t)) return null; // in capitals: the rule above has it
+    const m = t.match(INLINE_CASED_RE);
+    if (!m || m[1].length > 24) return null;
+    const upper = m[1].toUpperCase();
+    return !TEXT_NOT_A_NAME_RE.test(upper) && !INLINE_NOT_A_NAME_RE.test(upper) && !TEXT_HEADING_RE.test(t) ? m : null;
+  };
+  const casedCounts = new Map<string, number>();
+  for (const t of rows) {
+    const m = casedName(t);
+    if (m) casedCounts.set(m[1].toUpperCase(), (casedCounts.get(m[1].toUpperCase()) || 0) + 1);
+  }
+  const casedTotal = [...casedCounts.values()].reduce((a, b) => a + b, 0);
+  const casedRecurring = [...casedCounts.values()].filter((n) => n >= 2).reduce((a, b) => a + b, 0);
+  const casedStyle = casedTotal >= 6 && casedTotal * 7 >= filled && casedRecurring * 5 >= casedTotal * 4;
+  // In a script that writes its names in capitals, the odd "Maeve:" is still Maeve.
+  const casedCue = (t: string): RegExpMatchArray | null => {
+    const m = casedName(t);
+    return m && (casedStyle || (inlineStyle && inlineCounts.has(m[1].toUpperCase()))) ? m : null;
+  };
 
   // Lines broken at the page's width with no blank lines between blocks: text
   // copied out of a PDF viewer. A speech's column is narrow (about 35
@@ -414,10 +487,12 @@ export function classifyPlainText(lines: Line[]): ParsedScene[] {
       continue;
     }
 
-    if (inlineStyle) {
-      const m = inlineName(t);
+    if (inlineStyle || casedStyle) {
+      const m = inlineName(t) ?? casedCue(t);
       if (m) {
-        const name = m[1].trim();
+        // Names are capitals everywhere else in a script: a cast list keyed
+        // "MAEVE" and "Maeve" would be two people.
+        const name = m[1].trim().toUpperCase();
         current.elements.push({ type: "character", character_name: name, text: name });
         current.elements.push({ type: "dialogue", character_name: name, text: m[3].trim() });
         speaker = blockStyle ? name : null; // wrapped lines under it stay theirs
@@ -451,6 +526,105 @@ export function classifyPlainText(lines: Line[]): ParsedScene[] {
     current.elements.push({ type: "action", text: t });
   }
   return scenes;
+}
+
+/**
+ * A document's lines, joined back into the paragraphs they were typed as: one
+ * line out per paragraph, no blank lines, the shape classifyPlainText reads a
+ * paste in.
+ *
+ * A script typed in Word or Google Docs has no screenplay indentation to read
+ * by. What it has is paragraphs: "MAEVE: I told you." wrapping onto a second
+ * and third line, then a stage direction, then the next speech. In the PDF
+ * those are just lines at one margin, so read line by line the first line of a
+ * speech is the character's and the rest of it is narration. The space between
+ * lines is what still shows where a paragraph ends: lines of one paragraph sit
+ * a line's pitch apart (15pt, say), paragraphs a little further (18pt, 25pt,
+ * 29pt in the files seen). The first clear step up from the pitch is taken as
+ * the break.
+ *
+ * Also a new paragraph: a line far to the left or right of the one above (a
+ * centred name over a speech at the margin), a line that is wholly a
+ * (direction), and the top of a page unless the line above the break was left
+ * in mid-sentence.
+ *
+ * Returns null when it has nothing to go by: lines with no spacing recorded (a
+ * page reader from before this, a scan, a paste), or a document whose
+ * paragraphs are no further apart than its lines.
+ */
+export function paragraphLines(lines: Line[]): Line[] | null {
+  const body = lines.filter((l) => l.text.trim() && !ARTIFACT_RE.test(l.text.trim()));
+  const gaps = body.map((l) => l.gap).filter((g): g is number => typeof g === "number" && g >= 6);
+  if (body.length < 8 || gaps.length * 2 < body.length) return null;
+
+  // Spacings that are common (at least one line in twenty), smallest first.
+  // The smallest is the pitch of ordinary lines; the first one at least 15%
+  // larger than its neighbour below is the smallest paragraph break.
+  const tally = new Map<number, number>();
+  for (const g of gaps) tally.set(Math.round(g), (tally.get(Math.round(g)) ?? 0) + 1);
+  const floor = Math.max(4, gaps.length * 0.05);
+  const common = [...tally.entries()].filter(([, n]) => n >= floor).map(([g]) => g).sort((a, b) => a - b);
+  let breakAt = 0;
+  for (let i = 1; i < common.length; i++) {
+    if (common[i] >= common[i - 1] * 1.15) {
+      breakAt = (common[i] + common[i - 1]) / 2;
+      break;
+    }
+  }
+  if (!breakAt) return null;
+
+  const SHIFT = 48; // two thirds of an inch: more than any indent inside a paragraph
+  const whole = /^[(\[].*[)\]]$/; // "(She exits.)", "[Lights down.]"
+  const opensSpeech = /^[A-Z][A-Za-z0-9 .'’&#-]{0,30}(?:\s*\(.{1,24}\))?:\s+\S/;
+  const out: Line[] = [];
+  let cur: { text: string; x: number; lastX: number; last: string } | null = null;
+  let topOfPage = true;
+  const close = () => {
+    if (cur) out.push({ text: cur.text, x: cur.x });
+    cur = null;
+  };
+  for (const l of lines) {
+    const t = l.text.trim();
+    if (!t) continue; // separators say nothing the spacing doesn't
+    if (typeof l.gap !== "number") topOfPage = true; // a page's first line
+    if (ARTIFACT_RE.test(t)) continue; // page numbers, (MORE): not part of any paragraph
+    let joins: boolean;
+    if (!cur) joins = false;
+    else if (whole.test(t) || whole.test(cur.last)) joins = false;
+    else if (Math.abs(l.x - cur.lastX) > SHIFT) joins = false;
+    else if (topOfPage) joins = !/[.!?…:;"”’')\]]$/.test(cur.last) && !opensSpeech.test(t);
+    else joins = (l.gap as number) > 1 && (l.gap as number) <= breakAt;
+    if (joins && cur) {
+      cur.text = `${cur.text} ${t}`;
+      cur.lastX = l.x;
+      cur.last = t;
+    } else {
+      close();
+      cur = { text: t, x: l.x, lastX: l.x, last: t };
+    }
+    topOfPage = false;
+  }
+  close();
+  return out;
+}
+
+/**
+ * Whether a document read as its paragraphs is a script, with people speaking
+ * in it: at least five speeches, and at least one paragraph in six a speech.
+ * Counted on the paragraphs as classified, before runs of narration are joined
+ * into blocks: a 186-page manuscript on file has twenty lines shaped like
+ * "NAME: speech" among 3,382 paragraphs, and is not a script.
+ */
+export function readsAsScript(scenes: ParsedScene[]): boolean {
+  let speeches = 0;
+  let narration = 0;
+  for (const scene of scenes) {
+    for (const el of scene.elements) {
+      if (el.type === "dialogue") speeches++;
+      else if (el.type === "action") narration++;
+    }
+  }
+  return speeches >= 5 && speeches * 6 >= speeches + narration;
 }
 
 /** Letters, digits and punctuation on a set of lines — whitespace doesn't count. */
@@ -647,7 +821,8 @@ export function classifyLegacy(lines: Line[]): ParsedScene[] {
 }
 
 export interface ParseResult {
-  mode: "geometric" | "legacy" | "text";
+  /** "paragraphs": a PDF with no screenplay layout, read as its paragraphs (see parseLines). */
+  mode: "geometric" | "legacy" | "text" | "paragraphs";
   /** Lines taken out as running heads or feet before reading (see dropRunningHeads). */
   runningHeads?: number;
   grid: IndentGrid | null;
@@ -666,7 +841,27 @@ export function parseLines(all: Line[]): ParseResult {
   // element type in indentation); fall back to text heuristics otherwise.
   const grid = inferIndents(lines);
   const scenes = grid ? classifyGeometric(lines, grid) : classifyLegacy(lines);
-  const result = assemble(grid ? "geometric" : "legacy", grid, scenes);
+  let result = assemble(grid ? "geometric" : "legacy", grid, scenes);
+
+  // A script that isn't laid out as a screenplay: typed in Word or Google Docs
+  // as "MAEVE: I told you." (or "Maeve: …"), or as a play, the name centred
+  // over a speech that starts at the margin. Read by position, the first comes
+  // out as narration with no characters, and the second as hundreds of names
+  // nobody answers to (one 123-page play: 733 names, ten speeches). Only then,
+  // with next to nobody speaking, is the document read a second way, as its
+  // paragraphs, and that reading kept only if people speak in it. A script
+  // that reads as one today is never read differently.
+  const silent = result.counts.dialogue < 5 || result.counts.dialogue * 4 < result.counts.character;
+  if (silent) {
+    const paragraphs = paragraphLines(lines);
+    if (paragraphs) {
+      const scenesByShape = classifyPlainText(paragraphs);
+      if (readsAsScript(scenesByShape)) {
+        const byShape = assemble("paragraphs", null, scenesByShape);
+        if (byShape.counts.dialogue >= result.counts.dialogue * 3) result = byShape;
+      }
+    }
+  }
   if (dropped) result.runningHeads = dropped;
   return result;
 }
