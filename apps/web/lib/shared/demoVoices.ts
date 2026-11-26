@@ -6,9 +6,9 @@
  * it. These voices are pre-generated for the demo script, so picking one is a
  * cache hit and costs nothing, no matter how much demo traffic arrives.
  *
- * The picker still SHOWS the whole 900+ library (that's the pitch); the rest
- * are locked with a nudge to sign up. Signed-in writers get everything on
- * their own scripts.
+ * The picker still SHOWS its whole list, and whatever a search finds in the
+ * library (that's the pitch); the rest are locked with a nudge to sign up.
+ * Signed-in writers get everything on their own scripts.
  *
  * KEEP IN SYNC with the copies in supabase/functions/generate-voice-cues and
  * preview-voice-line, which enforce this server-side (a client-side lock is

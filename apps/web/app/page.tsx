@@ -6,6 +6,7 @@ import { HeroScriptDemo } from "@/components/HeroScriptDemo";
 import { MicIcon, VideoIcon, CastIcon, YouTubeIcon } from "@/components/icons";
 import type { Script } from "@/lib/shared";
 import { hasReadToHear } from "@/lib/listenable";
+import { VOICE_COUNT, VOICE_COUNT_FLOOR } from "@/lib/shared/plans";
 
 const DEMO_SCRIPT_SLUG = "booth-nine";
 
@@ -42,7 +43,7 @@ export default async function Home() {
           </h1>
           <p className="mt-4 max-w-xl text-lg text-taupe">
             Upload a script - <span className="text-ink">private, visible only to you</span>
-            {" - "}and it reads itself aloud: cast from 1,000+ AI voices, direct any
+            {" - "}and it reads itself aloud: cast from {VOICE_COUNT}{" "}AI voices, direct any
             single line&rsquo;s emotion, add scene music, and export the finished read.
           </p>
           <div className="mt-7 flex flex-wrap items-center gap-3">
@@ -73,14 +74,14 @@ export default async function Home() {
         <h2 className="mt-2 font-slab text-2xl sm:text-3xl">Everything a read needs</h2>
 
         <div className="mt-6 grid gap-5 sm:grid-cols-2">
-          {/* 1,000+ voices */}
+          {/* The voice library */}
           <Link
             href={`/script/${DEMO_SCRIPT_SLUG}`}
             className="group rounded-2xl border border-tan bg-ivory p-6 transition-colors hover:border-brick"
           >
             <div className="flex items-center gap-2 text-brick">
               <MicIcon className="h-5 w-5" />
-              <span className="font-slab text-xl">1,000+ voices</span>
+              <span className="font-slab text-xl">{VOICE_COUNT} voices</span>
             </div>
             <p className="mt-2 text-sm leading-relaxed text-taupe">
               Cast every character from a searchable voice library - filter by
@@ -97,7 +98,7 @@ export default async function Home() {
                 </span>
               ))}
               <span className="rounded-full border border-brick/40 bg-brick/5 px-2.5 py-1 text-xs font-medium text-brick">
-                +1,000 more
+                +{VOICE_COUNT_FLOOR} more
               </span>
             </div>
           </Link>

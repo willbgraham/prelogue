@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { SiteHeader } from "@/components/SiteHeader";
 import { SubscribeButton } from "@/components/SubscribeButton";
-import { PLANS, PLAN_ORDER, PLAN_FEATURES, dollars } from "@/lib/shared/plans";
+import { PLANS, PLAN_ORDER, PLAN_FEATURES, VOICE_COUNT, dollars } from "@/lib/shared/plans";
 
 export const metadata: Metadata = {
   title: "Pricing - Prelogue Studio",
@@ -30,7 +30,7 @@ export default function Pricing() {
         </h1>
         <p className="mt-4 text-taupe">
           Listening is free. Pick a monthly plan and spend credits voicing whatever you like, or
-          pay once for a single script. Every plan includes the whole studio: 1,000+ voices, per-line
+          pay once for a single script. Every plan includes the whole studio: {VOICE_COUNT} voices, per-line
           emotion, scene music, and MP4 export.
         </p>
       </section>

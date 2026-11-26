@@ -101,10 +101,20 @@ export const unlockCreditsForChars = (chars: number): number => {
 export const readCreditsEstimate = (chars: number): number =>
   chars > 0 && isFinite(chars) ? Math.ceil((chars * 1.07) / CHARS_PER_CREDIT) : 0;
 
+// How many voices the site says a writer can cast from. One place, so the
+// pages can't drift apart again (they said "1,000+" in five places and "900+"
+// in a sixth). What it rests on: the picker's search reaches the provider's
+// whole library, which listed 23,586 voices on 2026-11-26; voices whose owners
+// charge above the standard rate are not offered (7% of the top matches across
+// fourteen searches that day). The picker's own list, the one a writer can
+// browse without typing, is about 1,200 of them.
+export const VOICE_COUNT_FLOOR = "20,000";
+export const VOICE_COUNT = `${VOICE_COUNT_FLOOR}+`;
+
 // Every paid tier includes the whole toolkit; tiers differ only by credits.
 export const PLAN_FEATURES = [
   "Full AI table reads: every line of dialogue and narration",
-  "900+ voices, per-line emotion, speed and tone controls",
+  `${VOICE_COUNT} voices, per-line emotion, speed and tone controls`,
   "Scene background music and ambience",
   "MP4 and MP3 downloads of any read you've voiced",
   "Private, invite-only sharing (plans only)",

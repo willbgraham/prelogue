@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import type { VoiceCatalogItem, VoiceConfig, VoiceSettings } from "@/lib/shared";
 import { DEFAULT_VOICE_SETTINGS } from "@/lib/shared";
+import { VOICE_COUNT } from "@/lib/shared/plans";
 import { getBrowserClient } from "@/lib/supabase/client";
 import {
   LIBRARY_SEARCH_PAUSE_MS,
@@ -458,7 +459,8 @@ export function VoicePicker({
 
   // ---- The whole library, for the word in the search box ----
   // Only where the AI voice list is on screen (a role open, AI voices editable).
-  const term = canChangeVoices && editing && mode === "ai" ? libraryTerm(search) : null;
+  const canSearchLibrary = canChangeVoices && editing && mode === "ai";
+  const term = canSearchLibrary ? libraryTerm(search) : null;
   const termGender = libraryGender(filters.gender);
   const termKey = term ? libraryKey(term, termGender) : null;
   const library = termKey ? libraryResults[termKey] : undefined; // undefined: being looked up
@@ -890,7 +892,14 @@ export function VoicePicker({
                       {/* With a word in the box and none of the picker's own voices
                           matching it, the library's section below does the talking. */}
                       {(filtered.length > 0 || !term) && (
-                        <p className="pb-2 text-xs text-muted">{filtered.length} voices</p>
+                        <p className="pb-2 text-xs text-muted">
+                          {filtered.length.toLocaleString("en-US")} voice{filtered.length === 1 ? "" : "s"}
+                          {/* The list is the part of the library that can be
+                              browsed; the box above reaches the rest of it. */}
+                          {canSearchLibrary && !search.trim() && (
+                            <> listed here. Type above to search all {VOICE_COUNT}.</>
+                          )}
+                        </p>
                       )}
                       {filtered.map((v) => voiceRow(v))}
                       {filtered.length === 0 && !term && (
