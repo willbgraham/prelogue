@@ -1,13 +1,26 @@
 "use client";
 
+import { useEffect } from "react";
 import Script from "next/script";
+import { flushPendingEvents } from "@/lib/analytics";
 
 /** Meta (Facebook) pixel — ad attribution + conversion optimization. The id is
  *  a public identifier, safe in the bundle. Fires PageView on load; conversion
- *  events are fired from the relevant screens via `track()` in lib/analytics. */
+ *  events are fired from the relevant screens via `track()` in lib/analytics.
+ *
+ *  Switched off where NEXT_PUBLIC_META_PIXEL is "off" (a local run, a test
+ *  build), so a test sign-up is never reported to the ad platform as a real
+ *  one. Production sets nothing and loads it as before. */
 export const META_PIXEL_ID = "1739384400586585";
 
 export function MetaPixel() {
+  // Events noted by the page before this one, just before it was left by a
+  // full page load (a sign-up, counted as the next page opens).
+  useEffect(() => {
+    flushPendingEvents();
+  }, []);
+
+  if (process.env.NEXT_PUBLIC_META_PIXEL === "off") return null;
   return (
     <>
       <Script id="meta-pixel" strategy="afterInteractive">

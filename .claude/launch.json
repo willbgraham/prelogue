@@ -7,6 +7,13 @@
       "runtimeArgs": ["-c", "cd apps/web && npm run dev"],
       "port": 3000,
       "autoPort": true
+    },
+    {
+      "name": "web-prod",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd apps/web && npx next start"],
+      "port": 3100,
+      "autoPort": true
     }
   ]
 }
