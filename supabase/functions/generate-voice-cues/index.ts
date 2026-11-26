@@ -111,9 +111,13 @@ const clampNum = (v: unknown, d: number, lo: number, hi: number) =>
 // eleven_v3 — the only model that honors [sad]/[nervous]/… direction. Whitelist
 // keeps the tag a known word (it's interpolated into the TTS text) and bounds
 // cost: v3 ≈ 2× flash per char, so only explicitly tagged lines pay it.
+// KEEP IN STEP with apps/web/lib/emotions.ts (the list writers choose from)
+// and with preview-voice-line.
 const EMOTIONS = new Set([
-  "sad", "angry", "scared", "nervous", "excited", "calm", "frustrated",
-  "sarcastic", "whispers", "shouts", "crying", "deadpan", "cheerfully", "tired",
+  "angry", "annoyed", "appalled", "calm", "cheerfully", "crying", "curious",
+  "deadpan", "dramatically", "excited", "frustrated", "happy", "laughing",
+  "mischievously", "muttering", "nervous", "sad", "sarcastic", "scared",
+  "shouts", "sighs", "surprised", "thoughtful", "tired", "warmly", "whispers",
 ]);
 const V3_MODEL = "eleven_v3";
 // v3 stability is modal: 0 Creative / 0.5 Natural / 1 Robust — snap to nearest.

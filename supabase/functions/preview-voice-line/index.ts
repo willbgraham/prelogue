@@ -39,8 +39,10 @@ const clampNum = (v: unknown, d: number, lo: number, hi: number) =>
 // v3 audio-tag emotions (must mirror generate-voice-cues exactly so the preview
 // file is the same content-addressed file the full read plays).
 const EMOTIONS = new Set([
-  "sad", "angry", "scared", "nervous", "excited", "calm", "frustrated",
-  "sarcastic", "whispers", "shouts", "crying", "deadpan", "cheerfully", "tired",
+  "angry", "annoyed", "appalled", "calm", "cheerfully", "crying", "curious",
+  "deadpan", "dramatically", "excited", "frustrated", "happy", "laughing",
+  "mischievously", "muttering", "nervous", "sad", "sarcastic", "scared",
+  "shouts", "sighs", "surprised", "thoughtful", "tired", "warmly", "whispers",
 ]);
 const V3_MODEL = "eleven_v3";
 const snapV3Stability = (v: number) => (v < 0.25 ? 0 : v < 0.75 ? 0.5 : 1);

@@ -7,7 +7,7 @@ import { OwnerUnlock } from "@/components/OwnerUnlock";
 import { OwnerPanel } from "@/components/OwnerPanel";
 import { CheckoutReturn } from "@/components/CheckoutReturn";
 import { ExportReadCard } from "@/components/ExportReadCard";
-import { ChooseCastButton } from "@/components/ChooseCastButton";
+import { AddEmotionsButton, ChooseCastButton, EDIT_LINES_CLASS, EDIT_LINES_LABEL } from "@/components/ChooseCastButton";
 import { ShareButton } from "@/components/ShareButton";
 import { ReadForRole } from "@/components/ReadForRole";
 import { ScriptLiveReadings } from "@/components/ScriptLiveReadings";
@@ -310,11 +310,20 @@ export default async function ScriptPage({
         />
       </div>
 
-      {/* Demo hero CTA: casting is the demo's whole pitch, so offer it before
-          the visitor has scrolled to the player (opens the same picker). */}
+      {/* Demo hero CTA: casting is half the demo's pitch and how a line is said
+          is the other half, so offer both before the visitor has scrolled to
+          the player (both open the same picker). The demo's owner gets the
+          real lines editor, which is where this link used to sit, far below. */}
       {(script as Script).slug === "booth-nine" && (
-        <div className="mt-4">
+        <div className="mt-4 flex flex-wrap items-center gap-2">
           <ChooseCastButton />
+          {isOwner ? (
+            <Link href={`/studio/${s.id}/lines`} className={EDIT_LINES_CLASS}>
+              {EDIT_LINES_LABEL}
+            </Link>
+          ) : (
+            listenable && <AddEmotionsButton />
+          )}
         </div>
       )}
 
@@ -381,12 +390,15 @@ export default async function ScriptPage({
             >
               Edit details →
             </Link>
-            <Link
-              href={`/studio/${s.id}/lines`}
-              className="rounded-lg border border-brick px-4 py-2 text-sm font-medium text-brick hover:bg-brick/5"
-            >
-              ✏️ Edit lines →
-            </Link>
+            {/* On the demo this sits at the top, beside Choose Cast. */}
+            {s.slug !== "booth-nine" && (
+              <Link
+                href={`/studio/${s.id}/lines`}
+                className="rounded-lg border border-brick px-4 py-2 text-sm font-medium text-brick hover:bg-brick/5"
+              >
+                ✏️ Edit lines →
+              </Link>
+            )}
             <Link
               href={`/studio/${s.id}`}
               className="rounded-lg border border-tan px-4 py-2 text-sm font-medium text-taupe hover:bg-elevated"

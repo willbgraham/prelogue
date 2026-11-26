@@ -213,15 +213,29 @@ export function TableReadPlayer({
   // "unlock to continue" card instead of silently skipping the rest.
   const [previewStop, setPreviewStop] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
+  // Where the picker opens: on the cast list, or straight onto a line with the
+  // choice of emotion showing (the demo's "Edit Lines & Add Emotions").
+  const [pickerStart, setPickerStart] = useState<"cast" | "lines">("cast");
 
   // The page can place "Choose Cast" buttons outside this component (e.g. the
   // demo's hero button under the rating row); they open the same picker by
   // dispatching this event rather than threading state through the server page.
   useEffect(() => {
     if (!listenable) return; // nothing to cast for: applying a cast would ask for audio that can't exist
-    const open = () => setShowPicker(true);
+    const open = () => {
+      setPickerStart("cast");
+      setShowPicker(true);
+    };
+    const openOnLines = () => {
+      setPickerStart("lines");
+      setShowPicker(true);
+    };
     window.addEventListener("prelogue:choose-cast", open);
-    return () => window.removeEventListener("prelogue:choose-cast", open);
+    window.addEventListener("prelogue:direct-lines", openOnLines);
+    return () => {
+      window.removeEventListener("prelogue:choose-cast", open);
+      window.removeEventListener("prelogue:direct-lines", openOnLines);
+    };
   }, [listenable]);
   const [changesUsed, setChangesUsed] = useState(0);
   const [showVideo, setShowVideo] = useState(false);
@@ -352,15 +366,6 @@ export function TableReadPlayer({
     const a = ambienceRef.current;
     if (a) a.volume = next ? 0 : ambienceVolume; // keeps looping — unmute is seamless
   }, [ambienceVolume]);
-
-  // The Cast section's header button (a separate component) opens the picker
-  // via a window event — the picker renders as a fixed overlay, so no scroll.
-  useEffect(() => {
-    if (!listenable) return; // nothing to cast for: applying a cast would ask for audio that can't exist
-    const open = () => setShowPicker(true);
-    window.addEventListener("prelogue:choose-cast", open);
-    return () => window.removeEventListener("prelogue:choose-cast", open);
-  }, [listenable]);
 
   // Load actor submissions for the picker's "Actors" option. Sign every clip and
   // index it by submission — but splice NOTHING until a role is explicitly cast
@@ -1176,7 +1181,11 @@ export function TableReadPlayer({
           restrictedVoices={canChangeVoices && !isOwner ? DEMO_VOICE_SET : null}
           onSaveConfig={persistConfig}
           onApply={applyVoices}
-          onClose={() => setShowPicker(false)}
+          startOn={pickerStart}
+          onClose={() => {
+            setShowPicker(false);
+            setPickerStart("cast");
+          }}
           changesLeft={
             canChangeVoices ? Math.max(0, MAX_VOICE_CHANGES_PER_DAY - changesUsed) : undefined
           }
