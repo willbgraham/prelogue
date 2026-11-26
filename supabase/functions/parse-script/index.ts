@@ -297,8 +297,9 @@ type SliceBody = {
   detail?: string;
   pages?: number;
   next?: number | null;
-  /** [text, x], with a third member for a line at the edge of its page (Line.edge). */
-  lines?: ([string, number] | [string, number, number])[];
+  /** [text, x], with a third member for a line at the edge of its page (Line.edge)
+   *  and a fourth for its distance below the line above it (Line.gap). */
+  lines?: ([string, number] | [string, number, number] | [string, number, number, number])[];
   ink?: number[];
 };
 
@@ -443,9 +444,12 @@ async function extractText(path: string, req: Request, supabase: any): Promise<E
     pages = b.pages;
     if (pages > MAX_PAGES) return { ok: false, code: "too_long", pages };
     // A third member marks a line at the top or bottom edge of its page
-    // (Line.edge); a reader from before it was sent simply has none.
-    for (const [text, x, edge] of b.lines) {
-      lines.push(typeof edge === "number" && Number.isInteger(edge) && edge !== 0 ? { text, x, edge } : { text, x });
+    // (Line.edge), a fourth is its distance below the line above (Line.gap);
+    // a reader from before either was sent simply has none.
+    for (const [text, x, edge, gap] of b.lines) {
+      const line: Line = typeof edge === "number" && Number.isInteger(edge) && edge !== 0 ? { text, x, edge } : { text, x };
+      if (typeof gap === "number" && Number.isFinite(gap)) line.gap = gap;
+      lines.push(line);
     }
     for (const n of b.ink) ink.push(n);
 
