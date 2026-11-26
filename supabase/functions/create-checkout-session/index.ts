@@ -21,7 +21,9 @@ function json(body: unknown, status = 200) {
 }
 
 // Per-script unlock price, in cents. Override with STRIPE_UNLOCK_PRICE_CENTS.
-const UNLOCK_PRICE_CENTS = Number(Deno.env.get("STRIPE_UNLOCK_PRICE_CENTS") ?? "1900");
+// KEEP IN SYNC with UNLOCK_PRICE_CENTS in apps/web/lib/shared/plans.ts (what
+// the pages quote) and with the price the nudge email quotes (send-nudge).
+const UNLOCK_PRICE_CENTS = Number(Deno.env.get("STRIPE_UNLOCK_PRICE_CENTS") ?? "2900");
 
 // Monthly subscription tiers (pages/month). KEEP IN SYNC with
 // apps/web/lib/shared/plans.ts.
@@ -171,7 +173,7 @@ Deno.serve(async (req) => {
     if (!script) return json({ error: "Script not found" }, 404);
     if (script.writer_id !== user.id) return json({ error: "Not your script" }, 403);
     if (script.full_read_unlocked) return json({ error: "Script is already unlocked" }, 409);
-    // Never take $19 for a script we couldn't read. (HTTP 200 so the page can
+    // Never take payment for a script we couldn't read. (HTTP 200 so the page can
     // show the reason; supabase-js hides the body of a non-2xx.)
     if (countElements(script.scenes) === 0) {
       return json({

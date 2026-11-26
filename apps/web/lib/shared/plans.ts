@@ -41,8 +41,8 @@ export const PLANS: Record<PlanId, Plan> = {
     label: "Growth",
     price_cents: 1900,
     // 150, not 100: a feature needs 88 to 175 credits to voice once (a 121-page
-    // script needed 120), and the one-time unlock at the same $19 includes at
-    // least 150. At 100 a new subscriber was asked for a top-up minutes after
+    // script needed 120), and the one-time unlock of a single script includes
+    // at least 150. At 100 a new subscriber was asked for a top-up minutes after
     // paying, to hear the script he had subscribed for (Nov 2026).
     credits: 150,
     blurb: "A feature script a month, with room to re-cast a few roles.",
@@ -78,7 +78,7 @@ export const TOPUP_ORDER: TopUpId[] = ["small", "medium", "large"];
 // The one-time per-script unlock includes the credits to voice that script: one
 // full read of it and a quarter again for re-casting, never less than 150 (what
 // every unlock included before it was sized) and never more than 400 (about $16
-// of speech against the $19 paid). A flat 150 left a description-heavy feature
+// of speech against the price paid). A flat 150 left a description-heavy feature
 // short: one needed 175, and its writer had to buy a top-up to finish.
 // KEEP IN SYNC with supabase/functions/_shared/credits.ts, which fixes the
 // figure at checkout and grants it.
@@ -134,3 +134,13 @@ export const isActiveStatus = (status: string | null | undefined): boolean =>
   status === "active" || status === "trialing";
 
 export const dollars = (cents: number) => `$${Math.round(cents / 100)}`;
+
+// The one-time unlock of a single script. One place for every page that
+// quotes it (nine did, each with its own "$19"). KEEP IN SYNC with
+// UNLOCK_PRICE_CENTS in supabase/functions/create-checkout-session, which is
+// what is charged, and with the price the nudge email quotes (send-nudge).
+export const UNLOCK_PRICE_CENTS = 2900;
+/** "$29" */
+export const UNLOCK_PRICE = dollars(UNLOCK_PRICE_CENTS);
+/** What the least plan costs a month, for "plans from …". */
+export const PLANS_FROM = dollars(PLANS.growth.price_cents);

@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { SiteHeader } from "@/components/SiteHeader";
 import { VideoIcon } from "@/components/icons";
+import { UNLOCK_PRICE } from "@/lib/shared/plans";
 
 export const metadata: Metadata = {
   title: "How it works - Prelogue Studio",
@@ -26,7 +27,7 @@ const WRITER_STEPS = [
   },
   {
     title: "Unlock the full read",
-    body: "$19 one-time unlocks the complete narration plus MP4 and MP3 downloads. Replays are free forever; private invite sharing comes with plans.",
+    body: `${UNLOCK_PRICE} one-time unlocks the complete narration plus MP4 and MP3 downloads. Replays are free forever; private invite sharing comes with plans.`,
   },
 ];
 

@@ -6,7 +6,7 @@ import { HeroScriptDemo } from "@/components/HeroScriptDemo";
 import { MicIcon, VideoIcon, CastIcon, YouTubeIcon } from "@/components/icons";
 import type { Script } from "@/lib/shared";
 import { hasReadToHear } from "@/lib/listenable";
-import { VOICE_COUNT, VOICE_COUNT_FLOOR } from "@/lib/shared/plans";
+import { PLANS_FROM, UNLOCK_PRICE, VOICE_COUNT, VOICE_COUNT_FLOOR } from "@/lib/shared/plans";
 import { EMOTIONS } from "@/lib/emotions";
 
 const DEMO_SCRIPT_SLUG = "booth-nine";
@@ -62,7 +62,7 @@ export default async function Home() {
             </Link>
           </div>
           <p className="mt-4 font-mono text-[11px] uppercase tracking-wider text-muted">
-            Private by default · you keep all rights · plans from $19/mo or $19 once
+            {`Private by default · you keep all rights · plans from ${PLANS_FROM}/mo or ${UNLOCK_PRICE} once`}
           </p>
         </div>
 
@@ -231,8 +231,9 @@ export default async function Home() {
         </h2>
         <p className="mx-auto mt-3 max-w-md text-taupe">
           Try the full demo scene free, then upload your PDF - it stays private
-          unless you decide otherwise. Unlock the complete read with a plan or
-          $19 once, with MP4 and MP3 downloads; replays are free forever.
+          unless you decide otherwise. Unlock the complete read with a plan or{" "}
+          {UNLOCK_PRICE}
+          {" once, with MP4 and MP3 downloads; replays are free forever."}
         </p>
         <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
           <Link

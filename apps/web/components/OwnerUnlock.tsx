@@ -7,7 +7,9 @@ import { getBrowserClient } from "@/lib/supabase/client";
 import { pricingHref } from "@/lib/checkoutReturn";
 import { refusalBody } from "@/lib/shared/voiceCues";
 import {
+  PLANS_FROM,
   UNLOCK_MIN_CREDITS,
+  UNLOCK_PRICE,
   creditsForPages,
   isActiveStatus,
   isPlanId,
@@ -25,7 +27,7 @@ type PlanState = {
 /**
  * Owner-only unlock of a script's full read. Two ways in:
  *   • an active plan — unlocking costs nothing, voicing spends credits, or
- *   • a one-time $19 purchase, which unlocks the script and grants the credits
+ *   • a one-time purchase, which unlocks the script and grants the credits
  *     to voice it (sized to the script; see lib/shared/plans.ts).
  * Unlocking is only access; credits are what meter the actual generation.
  */
@@ -163,8 +165,8 @@ export function OwnerUnlock({
       {busy === "once"
         ? "Starting checkout…"
         : active
-          ? "or pay $19 once"
-          : `Unlock full read · $19`}
+          ? `or pay ${UNLOCK_PRICE} once`
+          : `Unlock full read · ${UNLOCK_PRICE}`}
     </button>
   );
 
@@ -208,7 +210,7 @@ export function OwnerUnlock({
           <p className="mt-3 text-xs text-muted">
             Voicing more than one script?{" "}
             <Link href={pricingHref(scriptId)} className="text-brick hover:underline">
-              Plans start at $19/mo →
+              {`Plans start at ${PLANS_FROM}/mo →`}
             </Link>
           </p>
         </>

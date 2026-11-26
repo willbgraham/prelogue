@@ -2,12 +2,12 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { SiteHeader } from "@/components/SiteHeader";
 import { SubscribeButton } from "@/components/SubscribeButton";
-import { PLANS, PLAN_ORDER, PLAN_FEATURES, VOICE_COUNT, dollars } from "@/lib/shared/plans";
+import { PLANS, PLAN_ORDER, PLAN_FEATURES, PLANS_FROM, UNLOCK_PRICE, VOICE_COUNT, dollars } from "@/lib/shared/plans";
 
 export const metadata: Metadata = {
   title: "Pricing - Prelogue Studio",
   description:
-    "Plans from $19/mo with monthly voice credits, or unlock a single script for $19 one-time. Listening is always free.",
+    `Plans from ${PLANS_FROM}/mo with monthly voice credits, or unlock a single script for ${UNLOCK_PRICE} one-time. Listening is always free.`,
 };
 
 const DEMO_SCRIPT_SLUG = "booth-nine";
@@ -124,7 +124,7 @@ export default function Pricing() {
           </div>
           <h3 className="mt-2 font-slab text-2xl">Single unlock</h3>
           <div className="mt-1 flex items-baseline gap-2">
-            <span className="font-slab text-4xl">$19</span>
+            <span className="font-slab text-4xl">{UNLOCK_PRICE}</span>
             <span className="text-sm text-muted">one-time, per script</span>
           </div>
           <p className="mt-4 text-sm text-taupe">

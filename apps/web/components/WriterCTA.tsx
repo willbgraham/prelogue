@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { PLANS_FROM, UNLOCK_PRICE } from "@/lib/shared/plans";
 
 /**
  * The ask, placed directly under the table read — the moment someone has just
@@ -40,7 +41,7 @@ export function WriterCTA({
         )}
       </div>
       <p className="mt-4 font-mono text-[11px] uppercase tracking-wider text-muted">
-        Private by default · plans from $19/mo or $19 once
+        {`Private by default · plans from ${PLANS_FROM}/mo or ${UNLOCK_PRICE} once`}
       </p>
     </section>
   );

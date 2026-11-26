@@ -198,7 +198,7 @@ async function nudge(admin: Admin, adminId: string, script: ScriptRow, to: strin
       bodyHtml: [
         `<p style="margin:0 0 14px;">Your script is uploaded and parsed — and the <strong style="color:#2A2420;">first ten lines are now free to hear</strong>, with the full cast of voices to choose from.</p>`,
         `<p style="margin:0 0 14px;">Open it, pick a voice for each character (there are more than 20,000), and press play. No charge, no card — it's your own opening, performed.</p>`,
-        `<p style="margin:0 0 14px;">If it makes you want the rest: one $19 unlock covers the entire script, MP3 and video downloads included.</p>`,
+        `<p style="margin:0 0 14px;">If it makes you want the rest: one $29 unlock covers the entire script, MP3 and video downloads included.</p>`,
       ].join(""),
       cta: { label: "Hear your opening — free", url: link },
       footnote:

@@ -8,7 +8,7 @@
 //                        that is being rendered in parts — see video-worker/src/parts.js
 //
 // Gates: caller must be the script's writer, and the script must have the full
-// read unlocked (the export IS the full read — same $19 gate as generation).
+// read unlocked (the export IS the full read — same paid gate as generation).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { countElements } from "../_shared/screenplay.ts";
 import { isServiceRole } from "../_shared/serviceRole.ts";

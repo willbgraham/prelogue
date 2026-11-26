@@ -1,5 +1,5 @@
 // Unlock a script's full read using the writer's monthly PAGE BUDGET (their
-// subscription plan) instead of the one-time $19 payment. Spending is metered by
+// subscription plan) instead of the one-time payment. Spending is metered by
 // the script's page_count; the unlock is permanent (sets scripts.full_read_unlocked,
 // which only the service role may flip — see protect_script_entitlement trigger).
 //
