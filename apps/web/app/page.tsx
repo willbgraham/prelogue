@@ -7,6 +7,7 @@ import { MicIcon, VideoIcon, CastIcon, YouTubeIcon } from "@/components/icons";
 import type { Script } from "@/lib/shared";
 import { hasReadToHear } from "@/lib/listenable";
 import { VOICE_COUNT, VOICE_COUNT_FLOOR } from "@/lib/shared/plans";
+import { EMOTIONS } from "@/lib/emotions";
 
 const DEMO_SCRIPT_SLUG = "booth-nine";
 
@@ -120,6 +121,7 @@ export default async function Home() {
               {EMOTION_TAGS.map((t) => (
                 <span key={t}>{t}</span>
               ))}
+              <span className="text-taupe">+{EMOTIONS.length - EMOTION_TAGS.length} more</span>
             </div>
           </Link>
 

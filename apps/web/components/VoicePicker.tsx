@@ -5,6 +5,7 @@ import Image from "next/image";
 import type { VoiceCatalogItem, VoiceConfig, VoiceSettings } from "@/lib/shared";
 import { DEFAULT_VOICE_SETTINGS } from "@/lib/shared";
 import { VOICE_COUNT } from "@/lib/shared/plans";
+import { EMOTIONS, firstLineToDirect } from "@/lib/emotions";
 import { getBrowserClient } from "@/lib/supabase/client";
 import {
   LIBRARY_SEARCH_PAUSE_MS,
@@ -23,22 +24,7 @@ import {
 // Emotional delivery for a single line — rendered as an ElevenLabs v3 audio tag
 // ("[sad] …"). Value = the tag word sent to the model; label = what the UI shows.
 // Exported: the lines editor offers the same per-line emotions.
-export const EMOTIONS: { value: string; label: string }[] = [
-  { value: "sad", label: "Sad" },
-  { value: "angry", label: "Angry" },
-  { value: "scared", label: "Scared" },
-  { value: "nervous", label: "Nervous" },
-  { value: "excited", label: "Excited" },
-  { value: "calm", label: "Calm" },
-  { value: "frustrated", label: "Frustrated" },
-  { value: "sarcastic", label: "Sarcastic" },
-  { value: "whispers", label: "Whisper" },
-  { value: "shouts", label: "Shout" },
-  { value: "crying", label: "Crying" },
-  { value: "deadpan", label: "Deadpan" },
-  { value: "cheerfully", label: "Cheerful" },
-  { value: "tired", label: "Tired" },
-];
+export { EMOTIONS };
 
 // The numeric slider keys (emotion is a separate dropdown, not a slider).
 type NumericSetting = "stability" | "similarity_boost" | "style" | "speed";
@@ -105,6 +91,7 @@ export function VoicePicker({
   onApply,
   onClose,
   changesLeft,
+  startOn = "cast",
 }: {
   scriptId: string;
   characters: string[];
@@ -127,6 +114,9 @@ export function VoicePicker({
   /** Persist the config now (without regenerating) — used by Save. */
   onSaveConfig?: (cfg: VoiceConfig) => void;
   onApply: (cfg: VoiceConfig, cast: Record<string, string>) => void;
+  /** "lines": open straight onto a line of the first role an AI voice reads,
+   *  with its settings, and so the choice of emotion, showing. */
+  startOn?: "cast" | "lines";
   onClose: () => void;
   changesLeft?: number;
 }) {
@@ -145,13 +135,22 @@ export function VoicePicker({
   const [lineSettings, setLineSettings] = useState<Record<string, VoiceSettings>>(() => ({
     ...(startConfig.line_settings ?? {}),
   }));
+  // Opened to direct a line (the demo's "Edit Lines & Add Emotions"): start on
+  // the first line of the first role an AI voice reads, a character before the
+  // narrator, with the choice of emotion in view. A role an actor reads has no
+  // voice settings, so it is passed over; with none at all, the cast list it is.
+  const [lineStart] = useState<{ role: string; line: number } | null>(() =>
+    startOn === "lines" && canChangeVoices
+      ? firstLineToDirect({ characters, voices: startConfig, cast: startCast, linesByRole })
+      : null
+  );
   // Which line the sliders edit: "role" = every line this voice reads.
-  const [selectedLine, setSelectedLine] = useState<"role" | number>("role");
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [selectedLine, setSelectedLine] = useState<"role" | number>(lineStart ? lineStart.line : "role");
+  const [settingsOpen, setSettingsOpen] = useState(!!lineStart);
   const [previewBusy, setPreviewBusy] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [justSaved, setJustSaved] = useState(false);
-  const [editing, setEditing] = useState<string | null>(null);
+  const [editing, setEditing] = useState<string | null>(lineStart?.role ?? null);
   const [mode, setMode] = useState<"ai" | "actors">("ai");
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<Record<string, string>>({});
@@ -735,6 +734,11 @@ export function VoicePicker({
                     </div>
                     {settingsOpen && (
                       <div className="mt-3 space-y-4">
+                        {startOn === "lines" && selectedLine !== "role" && (
+                          <p className="rounded-lg bg-brick/5 px-3 py-2 text-sm text-taupe">
+                            Choose a line, give it an emotion, and press Preview to hear it.
+                          </p>
+                        )}
                         {linesFor(editing!).length > 0 && (
                           <label className="block">
                             <div className="text-sm font-medium">Apply to</div>
