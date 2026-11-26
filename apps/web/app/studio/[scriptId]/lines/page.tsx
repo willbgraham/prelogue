@@ -200,7 +200,7 @@ export default function EditLinesPage() {
     patchRow(key, { type: "dialogue", character_name: name });
   };
 
-  // Per-line emotion (v3 audio tag) — the same direction the Choose Cast
+  // Per-line emotion (an audio tag) — the same direction the Choose Cast
   // picker offers, editable right where the lines are.
   const setRowEmotion = (key: string, emotion: string) => {
     setRows((prev) =>
@@ -449,7 +449,7 @@ export default function EditLinesPage() {
                         <select
                           value={r.line_settings?.emotion ?? ""}
                           onChange={(e) => setRowEmotion(r.key, e.target.value)}
-                          title="Acted delivery for this line (uses the expressive v3 voice model)"
+                          title="Acted delivery for this line (uses the expressive v4 voice model)"
                           className="rounded-lg border border-tan bg-elevated px-2 py-1.5 text-sm outline-none focus:border-brick"
                         >
                           <option value="">None</option>

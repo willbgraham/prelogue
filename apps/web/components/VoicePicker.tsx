@@ -21,7 +21,7 @@ import {
   type LibraryResult,
 } from "@/lib/voiceSearch";
 
-// Emotional delivery for a single line — rendered as an ElevenLabs v3 audio tag
+// Emotional delivery for a single line — rendered as an ElevenLabs audio tag
 // ("[sad] …"). Value = the tag word sent to the model; label = what the UI shows.
 // Exported: the lines editor offers the same per-line emotions.
 export { EMOTIONS };
@@ -278,7 +278,7 @@ export function VoicePicker({
       [k]: { ...settingsFor(role), ...(prev[k] ?? {}), [key]: val },
     }));
   };
-  // Emotion is line-level only (it switches that line to the pricier v3 model).
+  // Emotion is line-level only (it switches that line to the pricier v4 model).
   const setLineEmotion = (role: string, emotion: string) => {
     if (selectedLine === "role") return;
     const k = String(selectedLine);
@@ -767,7 +767,7 @@ export function VoicePicker({
                             <div className="flex items-center justify-between text-sm">
                               <span className="font-medium">Emotion</span>
                               {effectiveEmotion(editing!) && (
-                                <span className="font-mono text-xs text-taupe">v3</span>
+                                <span className="font-mono text-xs text-taupe">v4</span>
                               )}
                             </div>
                             <select
@@ -784,21 +784,21 @@ export function VoicePicker({
                             </select>
                             {effectiveEmotion(editing!) && (
                               <p className="mt-1 text-[11px] leading-snug text-muted">
-                                This line uses the more expressive v3 model. Speed &amp; Style
+                                This line uses the more expressive v4 model. Speed &amp; Style
                                 don&rsquo;t apply; Stability snaps to Creative / Natural / Robust.
                               </p>
                             )}
                           </label>
                         )}
                         {SETTING_SLIDERS.map((s) => {
-                          const v3Inactive =
+                          const emotionInactive =
                             !!effectiveEmotion(editing!) && (s.key === "speed" || s.key === "style");
                           return (
-                            <label key={s.key} className={`block ${v3Inactive ? "opacity-40" : ""}`}>
+                            <label key={s.key} className={`block ${emotionInactive ? "opacity-40" : ""}`}>
                               <div className="flex items-center justify-between text-sm">
                                 <span className="font-medium">{s.label}</span>
                                 <span className="font-mono text-xs text-taupe">
-                                  {v3Inactive ? "—" : effectiveSettings(editing!)[s.key].toFixed(2)}
+                                  {emotionInactive ? "—" : effectiveSettings(editing!)[s.key].toFixed(2)}
                                 </span>
                               </div>
                               <input
@@ -807,7 +807,7 @@ export function VoicePicker({
                                 max={s.max}
                                 step={s.step}
                                 value={effectiveSettings(editing!)[s.key]}
-                                disabled={v3Inactive}
+                                disabled={emotionInactive}
                                 onChange={(e) =>
                                   setEffectiveSetting(editing!, s.key, Number(e.target.value))
                                 }
