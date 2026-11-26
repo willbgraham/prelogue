@@ -124,6 +124,28 @@ function fixDomain(domain: string): string | null {
 }
 
 /**
+ * Whether an address could receive mail at all, judged by its shape: a name,
+ * one @, and a domain that has an ending (".com").
+ *
+ * A browser's own check lets "name@gmail" and "name@gmail.c" through. No mail
+ * server delivers to either: the auth service makes the account, our email
+ * provider refuses the send, and the page used to say a code was on its way.
+ * One new subscriber waited eight minutes for it. Unlike a suspected typo,
+ * this is never the visitor's to overrule: there is nothing to deliver to.
+ */
+export function canReceiveMail(email: string): boolean {
+  const typed = email.trim();
+  const at = typed.lastIndexOf("@");
+  if (at < 1 || typed.indexOf("@") !== at || /\s/.test(typed)) return false;
+  const domain = typed.slice(at + 1);
+  const dot = domain.lastIndexOf(".");
+  if (dot < 1 || domain.includes("..")) return false;
+  // Every real ending is two or more letters (or an "xn--" one, for endings
+  // written in another alphabet). ".c" and ".1" are not endings.
+  return /^(?:\p{L}{2,}|xn--[a-z0-9-]+)$/iu.test(domain.slice(dot + 1));
+}
+
+/**
  * The address the visitor probably meant, or null when what they typed looks
  * fine. Never changes the part before the @.
  */
