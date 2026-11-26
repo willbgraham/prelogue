@@ -7,6 +7,14 @@
 // same rule as voice re-casting. Locked scripts only preview lines inside the
 // free window, so this can't be used to voice a whole script line-by-line free.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  EMOTION_MODEL,
+  EMOTION_MODEL_BEFORE,
+  PLAIN_MODEL,
+  emotionLine,
+  isAudio,
+  speechRequest,
+} from "../_shared/speech.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -36,16 +44,15 @@ const DEFAULT_SETTINGS = { stability: 0.5, similarity_boost: 0.75, style: 0, spe
 const clampNum = (v: unknown, d: number, lo: number, hi: number) =>
   Math.min(hi, Math.max(lo, typeof v === "number" && isFinite(v) ? v : d));
 
-// v3 audio-tag emotions (must mirror generate-voice-cues exactly so the preview
-// file is the same content-addressed file the full read plays).
+// Audio-tag emotions (must mirror generate-voice-cues exactly so the preview
+// file is the same content-addressed file the full read plays). Which model
+// voices them, and what their clips are called, is in _shared/speech.ts.
 const EMOTIONS = new Set([
   "angry", "annoyed", "appalled", "calm", "cheerfully", "crying", "curious",
   "deadpan", "dramatically", "excited", "frustrated", "happy", "laughing",
   "mischievously", "muttering", "nervous", "sad", "sarcastic", "scared",
   "shouts", "sighs", "surprised", "thoughtful", "tired", "warmly", "whispers",
 ]);
-const V3_MODEL = "eleven_v3";
-const snapV3Stability = (v: number) => (v < 0.25 ? 0 : v < 0.75 ? 0.5 : 1);
 
 function normalizeText(t: string): string {
   return (t || "").replace(/\s+/g, " ").trim();
@@ -173,15 +180,18 @@ Deno.serve(async (req) => {
     };
     let body: Record<string, number>;
     let tag: string;
-    let model = "eleven_flash_v2_5";
+    // An emotion line only: the tag a clip from the model before carries.
+    let tagBefore: string | null = null;
+    let model = PLAIN_MODEL;
     let ttsText = target.text;
     if (emotion) {
-      // v3: modal stability, no style/speed; the "[tag] " prefix directs delivery.
-      const stab = snapV3Stability(s.stability);
-      body = { stability: stab, similarity_boost: s.similarity_boost };
-      tag = `_v3${emotion}s${Math.round(stab * 100)}b${Math.round(s.similarity_boost * 100)}`;
-      model = V3_MODEL;
-      ttsText = `[${emotion}] ${target.text}`;
+      // Modal stability, no style/speed; the "[tag] " prefix directs delivery.
+      const line = emotionLine(emotion, s.stability, s.similarity_boost);
+      body = line.settings;
+      tag = line.tag;
+      tagBefore = line.tagBefore;
+      model = EMOTION_MODEL;
+      ttsText = `${line.prefix}${target.text}`;
     } else {
       const isDefault =
         s.stability === DEFAULT_SETTINGS.stability &&
@@ -202,20 +212,26 @@ Deno.serve(async (req) => {
     }
 
     const hash = await sha1(target.text);
-    const dir = `voice-cues/audio/${vid}`;
-    const filename = `${hash}${tag}.mp3`;
-    const path = `${dir}/${filename}`;
+    const clipNamed = (t: string) => ({
+      key: `${vid}/${hash}${t}`,
+      path: `voice-cues/audio/${vid}/${hash}${t}.mp3`,
+    });
+    // The clip the current model makes of this line, and (an emotion line) the
+    // one the model before made: the read plays either, the current one first.
+    const clip = clipNamed(tag);
+    const clipBefore = tagBefore ? clipNamed(tagBefore) : null;
 
     // Cached already? (Preview replays and prior generations are free.) Checks
     // the same voice_audio_cache index generate-voice-cues uses, so a clip made
     // here is never re-made — and paid for — there.
-    const cacheKey = `${vid}/${hash}${tag}`;
-    const { data: cacheRow } = await supabase
+    const { data: cacheRows } = await supabase
       .from("voice_audio_cache")
       .select("key")
-      .eq("key", cacheKey)
-      .maybeSingle();
-    let cached = !!cacheRow;
+      .in("key", clipBefore ? [clip.key, clipBefore.key] : [clip.key]);
+    const have = new Set((cacheRows ?? []).map((r: { key: string }) => r.key));
+    // What is played back: the clip there already, or the one about to be made.
+    let playing = have.has(clip.key) ? clip : clipBefore && have.has(clipBefore.key) ? clipBefore : null;
+    const cached = !!playing;
 
     if (!cached) {
       // Credits: a single line is well under one credit, so accumulate preview
@@ -270,30 +286,49 @@ Deno.serve(async (req) => {
           return json({ error: "The demo has hit its voice budget — try again later." }, 429);
         }
       }
-      const res = await fetch(
-        `${ELEVENLABS_BASE}/text-to-speech/${vid}?output_format=mp3_22050_32`,
-        {
+      // One request of one model: the clip, or the status it was refused with.
+      const ask = async (askModel: string): Promise<Uint8Array | number> => {
+        const request = speechRequest(ELEVENLABS_BASE, vid!, {
+          text: ttsText,
+          model: askModel,
+          settings: body,
+        });
+        const res = await fetch(request.url, {
           method: "POST",
           headers: {
             "xi-api-key": ELEVENLABS_API_KEY,
             "Content-Type": "application/json",
             Accept: "audio/mpeg",
           },
-          body: JSON.stringify({
-            text: ttsText,
-            model_id: model,
-            voice_settings: body,
-          }),
+          body: JSON.stringify(request.body),
+        });
+        if (!res.ok) return res.status;
+        const bytes = new Uint8Array(await res.arrayBuffer());
+        // "Fine", with nothing to play, is not a clip (and is never stored).
+        return isAudio(res.headers.get("content-type"), bytes.byteLength) ? bytes : res.status;
+      };
+      playing = clip;
+      let made: Uint8Array | number;
+      if (clipBefore) {
+        // An emotion line: whatever the current model answers that isn't a
+        // clip (0: no answer at all), the model before is asked for the line,
+        // as generate-voice-cues does, and the clip takes that model's name.
+        made = await ask(model).catch(() => 0);
+        if (typeof made === "number") {
+          console.error(`preview ${model} ${made} for ${clip.path}; asking ${EMOTION_MODEL_BEFORE}`);
+          playing = clipBefore;
+          made = await ask(EMOTION_MODEL_BEFORE);
         }
-      );
-      if (!res.ok) {
-        console.error(`preview TTS ${res.status} for ${path}`);
-        return json({ error: `Voice generation failed (${res.status})` }, 502);
+      } else {
+        made = await ask(model);
       }
-      const audio = new Uint8Array(await res.arrayBuffer());
+      if (typeof made === "number") {
+        console.error(`preview TTS ${made} for ${playing.path}`);
+        return json({ error: `Voice generation failed (${made})` }, 502);
+      }
       const { error: upErr } = await supabase.storage
         .from(BUCKET)
-        .upload(path, audio, { contentType: "audio/mpeg", upsert: true });
+        .upload(playing.path, made, { contentType: "audio/mpeg", upsert: true });
       if (upErr) {
         console.error("preview upload error:", upErr.message);
         return json({ error: "Couldn't store the preview" }, 500);
@@ -301,7 +336,7 @@ Deno.serve(async (req) => {
       await supabase
         .from("voice_audio_cache")
         .upsert(
-          { key: cacheKey, voice_id: vid, path, chars: ttsText.length },
+          { key: playing.key, voice_id: vid, path: playing.path, chars: ttsText.length },
           { onConflict: "key" }
         );
       if (script_id === DEMO_SCRIPT_ID) {
@@ -316,7 +351,9 @@ Deno.serve(async (req) => {
       }
     }
 
-    const { data: signed } = await supabase.storage.from(BUCKET).createSignedUrl(path, 3600);
+    const { data: signed } = await supabase.storage
+      .from(BUCKET)
+      .createSignedUrl(playing!.path, 3600);
     if (!signed?.signedUrl) return json({ error: "Couldn't sign the preview" }, 500);
 
     return json({

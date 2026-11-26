@@ -2,6 +2,13 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isServiceRole } from "../_shared/serviceRole.ts";
 import { creditsToVoice } from "../_shared/credits.ts";
 import { recordedLabels } from "../_shared/chosenVoices.ts";
+import {
+  EMOTION_MODEL,
+  EMOTION_MODEL_BEFORE,
+  emotionLine,
+  isAudio,
+  speechRequest,
+} from "../_shared/speech.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -107,10 +114,11 @@ const DEFAULT_SETTINGS = { stability: 0.5, similarity_boost: 0.75, style: 0, spe
 const clampNum = (v: unknown, d: number, lo: number, hi: number) =>
   Math.min(hi, Math.max(lo, typeof v === "number" && isFinite(v) ? v : d));
 
-// Emotional delivery (v3 audio tags), line-level only. A tagged line renders on
-// eleven_v3 — the only model that honors [sad]/[nervous]/… direction. Whitelist
+// Emotional delivery (audio tags), line-level only. A tagged line is voiced by
+// a model that acts on [sad]/[nervous]/… direction: eleven_v4, and eleven_v3
+// when v4 won't (see _shared/speech.ts, which also names the clips). Whitelist
 // keeps the tag a known word (it's interpolated into the TTS text) and bounds
-// cost: v3 ≈ 2× flash per char, so only explicitly tagged lines pay it.
+// cost: either model ≈ 2× flash per char, so only explicitly tagged lines pay it.
 // KEEP IN STEP with apps/web/lib/emotions.ts (the list writers choose from)
 // and with preview-voice-line.
 const EMOTIONS = new Set([
@@ -119,9 +127,6 @@ const EMOTIONS = new Set([
   "mischievously", "muttering", "nervous", "sad", "sarcastic", "scared",
   "shouts", "sighs", "surprised", "thoughtful", "tired", "warmly", "whispers",
 ]);
-const V3_MODEL = "eleven_v3";
-// v3 stability is modal: 0 Creative / 0.5 Natural / 1 Robust — snap to nearest.
-const snapV3Stability = (v: number) => (v < 0.25 ? 0 : v < 0.75 ? 0.5 : 1);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -190,35 +195,44 @@ async function reasonOf(res: Response): Promise<string> {
 
 type Spoken = { ok: true; audio: Uint8Array } | { ok: false; status: number; reason: string };
 
-/** One line, one voice. Waits out the answers that pass in a moment; returns the first that doesn't. */
+/**
+ * One line, one voice, one model. Waits out the answers that pass in a moment
+ * (never past `giveUpAt`); returns the first that doesn't.
+ */
 async function speak(
   voiceId: string,
   job: { text: string; model?: string },
-  voiceSettings: Record<string, number>
+  voiceSettings: Record<string, number>,
+  giveUpAt = Date.now() + LINE_WAIT_MS
 ): Promise<Spoken> {
-  const giveUpAt = Date.now() + LINE_WAIT_MS;
   let status = 0;
   let reason = "";
   for (let attempt = 0; attempt < TTS_TRIES; attempt++) {
     let wait: number;
     try {
-      const res = await fetch(
-        `${ELEVENLABS_BASE}/text-to-speech/${voiceId}?output_format=mp3_22050_32`,
-        {
-          method: "POST",
-          headers: {
-            "xi-api-key": ELEVENLABS_API_KEY!,
-            "Content-Type": "application/json",
-            Accept: "audio/mpeg",
-          },
-          body: JSON.stringify({
-            text: job.text,
-            model_id: job.model ?? "eleven_flash_v2_5",
-            voice_settings: voiceSettings,
-          }),
-        }
-      );
-      if (res.ok) return { ok: true, audio: new Uint8Array(await res.arrayBuffer()) };
+      const ask = speechRequest(ELEVENLABS_BASE, voiceId, {
+        text: job.text,
+        model: job.model,
+        settings: voiceSettings,
+      });
+      const res = await fetch(ask.url, {
+        method: "POST",
+        headers: {
+          "xi-api-key": ELEVENLABS_API_KEY!,
+          "Content-Type": "application/json",
+          Accept: "audio/mpeg",
+        },
+        body: JSON.stringify(ask.body),
+      });
+      if (res.ok) {
+        const audio = new Uint8Array(await res.arrayBuffer());
+        if (isAudio(res.headers.get("content-type"), audio.byteLength)) return { ok: true, audio };
+        // "Fine", and nothing to play. Not stored: it would be a silent line
+        // that looks voiced for ever after.
+        status = res.status;
+        reason = "an answer with no audio in it";
+        break;
+      }
 
       status = res.status;
       const retryAfter = Number(res.headers.get("retry-after")) || 2;
@@ -243,24 +257,51 @@ async function speak(
   return { ok: false, status, reason };
 }
 
-type Job = {
+/** A clip: its row in the cache index and its file. */
+type Clip = { key: string; path: string };
+type Job = Clip & {
   voiceId: string;
   text: string;
-  path: string;
   settings: Record<string, number>;
   model?: string;
+  // An emotion line only: the model that voiced these lines before the current
+  // one, asked when the current one won't, and where a clip of its goes.
+  before?: Clip & { model: string };
   role: string; // the speaking character (upper-cased base name); "" for narration
   kind: "dialogue" | "action";
 };
 type Made =
-  | { ok: true; voiceUsed: string }
+  | ({ ok: true; voiceUsed: string; understudy: boolean } & Clip)
   | { ok: false; status: number; reason: string };
+type Voiced =
+  | { ok: true; audio: Uint8Array; understudy: boolean }
+  | { ok: false; status: number; reason: string };
+
+/**
+ * One line in one voice, by the model the line calls for. An emotion line is
+ * asked of eleven_v4, and of eleven_v3 if that brings back anything but audio.
+ * v3 voiced every such line until November 2026, so the worst that can happen
+ * to a line is what used to happen to it. The two share one allowance of
+ * waiting, and it is v3's answer that is reported if neither will.
+ */
+async function voiceLine(voiceId: string, job: Job): Promise<Voiced> {
+  const giveUpAt = Date.now() + LINE_WAIT_MS;
+  const first = await speak(voiceId, job, job.settings, giveUpAt);
+  if (first.ok) return { ...first, understudy: false };
+  if (!job.before) return first;
+  console.error(
+    `${job.model} ${first.status} for ${job.path} — ${first.reason || "no reason given"}; asking ${job.before.model}`
+  );
+  const second = await speak(voiceId, { text: job.text, model: job.before.model }, job.settings, giveUpAt);
+  return second.ok ? { ...second, understudy: true } : second;
+}
 
 /**
  * Voice one line and store it. If the chosen voice declines the line, a house
  * voice reads it instead — into the SAME file, so the read is whole — and the
  * voice that actually spoke is reported back (it goes in the cache index, which
- * is how later runs know the clip is a stand-in).
+ * is how later runs know the clip is a stand-in). The clip is stored under the
+ * name of the model that voiced it, and that name is reported back too.
  */
 async function ttsAndUpload(
   job: Job,
@@ -268,14 +309,14 @@ async function ttsAndUpload(
   standInFor: (job: Job) => Promise<string | null>
 ): Promise<Made> {
   let voiceUsed = job.voiceId;
-  let said = await speak(job.voiceId, job, job.settings);
+  let said = await voiceLine(job.voiceId, job);
   if (!said.ok) {
     console.error(`TTS ${said.status} for ${job.path} — ${said.reason || "no reason given"}`);
     if (!voiceDeclined(said.status, said.reason)) {
       return { ok: false, status: said.status, reason: said.reason };
     }
     const standIn = await standInFor(job);
-    const again = standIn ? await speak(standIn, job, job.settings) : null;
+    const again = standIn ? await voiceLine(standIn, job) : null;
     if (!standIn || !again || !again.ok) {
       if (again && !again.ok) {
         console.error(`stand-in ${standIn}: TTS ${again.status} for ${job.path} — ${again.reason}`);
@@ -291,14 +332,15 @@ async function ttsAndUpload(
     voiceUsed = standIn;
   }
 
+  const clip: Clip = said.understudy && job.before ? job.before : job;
   const { error } = await supabase.storage
     .from(BUCKET)
-    .upload(job.path, said.audio, { contentType: "audio/mpeg", upsert: true });
+    .upload(clip.path, said.audio, { contentType: "audio/mpeg", upsert: true });
   if (error) {
     console.error("Upload error:", error.message);
     return { ok: false, status: -1, reason: `upload: ${error.message}`.slice(0, 140) };
   }
-  return { ok: true, voiceUsed };
+  return { ok: true, voiceUsed, key: clip.key, path: clip.path, understudy: said.understudy };
 }
 
 // ---------------------------------------------------------------------------
@@ -316,7 +358,12 @@ Deno.serve(async (req) => {
   let lockScriptId: string | null = null;
 
   try {
-    const { script_id, voice_config: voiceConfigOverride, dry_run } = await req.json();
+    const {
+      script_id,
+      voice_config: voiceConfigOverride,
+      dry_run,
+      retake_emotions: retakeAsked,
+    } = await req.json();
     if (!script_id) {
       return new Response(JSON.stringify({ error: "script_id required" }), {
         status: 400,
@@ -497,11 +544,13 @@ Deno.serve(async (req) => {
     const lineSettingsCfg = (cfg.line_settings as Record<string, Record<string, unknown>>) || {};
     const NARRATOR_KEY = "__narrator__";
     const SINGLE_KEY = "__single__";
-    // Resolved shape: TTS body + cache tag + (for emotion lines) the v3 model
-    // and the "[tag] " text prefix that carries the emotional direction.
+    // Resolved shape: TTS body + cache tag + (for emotion lines) the model that
+    // acts on audio tags, the "[tag] " text prefix that carries the emotional
+    // direction, and the tag a clip from the model before it carries.
     type Resolved = {
       body: Record<string, number>;
       tag: string;
+      tagBefore?: string;
       model?: string;
       ttsPrefix?: string;
     };
@@ -513,13 +562,14 @@ Deno.serve(async (req) => {
         speed: clampNum(raw.speed, DEFAULT_SETTINGS.speed, 0.7, 1.2),
       };
       if (emotion) {
-        // v3: modal stability, no style/speed; tag folds emotion + settings.
-        const stab = snapV3Stability(s.stability);
+        // Modal stability, no style/speed; the tag folds emotion + settings.
+        const line = emotionLine(emotion, s.stability, s.similarity_boost);
         return {
-          body: { stability: stab, similarity_boost: s.similarity_boost },
-          tag: `_v3${emotion}s${Math.round(stab * 100)}b${Math.round(s.similarity_boost * 100)}`,
-          model: V3_MODEL,
-          ttsPrefix: `[${emotion}] `,
+          body: line.settings,
+          tag: line.tag,
+          tagBefore: line.tagBefore,
+          model: EMOTION_MODEL,
+          ttsPrefix: line.prefix,
         };
       }
       const isDefault =
@@ -541,7 +591,7 @@ Deno.serve(async (req) => {
       return { body, tag };
     };
     const settingsCache = new Map<string, Resolved>();
-    // Role-level settings never carry an emotion (line-level only — bounds v3 cost).
+    // Role-level settings never carry an emotion (line-level only — bounds its cost).
     const resolveSettings = (roleKey: string) => {
       const cached = settingsCache.get(roleKey);
       if (cached) return cached;
@@ -579,10 +629,15 @@ Deno.serve(async (req) => {
       voice_id: string;
       audio_path: string;
       audio_key: string; // voiceId/hash(/settingsTag) for existence checks
+      before?: Clip; // emotion lines: the clip the model before would have made
       settings: Record<string, number>; // ElevenLabs voice_settings for this line
       tts_text: string; // what's sent to TTS (emotion lines carry a "[tag] " prefix)
-      model?: string; // eleven_v3 for emotion lines; default flash otherwise
+      model?: string; // the audio-tag model for emotion lines; default flash otherwise
     }
+    const clipNamed = (voiceId: string, hash: string, tag: string): Clip => ({
+      key: `${voiceId}/${hash}${tag}`,
+      path: `voice-cues/audio/${voiceId}/${hash}${tag}.mp3`,
+    });
     const entries: Entry[] = [];
     let globalIdx = 0;
     const effChars: Record<string, string> = {};
@@ -590,6 +645,9 @@ Deno.serve(async (req) => {
     // "#<element_index>" → tag for line overrides. A line override that resolves
     // back to defaults still records "default" so it hashes differently from the
     // same config without the override (its audio differs when the role is custom).
+    // An emotion line goes in under the tag it has always had (the one that now
+    // names the model before): the hash is of what the writer asked for, not of
+    // which model answered, so a read's manifest stays where it was.
     const effTags: Record<string, string> = {};
 
     for (const scene of scenes) {
@@ -601,18 +659,20 @@ Deno.serve(async (req) => {
           const roleKey = mode === "single" ? SINGLE_KEY : baseName;
           const voiceId = mode === "single" ? singleVoiceId : characterVoice(el.character_name);
           effChars[baseName] = voiceId;
-          const { body, tag, model, ttsPrefix } = resolveFor(roleKey, myIndex);
-          if (lineSettingsCfg[String(myIndex)]) effTags[`#${myIndex}`] = tag || "default";
+          const { body, tag, tagBefore, model, ttsPrefix } = resolveFor(roleKey, myIndex);
+          if (lineSettingsCfg[String(myIndex)]) effTags[`#${myIndex}`] = (tagBefore ?? tag) || "default";
           else if (tag) effTags[roleKey] = tag;
           const hash = await sha1(norm);
+          const clip = clipNamed(voiceId, hash, tag);
           entries.push({
             element_index: myIndex,
             type: "dialogue",
             character: el.character_name ?? null,
             text: norm,
             voice_id: voiceId,
-            audio_path: `voice-cues/audio/${voiceId}/${hash}${tag}.mp3`,
-            audio_key: `${voiceId}/${hash}${tag}`,
+            audio_path: clip.path,
+            audio_key: clip.key,
+            before: tagBefore ? clipNamed(voiceId, hash, tagBefore) : undefined,
             settings: body,
             tts_text: `${ttsPrefix ?? ""}${norm}`,
             model,
@@ -620,18 +680,20 @@ Deno.serve(async (req) => {
         } else if (el.type === "action" && norm) {
           const roleKey = mode === "single" ? SINGLE_KEY : NARRATOR_KEY;
           const voiceId = mode === "single" ? singleVoiceId : narratorVoiceId;
-          const { body, tag, model, ttsPrefix } = resolveFor(roleKey, myIndex);
-          if (lineSettingsCfg[String(myIndex)]) effTags[`#${myIndex}`] = tag || "default";
+          const { body, tag, tagBefore, model, ttsPrefix } = resolveFor(roleKey, myIndex);
+          if (lineSettingsCfg[String(myIndex)]) effTags[`#${myIndex}`] = (tagBefore ?? tag) || "default";
           else if (tag) effTags[roleKey] = tag;
           const hash = await sha1(norm);
+          const clip = clipNamed(voiceId, hash, tag);
           entries.push({
             element_index: myIndex,
             type: "action",
             character: null,
             text: norm,
             voice_id: voiceId,
-            audio_path: `voice-cues/audio/${voiceId}/${hash}${tag}.mp3`,
-            audio_key: `${voiceId}/${hash}${tag}`,
+            audio_path: clip.path,
+            audio_key: clip.key,
+            before: tagBefore ? clipNamed(voiceId, hash, tagBefore) : undefined,
             settings: body,
             tts_text: `${ttsPrefix ?? ""}${norm}`,
             model,
@@ -692,11 +754,13 @@ Deno.serve(async (req) => {
     for (const e of entries) {
       if (!distinctJobs.has(e.audio_key)) {
         distinctJobs.set(e.audio_key, {
+          key: e.audio_key,
           voiceId: e.voice_id,
           text: e.tts_text, // emotion lines carry their "[tag] " prefix
           path: e.audio_path,
           settings: e.settings,
           model: e.model,
+          before: e.before ? { ...e.before, model: EMOTION_MODEL_BEFORE } : undefined,
           role: e.type === "dialogue" ? baseCharName(e.character ?? "").toUpperCase() : "",
           kind: e.type === "dialogue" ? "dialogue" : "action",
         });
@@ -732,7 +796,10 @@ Deno.serve(async (req) => {
     // keys this run needs, rather than listing whole storage folders (which
     // capped at 1000 objects and silently made cached audio look missing).
     // Chunked to keep the query string bounded.
-    const wantedKeys = [...distinctJobs.keys()];
+    // An emotion line is asked about under both of its clip's possible names.
+    const wantedKeys = [
+      ...new Set([...distinctJobs.values()].flatMap((j) => (j.before ? [j.key, j.before.key] : [j.key]))),
+    ];
     const existing = new Set<string>();
     // key → the voice that actually spoke the clip. It is the chosen voice,
     // except where a house voice stood in for one that declined the line.
@@ -750,8 +817,32 @@ Deno.serve(async (req) => {
       }
     }
 
+    // A retake (ours to ask for, never a visitor's or a writer's) voices again,
+    // with the current model, the emotion lines that only have a clip from the
+    // model before. The new clip is stored beside the old one, which is left
+    // exactly as it is: nothing is overwritten, and the read plays the new one
+    // from then on.
+    const retake = retakeAsked === true && serviceBearer;
+    // Voiced already? By the current model, or (an emotion line) by the one
+    // before it: those clips are as good as they were the day they were made.
+    const voiced = (j: Job) =>
+      existing.has(j.key) || (!retake && !!j.before && existing.has(j.before.key));
+
     // Generate the misses, capped per run (resumable).
-    const allMisses = [...distinctJobs.entries()].filter(([k]) => !existing.has(k));
+    const allMisses = [...distinctJobs.entries()].filter(([, j]) => !voiced(j));
+    // …and where a line has a take from the model before, a retake asks
+    // neither that model to stand in (it would write over the take the read
+    // has now) nor a house voice (the line has a take in the voice its writer
+    // chose): if the current model won't voice it, the line stays as it is.
+    const retaking = new Set<string>();
+    if (retake) {
+      for (const [k, j] of allMisses) {
+        if (j.before && existing.has(j.before.key)) {
+          j.before = undefined;
+          retaking.add(k);
+        }
+      }
+    }
     let toDo = allMisses.slice(0, MAX_NEW_PER_RUN);
 
     // Server-side budget for DEMO generation. The demo is deliberately open
@@ -891,6 +982,7 @@ Deno.serve(async (req) => {
       }
     };
     const standInFor = async (job: Job): Promise<string | null> => {
+      if (retaking.has(job.key)) return null;
       await (voiceListRead ??= readVoiceList());
       // House voices of the same sort, skipping any that has left the provider's
       // list, then the voice this role would have had with no choice made at all.
@@ -908,6 +1000,10 @@ Deno.serve(async (req) => {
     };
 
     const generatedKeys = new Set<string>();
+    // Job → the clip made for it in this run (an emotion line's may carry
+    // either model's name), and how many the model before had to voice.
+    const madeNow = new Map<string, Clip>();
+    let onUnderstudy = 0;
     const failures: { status: number; reason: string }[] = [];
     let failed = 0;
     let attempted = 0;
@@ -925,7 +1021,9 @@ Deno.serve(async (req) => {
       results.forEach((made, j) => {
         if (made.ok) {
           generatedKeys.add(batch[j][0]);
-          spokenBy.set(batch[j][0], made.voiceUsed);
+          madeNow.set(batch[j][0], { key: made.key, path: made.path });
+          spokenBy.set(made.key, made.voiceUsed);
+          if (made.understudy) onUnderstudy++;
         } else {
           failed++;
           failures.push({ status: made.status, reason: made.reason });
@@ -938,14 +1036,17 @@ Deno.serve(async (req) => {
     if (generatedKeys.size) {
       const rows = toDo
         .filter(([k]) => generatedKeys.has(k))
-        .map(([k, j]) => ({
-          key: k,
-          // The voice that spoke it: the chosen one, or the house voice that
-          // stood in (the key and the path still belong to the chosen voice).
-          voice_id: spokenBy.get(k) ?? j.voiceId,
-          path: j.path,
-          chars: j.text?.length ?? null,
-        }));
+        .map(([k, j]) => {
+          const clip = madeNow.get(k) ?? j;
+          return {
+            key: clip.key,
+            // The voice that spoke it: the chosen one, or the house voice that
+            // stood in (the key and the path still belong to the chosen voice).
+            voice_id: spokenBy.get(clip.key) ?? j.voiceId,
+            path: clip.path,
+            chars: j.text?.length ?? null,
+          };
+        });
       await supabase.from("voice_audio_cache").upsert(rows, { onConflict: "key" });
     }
 
@@ -984,18 +1085,31 @@ Deno.serve(async (req) => {
         .upsert({ day: todayKey, chars: (cur?.chars ?? 0) + genChars });
     }
 
-    // An entry's audio is available if it pre-existed or we just generated it.
-    const available = (key: string) => existing.has(key) || generatedKeys.has(key);
-    const manifest = entries
-      .filter((e) => available(e.audio_key))
-      .map((e) => ({
-        element_index: e.element_index,
-        type: e.type,
-        character: e.character,
-        text: e.text,
-        voice_id: e.voice_id,
-        audio_path: e.audio_path,
-      }));
+    // An entry's audio is available if we just generated it or it pre-existed:
+    // the current model's clip first, else (an emotion line) the one from the
+    // model before.
+    const clipFor = (e: Entry): Clip | null =>
+      madeNow.get(e.audio_key) ??
+      (existing.has(e.audio_key)
+        ? { key: e.audio_key, path: e.audio_path }
+        : e.before && existing.has(e.before.key)
+          ? e.before
+          : null);
+    const manifest = entries.flatMap((e) => {
+      const clip = clipFor(e);
+      return clip
+        ? [
+            {
+              element_index: e.element_index,
+              type: e.type,
+              character: e.character,
+              text: e.text,
+              voice_id: e.voice_id,
+              audio_path: clip.path,
+            },
+          ]
+        : [];
+    });
 
     await supabase.storage
       .from(BUCKET)
@@ -1016,8 +1130,9 @@ Deno.serve(async (req) => {
     // can choose another voice for that role if they'd rather have one voice
     // throughout.
     const standIns = entries.filter((e) => {
-      const spoke = spokenBy.get(e.audio_key);
-      return !!spoke && spoke !== e.voice_id && available(e.audio_key);
+      const clip = clipFor(e);
+      const spoke = clip ? spokenBy.get(clip.key) : undefined;
+      return !!spoke && spoke !== e.voice_id;
     });
     const standInRoles = [
       ...new Set(
@@ -1050,6 +1165,8 @@ Deno.serve(async (req) => {
         failed_reason: failedReason,
         stand_ins: standIns.length || undefined,
         stand_in_roles: standInRoles.length ? standInRoles : undefined,
+        // Emotion lines of this run that the model before had to voice.
+        emotion_lines_on_v3: onUnderstudy || undefined,
         remaining,
         // Budget-capped demo runs report done so clients don't retry-loop a
         // ceiling that won't lift until tomorrow.
