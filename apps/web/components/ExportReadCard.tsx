@@ -10,7 +10,7 @@ import {
   videoExportSeconds,
   videoFits,
 } from "@/lib/exportEstimate";
-import { readCreditsEstimate, unlockCreditsForChars } from "@/lib/shared/plans";
+import { UNLOCK_PRICE, readCreditsEstimate, unlockCreditsForChars } from "@/lib/shared/plans";
 import {
   READ_CHANGED_EVENT,
   readVoiceNeed,
@@ -452,7 +452,7 @@ export function ExportReadCard({
 
       {!unlocked && (
         <p className="mt-3 text-sm text-muted">
-          MP4 and MP3 downloads come with the full read — one payment of $19 for this script
+          {`MP4 and MP3 downloads come with the full read — one payment of ${UNLOCK_PRICE} for this script`}
           {unlockCoversRead
             ? " unlocks all of it."
             : " unlocks it, though a script this long also needs a credit top-up to voice in full."}

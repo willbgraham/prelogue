@@ -73,7 +73,7 @@ export function OwnerPanel({
 
   async function changeVisibility(next: Vis) {
     if (next === visibility) return;
-    // Privacy is free — tool first. The $19 unlock buys the full read + export.
+    // Privacy is free — tool first. The one-time unlock buys the full read + export.
     setBusy(true);
     setError(null);
     const { error } = await supabase.from("scripts").update({ visibility: next }).eq("id", scriptId);

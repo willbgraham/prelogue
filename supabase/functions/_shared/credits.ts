@@ -23,7 +23,7 @@ export const UNLOCK_MIN_CREDITS = 150;
 
 /**
  * The most an unlock includes. A credit costs us about 4 cents of speech, so
- * 400 is $16 against the $19 paid (less the card fee): still not a loss if every
+ * 400 is $16 against the $29 paid (less the card fee): not a loss even if every
  * one of them is used. The longest script seen so far needs 321.
  */
 export const UNLOCK_MAX_CREDITS = 400;
