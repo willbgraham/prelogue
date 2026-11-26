@@ -5,6 +5,19 @@ import Image from "next/image";
 import type { VoiceCatalogItem, VoiceConfig, VoiceSettings } from "@/lib/shared";
 import { DEFAULT_VOICE_SETTINGS } from "@/lib/shared";
 import { getBrowserClient } from "@/lib/supabase/client";
+import {
+  LIBRARY_SEARCH_PAUSE_MS,
+  labelKey,
+  libraryGender,
+  libraryKey,
+  libraryTerm,
+  matchesFilters,
+  moreFromLibrary,
+  recordedVoiceName,
+  searchLibrary,
+  voiceInfoToSave,
+  type LibraryResult,
+} from "@/lib/voiceSearch";
 
 // Emotional delivery for a single line — rendered as an ElevenLabs v3 audio tag
 // ("[sad] …"). Value = the tag word sent to the model; label = what the UI shows.
@@ -53,6 +66,7 @@ const FILTER_KEYS: { key: string; label: string }[] = [
   { key: "language", label: "Language" },
   { key: "age", label: "Age" },
 ];
+const FILTER_KEY_NAMES = FILTER_KEYS.map((f) => f.key);
 const META_KEYS = ["gender", "accent", "language", "age", "descriptive", "use_case"];
 const LANGUAGE_NAMES: Record<string, string> = {
   en: "English", es: "Spanish", fr: "French", de: "German", it: "Italian",
@@ -63,11 +77,11 @@ const LANGUAGE_NAMES: Record<string, string> = {
   sk: "Slovak", hr: "Croatian", ar: "Arabic", ta: "Tamil", vi: "Vietnamese",
   no: "Norwegian", hu: "Hungarian",
 };
-// Language labels are 2-letter codes — show the full word. Others render as-is
-// (the UI capitalizes them via CSS).
+// Language labels are 2-letter codes — show the full word. Others render as
+// the library gives them, with its underscores read as spaces ("middle_aged");
+// the UI capitalizes them via CSS.
 const displayValue = (key: string, val: string) =>
-  key === "language" ? LANGUAGE_NAMES[val.toLowerCase()] ?? val.toUpperCase() : val;
-const norm = (s: string) => s.trim().toLowerCase();
+  key === "language" ? LANGUAGE_NAMES[val.toLowerCase()] ?? val.toUpperCase() : val.replace(/_/g, " ");
 
 type RoleSub = { id: string; actor: string; take: number; avatar: string | null; clips: string[] };
 
@@ -140,6 +154,12 @@ export function VoicePicker({
   const [mode, setMode] = useState<"ai" | "actors">("ai");
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<Record<string, string>>({});
+  // The whole library's answers to words typed in the search box, by word (and
+  // Gender filter), kept while the picker is open. See lib/voiceSearch.ts.
+  const [libraryResults, setLibraryResults] = useState<Record<string, LibraryResult>>({});
+  // Voices chosen here, as they were listed: a voice found in the whole library
+  // is in no list the picker loads, so this is what names it once chosen.
+  const [picked, setPicked] = useState<Record<string, VoiceCatalogItem>>({});
   const [previewing, setPreviewing] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   // Actor read preview (plays the actor's clips in sequence).
@@ -205,7 +225,10 @@ export function VoicePicker({
   const roles = useMemo(() => [NARRATOR, ...characters.map((c) => c.toUpperCase())], [characters]);
   const roleLabel = (r: string) => (r === NARRATOR ? "Narrator" : r);
   const nameOf = (vid?: string | null) =>
-    catalog.find((v) => v.voice_id === vid)?.name ?? (vid ? "Custom voice" : "Default");
+    catalog.find((v) => v.voice_id === vid)?.name ??
+    (vid ? picked[vid]?.name : undefined) ??
+    recordedVoiceName(startConfig, vid) ??
+    (vid ? "Custom voice" : "Default");
   const currentVoiceFor = (role: string) =>
     role === NARRATOR ? config.narrator_voice_id : config.characters?.[role];
   const actorsFor = (role: string) => submissionsByRole[role] ?? [];
@@ -277,11 +300,17 @@ export function VoicePicker({
     });
   };
 
-  const mergedConfig = (): VoiceConfig => ({
-    ...config,
-    role_settings: roleSettings,
-    line_settings: lineSettings,
-  });
+  const mergedConfig = (): VoiceConfig => {
+    // What the script keeps about its chosen voices (their names, for when one
+    // isn't in the picker's list). Left out entirely when there is nothing.
+    const info = voiceInfoToSave(config, startConfig, picked);
+    return {
+      ...config,
+      role_settings: roleSettings,
+      line_settings: lineSettings,
+      ...(info ? { voice_info: info } : {}),
+    };
+  };
 
   // Generate + play ONE line with the current sliders (content-addressed server
   // side, so the full read reuses the exact same audio later — nothing wasted).
@@ -362,7 +391,9 @@ export function VoicePicker({
     setPreviewSub(null);
   };
 
-  const setRoleVoice = (role: string, vid: string) => {
+  const setRoleVoice = (role: string, voice: VoiceCatalogItem) => {
+    const vid = voice.voice_id;
+    setPicked((p) => ({ ...p, [vid]: voice }));
     setConfig((c) =>
       role === NARRATOR
         ? { ...c, narrator_voice_id: vid }
@@ -400,12 +431,15 @@ export function VoicePicker({
   const filterOptions = useMemo(() => {
     const opts: Record<string, string[]> = {};
     for (const { key } of FILTER_KEYS) {
-      const set = new Set<string>();
+      // One option for each thing, however its label is spelled ("middle_aged"
+      // from the library, "middle-aged" on the account's voices): the filter
+      // matches every spelling (labelKey).
+      const forms = new Map<string, string>();
       for (const v of catalog) {
         const val = v.labels?.[key];
-        if (val) set.add(String(val));
+        if (val && !forms.has(labelKey(String(val)))) forms.set(labelKey(String(val)), String(val));
       }
-      opts[key] = [...set].sort((a, b) => displayValue(key, a).localeCompare(displayValue(key, b)));
+      opts[key] = [...forms.values()].sort((a, b) => displayValue(key, a).localeCompare(displayValue(key, b)));
     }
     return opts;
   }, [catalog]);
@@ -413,10 +447,7 @@ export function VoicePicker({
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return catalog.filter((v) => {
-      for (const { key } of FILTER_KEYS) {
-        const want = filters[key];
-        if (want && norm(String(v.labels?.[key] ?? "")) !== norm(want)) return false;
-      }
+      if (!matchesFilters(v, filters, FILTER_KEY_NAMES)) return false;
       if (!q) return true;
       return (
         v.name.toLowerCase().includes(q) ||
@@ -424,6 +455,96 @@ export function VoicePicker({
       );
     });
   }, [catalog, search, filters]);
+
+  // ---- The whole library, for the word in the search box ----
+  // Only where the AI voice list is on screen (a role open, AI voices editable).
+  const term = canChangeVoices && editing && mode === "ai" ? libraryTerm(search) : null;
+  const termGender = libraryGender(filters.gender);
+  const termKey = term ? libraryKey(term, termGender) : null;
+  const library = termKey ? libraryResults[termKey] : undefined; // undefined: being looked up
+  const askingLibrary = useRef(new Set<string>()); // words out with the library right now
+  useEffect(() => {
+    if (!term || !termKey || libraryResults[termKey]) return;
+    // Ask once the typing has rested, and keep the answer under its own word
+    // even if the box has moved on (coming back to the word is then instant).
+    const timer = window.setTimeout(async () => {
+      if (askingLibrary.current.has(termKey)) return; // already asked; its answer is on the way
+      askingLibrary.current.add(termKey);
+      const result = await searchLibrary(getBrowserClient(), term, termGender);
+      askingLibrary.current.delete(termKey);
+      setLibraryResults((r) => ({ ...r, [termKey]: result }));
+    }, LIBRARY_SEARCH_PAUSE_MS);
+    return () => window.clearTimeout(timer);
+  }, [term, termGender, termKey, libraryResults]);
+  const retryLibrary = () =>
+    setLibraryResults((r) => {
+      if (!termKey) return r;
+      const next = { ...r };
+      delete next[termKey];
+      return next;
+    });
+  const fromLibrary = useMemo(() => {
+    if (library?.state !== "found") return { voices: [] as VoiceCatalogItem[], hidden: false };
+    return moreFromLibrary(
+      library.voices,
+      new Set(filtered.map((v) => v.voice_id)),
+      filters,
+      FILTER_KEY_NAMES
+    );
+  }, [library, filtered, filters]);
+
+  // One voice in the list: the picker's own, or one found in the whole library
+  // (which also carries its owner's line about it, often what the search matched).
+  const voiceRow = (v: VoiceCatalogItem) => (
+    <div key={v.voice_id} className="flex items-center gap-3 border-b border-tan/60 py-2 last:border-0">
+      <button
+        onClick={() => preview(v)}
+        disabled={!v.preview_url}
+        aria-label="Preview voice"
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-tan text-brick disabled:opacity-40"
+      >
+        {previewing === v.voice_id ? "❚❚" : "▶"}
+      </button>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-medium">{v.name}</div>
+        <div className="truncate text-xs capitalize text-muted">
+          {Object.entries(v.labels || {})
+            .filter(([k]) => META_KEYS.includes(k))
+            .map(([k, val]) => displayValue(k, val))
+            .join(" · ")}
+        </div>
+        {v.description && (
+          <div className="truncate text-xs text-taupe" title={v.description}>
+            {v.description}
+          </div>
+        )}
+        {v.moderated && (
+          <div
+            className="text-[11px] leading-snug text-muted"
+            title="Its owner has moderation on. If it declines a line, a house voice of the same sort reads that line, and you are told."
+          >
+            May decline a strong line (its owner moderates it)
+          </div>
+        )}
+      </div>
+      {restrictedVoices && !restrictedVoices.has(v.voice_id) ? (
+        <a
+          href="/sign-in?next=/pricing"
+          title="Sign up to use the full voice library on your own script"
+          className="shrink-0 rounded-lg border border-tan px-3 py-1.5 text-xs font-medium text-muted hover:border-brick hover:text-brick"
+        >
+          🔒 Sign up
+        </a>
+      ) : (
+        <button
+          onClick={() => setRoleVoice(editing!, v)}
+          className="shrink-0 rounded-lg border border-tan px-3 py-1.5 text-xs font-medium hover:bg-elevated"
+        >
+          {!cast[editing!] && currentVoiceFor(editing!) === v.voice_id ? "Selected" : "Use"}
+        </button>
+      )}
+    </div>
+  );
 
   const outOfChanges = typeof changesLeft === "number" && changesLeft <= 0;
   const editingActors = editing && editing !== NARRATOR ? actorsFor(editing) : [];
@@ -730,7 +851,7 @@ export function VoicePicker({
                   <input
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Search by name, accent, gender…"
+                    placeholder="Search every voice: a name, an accent, a place…"
                     className="w-full rounded-lg border border-tan bg-elevated px-4 py-2 outline-none focus:border-brick"
                   />
                   <div className="flex flex-wrap gap-2">
@@ -766,51 +887,53 @@ export function VoicePicker({
                     <p className="py-6 text-center text-taupe">Loading voices…</p>
                   ) : (
                     <>
-                      <p className="pb-2 text-xs text-muted">{filtered.length} voices</p>
-                      {filtered.map((v) => (
-                        <div
-                          key={v.voice_id}
-                          className="flex items-center gap-3 border-b border-tan/60 py-2 last:border-0"
-                        >
-                          <button
-                            onClick={() => preview(v)}
-                            disabled={!v.preview_url}
-                            aria-label="Preview voice"
-                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-tan text-brick disabled:opacity-40"
-                          >
-                            {previewing === v.voice_id ? "❚❚" : "▶"}
-                          </button>
-                          <div className="min-w-0 flex-1">
-                            <div className="truncate text-sm font-medium">{v.name}</div>
-                            <div className="truncate text-xs capitalize text-muted">
-                              {Object.entries(v.labels || {})
-                                .filter(([k]) => META_KEYS.includes(k))
-                                .map(([k, val]) => displayValue(k, val))
-                                .join(" · ")}
-                            </div>
-                          </div>
-                          {restrictedVoices && !restrictedVoices.has(v.voice_id) ? (
-                            <a
-                              href="/sign-in?next=/pricing"
-                              title="Sign up to use the full voice library on your own script"
-                              className="shrink-0 rounded-lg border border-tan px-3 py-1.5 text-xs font-medium text-muted hover:border-brick hover:text-brick"
-                            >
-                              🔒 Sign up
-                            </a>
-                          ) : (
-                            <button
-                              onClick={() => setRoleVoice(editing!, v.voice_id)}
-                              className="shrink-0 rounded-lg border border-tan px-3 py-1.5 text-xs font-medium hover:bg-elevated"
-                            >
-                              {!cast[editing!] && currentVoiceFor(editing!) === v.voice_id ? "Selected" : "Use"}
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                      {filtered.length === 0 && (
+                      {/* With a word in the box and none of the picker's own voices
+                          matching it, the library's section below does the talking. */}
+                      {(filtered.length > 0 || !term) && (
+                        <p className="pb-2 text-xs text-muted">{filtered.length} voices</p>
+                      )}
+                      {filtered.map((v) => voiceRow(v))}
+                      {filtered.length === 0 && !term && (
                         <p className="py-6 text-center text-sm text-muted">
                           No voices match these filters.
                         </p>
+                      )}
+                      {/* The same word, put to the whole voice library: matches the
+                          picker's own list doesn't hold. */}
+                      {term && (
+                        <div className={filtered.length > 0 ? "mt-3 border-t border-tan pt-3" : ""}>
+                          <p className="text-xs font-medium uppercase tracking-wide text-muted">
+                            From the full voice library
+                          </p>
+                          {!library ? (
+                            <p className="py-3 text-sm text-taupe">
+                              Searching the full library for “{term}”…
+                            </p>
+                          ) : library.state === "unavailable" ? (
+                            <p className="py-3 text-sm text-taupe">
+                              The full library couldn&rsquo;t be searched just now.{" "}
+                              <button onClick={retryLibrary} className="underline hover:text-ink">
+                                Try again
+                              </button>
+                            </p>
+                          ) : fromLibrary.voices.length === 0 ? (
+                            <p className="py-3 text-sm text-muted">
+                              {library.voices.length === 0
+                                ? `Nothing in the full library matches “${term}”.`
+                                : fromLibrary.hidden
+                                  ? `Nothing more matches “${term}” with these filters.`
+                                  : `Every match for “${term}” is in the list above.`}
+                            </p>
+                          ) : (
+                            <>
+                              <p className="pb-1 pt-1 text-xs text-muted">
+                                {fromLibrary.voices.length} more for “{term}”
+                                {library.more ? ", the most used first. Add a word to narrow it." : ""}
+                              </p>
+                              {fromLibrary.voices.map((v) => voiceRow(v))}
+                            </>
+                          )}
+                        </div>
                       )}
                     </>
                   )}

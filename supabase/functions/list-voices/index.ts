@@ -2,7 +2,19 @@
 // plus a slice of the ElevenLabs shared Voice Library (female-weighted for
 // variety). Library voices carry `public_owner_id` and must be added to the
 // account before TTS (see the add-voice function).
+//
+// With `{ search: "boston" }` in the body it answers from the provider's WHOLE
+// library instead (the picker's search box): see searchLibrary below.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  cleanGender,
+  cleanTerm,
+  offerFound,
+  Pace,
+  Remembered,
+  searchKey,
+  type FoundVoice,
+} from "../_shared/voiceSearch.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -173,6 +185,88 @@ async function buildCatalog(): Promise<Voice[]> {
   return [...account, ...library];
 }
 
+// ---------------------------------------------------------------------------
+// The picker's search box: the provider's whole library, by word.
+//
+// The list above is a slice (the account's voices and the first pages of the
+// library's listing), and the picker's search could only look through that. A
+// writer asked for a Boston accent, typed "Boston", and found nothing, though
+// the library holds such voices. So a typed word is also put to the provider,
+// which searches every shared voice by name, labels and description.
+//
+// One page of answers (the provider's most taken voices for the word), kept
+// for half an hour, so the same word is asked once however many people type
+// it. Asked at a limited pace: the function is open to the demo's visitors.
+// ---------------------------------------------------------------------------
+type SearchAnswer = { voices: FoundVoice[]; total: number | null; more: boolean; left_out: number };
+const SEARCH_PAGE = 100;
+const searches = new Remembered<SearchAnswer>(CACHE_TTL_MS, 300);
+const asking = new Map<string, Promise<SearchAnswer | null>>(); // one request per word at a time
+const pace = new Pace(30, 60_000); // provider searches a minute, per isolate
+
+async function askLibrary(term: string, gender: string | null): Promise<SearchAnswer | null> {
+  // Most taken first. If the provider won't have the ordering, ask plainly:
+  // the answers are put in order here either way.
+  for (const sort of ["cloned_by_count", null]) {
+    const url = new URL(`${V1}/shared-voices`);
+    url.searchParams.set("search", term);
+    url.searchParams.set("page_size", String(SEARCH_PAGE));
+    url.searchParams.set("page", "0");
+    if (sort) url.searchParams.set("sort", sort);
+    if (gender) url.searchParams.set("gender", gender);
+    let res: Response;
+    try {
+      res = await fetch(url.toString(), {
+        headers: { "xi-api-key": ELEVENLABS_API_KEY! },
+        signal: AbortSignal.timeout(8000),
+      });
+    } catch (e) {
+      console.error(`library search: no answer (${String(e).slice(0, 120)})`);
+      return null;
+    }
+    if (!res.ok) {
+      console.error(`library search: provider answered ${res.status}${sort ? ` (sorted by ${sort})` : ""}`);
+      // A refused request (not an outage, not a pacing answer) may be the ordering: try once without it.
+      if (sort && (res.status === 400 || res.status === 422)) continue;
+      return null;
+    }
+    const json = await res.json().catch(() => null);
+    if (!json || !Array.isArray(json.voices)) return null;
+    const { voices, skipped } = offerFound(json.voices);
+    const total = typeof json.total_count === "number" && json.total_count > 0 ? json.total_count : null;
+    return { voices, total, more: json.has_more === true, left_out: skipped };
+  }
+  return null;
+}
+
+// deno-lint-ignore no-explicit-any
+async function searchLibrary(asked: any): Promise<Response> {
+  const answer = (body: Record<string, unknown>) =>
+    new Response(JSON.stringify(body), {
+      headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-store" },
+    });
+  const term = cleanTerm(asked?.search);
+  if (!term) return answer({ voices: [], search: null, invalid: true });
+  const gender = cleanGender(asked?.gender);
+  const key = searchKey(term, gender);
+
+  const kept = searches.get(key, Date.now());
+  if (kept) return answer({ ...kept, search: term, cached: true });
+
+  let pending = asking.get(key);
+  if (!pending) {
+    // Not answered, not being asked: this one goes to the provider, if the pace allows.
+    if (!pace.allow(Date.now())) return answer({ voices: [], search: term, busy: true });
+    pending = askLibrary(term, gender).finally(() => asking.delete(key));
+    asking.set(key, pending);
+  }
+  const found = await pending;
+  // A failed search is not kept: the next try asks again.
+  if (!found) return answer({ voices: [], search: term, unavailable: true });
+  searches.set(key, found, Date.now());
+  return answer({ ...found, search: term });
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -184,6 +278,13 @@ Deno.serve(async (req) => {
         JSON.stringify({ error: "ELEVENLABS_API_KEY not configured" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
+    }
+
+    // A word typed into the picker's search box. Every other caller sends an
+    // empty body and gets the picker's list, below, exactly as before.
+    const asked = req.method === "POST" ? await req.json().catch(() => null) : null;
+    if (asked && typeof asked === "object" && "search" in asked) {
+      return await searchLibrary(asked);
     }
 
     if (cache && Date.now() - cache.at < CACHE_TTL_MS) {

@@ -74,7 +74,21 @@ export interface VoiceConfig {
    *  parsed element order, so heavy line edits can orphan them (same convention
    *  as submission clips). */
   line_settings?: Record<string, VoiceSettings> | null;
+  /** What the picker recorded about each voice it was used to choose, keyed by
+   *  voice id. A voice isn't always in the picker's own list (one found by
+   *  searching the whole library joins it only once used; the list's library
+   *  slice turns over), so this is what still names it on the cast list, and
+   *  what a stand-in is chosen by if it declines a line. */
+  voice_info?: Record<string, ChosenVoiceInfo> | null;
   updated_at?: string;
+}
+
+/** A chosen voice as it was when chosen: its name, and the labels a stand-in goes by. */
+export interface ChosenVoiceInfo {
+  name: string;
+  gender?: string;
+  age?: string;
+  accent?: string;
 }
 
 /** ElevenLabs voice generation controls (mirror the ElevenLabs sliders). */
@@ -126,6 +140,10 @@ export interface VoiceCatalogItem {
   preview_url: string | null;
   /** Present only for shared-library voices that must be added before use. */
   public_owner_id?: string | null;
+  /** Its owner's line about it. Only on voices found by searching the whole library. */
+  description?: string;
+  /** Its owner moderates it: it can decline a line (a house voice then reads that line). */
+  moderated?: boolean;
 }
 
 export interface ParsedScript {

@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isServiceRole } from "../_shared/serviceRole.ts";
 import { creditsToVoice } from "../_shared/credits.ts";
+import { recordedLabels } from "../_shared/chosenVoices.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -889,9 +890,12 @@ Deno.serve(async (req) => {
       await (voiceListRead ??= readVoiceList());
       // House voices of the same sort, skipping any that has left the provider's
       // list, then the voice this role would have had with no choice made at all.
-      const suited = standInCandidates(known.get(job.voiceId) ?? null).filter(
-        (v) => known.size === 0 || known.has(v)
-      );
+      // A voice found by searching the whole library isn't in that list until it
+      // has been used and the list rebuilt: go by what the picker recorded about
+      // it when it was chosen (voice_config.voice_info).
+      const suited = standInCandidates(
+        known.get(job.voiceId) ?? recordedLabels(cfg, job.voiceId)
+      ).filter((v) => known.size === 0 || known.has(v));
       const byName = job.kind === "action" ? DEFAULT_NARRATOR : fallbackVoiceForName(job.role);
       const candidates = [...suited, byName, DEFAULT_NARRATOR].filter((v) => v !== job.voiceId);
       // Prefer one no other role in this read is using, so two people don't

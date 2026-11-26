@@ -13,6 +13,7 @@ import { ExportReadCard } from "@/components/ExportReadCard";
 import { RoleCasting } from "@/components/RoleCasting";
 import { announceReadChanged, buildRows } from "@/lib/shared";
 import type { AmbienceConfig, ParsedScript, VoiceConfig } from "@/lib/shared";
+import { recordedVoiceName } from "@/lib/voiceSearch";
 
 type Sub = {
   id: string;
@@ -178,8 +179,10 @@ export default function CastingPage() {
     setPreviewFor(sub.id);
   }
 
+  // A voice the picker's list doesn't hold (found by searching the whole library)
+  // goes by the name the script recorded when it was chosen.
   const nameOf = (vid?: string | null) =>
-    vid ? voiceNames[vid] ?? "Selected voice" : "Default";
+    vid ? voiceNames[vid] ?? recordedVoiceName(voiceConfig, vid) ?? "Selected voice" : "Default";
 
   // Character blurb for actors — shows on the script page under the Cast list
   // and on the "Read for a Role" cards. Saves on blur.

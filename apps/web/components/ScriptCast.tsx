@@ -6,6 +6,7 @@ import Image from "next/image";
 import { getBrowserClient } from "@/lib/supabase/client";
 import { CastIcon, MicIcon } from "@/components/icons";
 import type { VoiceConfig } from "@/lib/shared";
+import { recordedVoiceName } from "@/lib/voiceSearch";
 
 type Char = { id: string; name: string; description?: string | null };
 type Actor = { display_name: string; username: string | null; avatar_url: string | null };
@@ -63,10 +64,15 @@ export function ScriptCast({
   const aiVoiceFor = (name: string): string | null => {
     const vid = voiceConfig?.characters?.[name.toUpperCase()];
     if (!vid) return null;
-    return voiceNames[vid] ?? "AI Voice";
+    return nameOfVoice(vid);
   };
+  // The picker's list names most voices. One it doesn't hold (found by searching
+  // the whole library, or since gone from the list) goes by the name the script
+  // recorded when it was chosen.
+  const nameOfVoice = (vid: string) =>
+    voiceNames[vid] ?? recordedVoiceName(voiceConfig, vid) ?? "AI Voice";
   const narratorName = voiceConfig?.narrator_voice_id
-    ? voiceNames[voiceConfig.narrator_voice_id] ?? "AI Voice"
+    ? nameOfVoice(voiceConfig.narrator_voice_id)
     : null;
 
   return (
