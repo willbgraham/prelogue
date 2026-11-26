@@ -3,8 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import { getBrowserClient } from "@/lib/supabase/client";
 import { trackOnceOnNextPage } from "@/lib/analytics";
-import { suggestEmail } from "@/lib/emailTypo";
+import { canReceiveMail, suggestEmail } from "@/lib/emailTypo";
 import { safeNext, sendCodeMessage, verifyMessage, type AuthFailure } from "@/lib/signIn";
+
+const INCOMPLETE_ADDRESS =
+  "That email address looks incomplete: the part after the @ needs an ending, such as .com. Check it and try again.";
 
 const input =
   "w-full rounded-lg border border-tan bg-elevated px-4 py-3 outline-none focus:border-brick";
@@ -95,6 +98,11 @@ export default function SignInPage() {
 
   async function requestCode(address: string, resend = false) {
     if (busy.current || leaving) return;
+    // Whatever led here, never ask for a code that has nowhere to go.
+    if (!canReceiveMail(address)) {
+      setError(INCOMPLETE_ADDRESS);
+      return;
+    }
     busy.current = true;
     setLoading(true);
     setError(null);
@@ -128,10 +136,18 @@ export default function SignInPage() {
   function sendCode(e: React.FormEvent) {
     e.preventDefault();
     const typed = email.trim();
+    const meant = suggestEmail(typed);
+    // "name@gmail", "name@gmail.c": no mail server delivers there, so this is
+    // not the visitor's to overrule. Offer the address they most likely meant
+    // when the provider is recognisable; otherwise say what is missing.
+    if (!canReceiveMail(typed)) {
+      setSuggestion(meant);
+      setError(meant ? null : INCOMPLETE_ADDRESS);
+      return;
+    }
     // A mistyped domain sends the code nowhere, and the visitor waits for an
     // email that can't arrive. Ask first — the choice stays theirs, because
     // real domains do sit one letter away from famous ones.
-    const meant = suggestEmail(typed);
     if (meant) {
       setError(null);
       setSuggestion(meant);
@@ -251,14 +267,17 @@ export default function SignInPage() {
               >
                 {loading ? "Sending…" : "Yes, send my code there"}
               </button>
-              <button
-                type="button"
-                disabled={loading}
-                onClick={() => requestCode(email.trim())}
-                className="mt-1 w-full break-words px-4 py-2 text-sm text-taupe underline hover:text-ink disabled:opacity-60"
-              >
-                No, {email.trim()} is right
-              </button>
+              {/* An address that can't receive mail can't be "right". */}
+              {canReceiveMail(email) && (
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => requestCode(email.trim())}
+                  className="mt-1 w-full break-words px-4 py-2 text-sm text-taupe underline hover:text-ink disabled:opacity-60"
+                >
+                  No, {email.trim()} is right
+                </button>
+              )}
             </div>
           ) : (
             <button
