@@ -234,6 +234,14 @@ async function askLibrary(term: string, gender: string | null): Promise<SearchAn
     if (!json || !Array.isArray(json.voices)) return null;
     const { voices, skipped } = offerFound(json.voices);
     const total = typeof json.total_count === "number" && json.total_count > 0 ? json.total_count : null;
+    // The shape of the page, never the word: enough to see from the logs that
+    // the provider did send its most taken voices first.
+    // deno-lint-ignore no-explicit-any
+    const taken = json.voices.map((v: any) => (typeof v?.cloned_by_count === "number" ? v.cloned_by_count : 0));
+    console.log(
+      `library search: ${json.voices.length} of ${total ?? "?"} rows${sort ? ` by ${sort}` : ", unsorted"}; ` +
+        `first taken ${taken[0] ?? 0} times, last ${taken.at(-1) ?? 0}; ${skipped} not offered`
+    );
     return { voices, total, more: json.has_more === true, left_out: skipped };
   }
   return null;
